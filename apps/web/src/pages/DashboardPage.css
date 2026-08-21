@@ -1,0 +1,68 @@
+.dashboard-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dashboard-wordmark {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: var(--ink);
+}
+.dashboard-wordmark .ily {
+  color: var(--teal);
+}
+
+.dashboard-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dashboard-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dashboard-card h2 {
+  font-size: 1.05rem;
+}
+
+.entitlement-row,
+.role-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--surface-alt);
+  font-size: 0.88rem;
+}
+.entitlement-row:last-child,
+.role-row:last-child {
+  border-bottom: none;
+}
+
+.pill {
+  font-family: var(--f-mono);
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--purple);
+}

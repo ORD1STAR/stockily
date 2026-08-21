@@ -1,0 +1,116 @@
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-wordmark {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 1.6rem;
+  color: var(--ink);
+}
+.auth-wordmark .ily {
+  color: var(--teal);
+}
+
+.auth-subtitle {
+  margin: -8px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field-row label {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.field-row input {
+  font-size: 0.92rem;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.field-row input:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
+.btn-primary {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  background: var(--ink);
+  color: #f4f1fb;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 11px 16px;
+  border-radius: 7px;
+  border-bottom: 2px solid var(--teal-bright);
+}
+.btn-primary:hover {
+  background: #241934;
+}
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.btn-secondary {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 500;
+  padding: 9px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+}
+
+.auth-switch {
+  text-align: center;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+.auth-switch a {
+  color: var(--teal);
+  font-weight: 500;
+  text-decoration: none;
+}
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+.error-banner {
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.84rem;
+  padding: 10px 12px;
+  border-radius: 6px;
+}

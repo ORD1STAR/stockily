@@ -1,1 +1,47 @@
-/* You can add global styles to this file, and also import other style files */
+/* Brand tokens from docs/Brand System.html — kept in sync manually for now;
+   a shared-ui package export is the natural home once more than one app
+   consumes these (packages/shared-ui is currently an empty stub). */
+:root {
+  --ink: #17111f;
+  --purple: #4b2e83;
+  --teal: #189885;
+  --teal-bright: #1fbfa0;
+
+  --bg: #f6f4fb;
+  --surface: #ffffff;
+  --surface-alt: #efeaf7;
+  --border: #e1dbef;
+  --text: #241c33;
+  --text-muted: #6b6478;
+
+  --danger: #b42318;
+  --danger-bg: #fbe7e5;
+
+  --f-display: 'Sora', 'Segoe UI', sans-serif;
+  --f-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--f-body);
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--f-display);
+  margin: 0;
+}
+
+button,
+input {
+  font-family: inherit;
+}

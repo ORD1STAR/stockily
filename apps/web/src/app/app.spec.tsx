@@ -1,15 +1,9 @@
-import { render } from '@testing-library/react';
-
+import { render, screen } from '@testing-library/react';
 import App from './app';
 
 describe('App', () => {
-  it('should render successfully', () => {
-    const { baseElement } = render(<App />);
-    expect(baseElement).toBeTruthy();
-  });
-
-  it('renders the Stockily heading', () => {
-    const { getAllByText } = render(<App />);
-    expect(getAllByText(/Stockily/i).length > 0).toBeTruthy();
+  it('redirects an unauthenticated visitor to the login page', async () => {
+    render(<App />);
+    expect(await screen.findByRole('button', { name: /se connecter/i })).toBeTruthy();
   });
 });
