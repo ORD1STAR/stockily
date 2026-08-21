@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Invoice, InvoiceLine, Prisma, TaxRate } from '@prisma/client';
-import { computeInvoiceTotals, deriveInvoiceStatus, InvoiceLineInput } from '@org/domain-invoicing';
+import { amountToArabicWords, amountToFrenchWords, computeInvoiceTotals, deriveInvoiceStatus, InvoiceLineInput } from '@org/domain-invoicing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CreateInvoiceDto, CreateInvoiceLineDto } from './dto/create-invoice.dto';
@@ -163,10 +163,36 @@ export class InvoicingService {
     }));
   }
 
+  // Prisma.Decimal fields serialize to JSON as strings, not numbers — fine
+  // for `totals` (built from toLineInputs's already-Number()'d values) but
+  // `invoice.lines` here is still the raw Prisma include, so the frontend's
+  // line-by-line render (e.g. `l.unitPrice.toFixed(2)`) crashed on every
+  // invoice detail view. Found by actually opening an invoice in the
+  // browser, not by reading the code — normalize the same way toLineInputs
+  // already does, so every numeric field in the response is a real number.
   private assembleView<T extends InvoiceWithLines & { payments: { amount: Prisma.Decimal }[] }>(invoice: T) {
-    const totals = computeInvoiceTotals(this.toLineInputs(invoice));
+    const rawTotals = computeInvoiceTotals(this.toLineInputs(invoice));
+    // Décret 05-468 mention #10 (TTC in figures AND in words, FR + AR) is
+    // already correctly rendered in the PDF export (invoice-pdf.service.ts),
+    // but the in-app detail modal reads invoice.totals.totalInWordsFr/Ar,
+    // which computeInvoiceTotals never set — the modal silently rendered an
+    // empty line instead of erroring, so it went unnoticed until actually
+    // opening an invoice and looking at that specific line.
+    const totals = {
+      ...rawTotals,
+      totalInWordsFr: amountToFrenchWords(rawTotals.totalTtc),
+      totalInWordsAr: amountToArabicWords(rawTotals.totalTtc),
+    };
     const totalPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
-    return { ...invoice, totals, totalPaid, balance: Math.round((totals.totalTtc - totalPaid) * 100) / 100 };
+    const lines = invoice.lines.map((l) => ({
+      ...l,
+      quantity: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+      discountPercent: l.discountPercent != null ? Number(l.discountPercent) : null,
+      discountAmount: l.discountAmount != null ? Number(l.discountAmount) : null,
+      taxRate: l.taxRate ? { ...l.taxRate, rate: Number(l.taxRate.rate) } : null,
+    }));
+    return { ...invoice, lines, totals, totalPaid, balance: Math.round((totals.totalTtc - totalPaid) * 100) / 100 };
   }
 
   // ---------------- Finalize (CUSTOMER only) ----------------
