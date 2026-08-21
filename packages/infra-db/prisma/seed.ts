@@ -69,7 +69,7 @@ const ACTIONS: Record<string, string[]> = {
     'invoicing.invoice.void',
     'invoicing.payment.create',
   ],
-  sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create'],
+  sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create', 'sites.transfer.read', 'sites.transfer.update'],
   scan: ['scan.label.generate', 'scan.label.print'],
 };
 
