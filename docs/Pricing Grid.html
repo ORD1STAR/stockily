@@ -1,0 +1,235 @@
+<title>Stockily Pricing Grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #F6F4FB;
+    --surface: #FFFFFF;
+    --surface-alt: #EFEAF7;
+    --text: #241C33;
+    --text-muted: #6B6478;
+    --border: #E1DBEF;
+
+    --ink: #17111F;
+    --purple: #4B2E83;
+    --teal: #189885;
+    --teal-bright: #1FBFA0;
+
+    --success: #1C7A4C;
+    --success-bg: #E4F5EA;
+
+    --f-display: 'Sora', 'Segoe UI', sans-serif;
+    --f-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14101C;
+      --surface: #1D1730;
+      --surface-alt: #251D3B;
+      --text: #EDE9F5;
+      --text-muted: #ABA1C2;
+      --border: #362B52;
+      --teal: #2FE1C4;
+      --success: #4ADE80;
+      --success-bg: #16321F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14101C;
+    --surface: #1D1730;
+    --surface-alt: #251D3B;
+    --text: #EDE9F5;
+    --text-muted: #ABA1C2;
+    --border: #362B52;
+    --teal: #2FE1C4;
+    --success: #4ADE80;
+    --success-bg: #16321F;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--f-body); line-height: 1.55; }
+  main { max-width: 1040px; margin: 0 auto; padding: 56px 24px 90px; display: flex; flex-direction: column; gap: 46px; }
+  h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+
+  .eyebrow { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+
+  .intro { display: flex; flex-direction: column; gap: 14px; max-width: 66ch; }
+  .intro h1 { font-size: 2rem; font-weight: 700; }
+  .intro p { color: var(--text-muted); margin: 0; font-size: 1.02rem; }
+  .intro .wordmark .ily { color: var(--teal); }
+
+  .trial-banner {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--ink); color: #F4F1FB; border-radius: 10px; padding: 16px 22px;
+  }
+  .trial-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal-bright, #1FBFA0); flex: none; }
+  .trial-banner strong { font-weight: 600; }
+  .trial-banner span.muted { color: #B6ADD6; font-size: 0.88rem; }
+
+  .toggle-wrap { display: flex; align-items: center; gap: 12px; }
+  .cycle-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; background: var(--surface); }
+  .cycle-toggle button {
+    all: unset; cursor: pointer; font-family: var(--f-body); font-size: 0.86rem; font-weight: 500;
+    padding: 7px 18px; border-radius: 999px; color: var(--text-muted);
+  }
+  .cycle-toggle button.on { background: var(--ink); color: #F4F1FB; }
+  .save-badge { font-family: var(--f-mono); font-size: 0.74rem; color: var(--success); background: var(--success-bg); padding: 4px 10px; border-radius: 999px; }
+
+  .module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+  .module-card {
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .module-card h3 { font-size: 1.05rem; font-weight: 600; }
+  .module-card .desc { font-size: 0.86rem; color: var(--text-muted); min-height: 2.6em; }
+  .module-card .dep { font-family: var(--f-mono); font-size: 0.7rem; color: var(--purple); }
+  .price-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+  .price-row .amount { font-family: var(--f-mono); font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .price-row .unit { font-size: 0.78rem; color: var(--text-muted); }
+  .price-annual { display: none; }
+  body.annual .price-monthly { display: none; }
+  body.annual .price-annual { display: inline; }
+
+  .bundle-card {
+    border: 1px solid var(--teal); border-radius: 12px; background: var(--surface);
+    padding: 26px 26px 24px; display: flex; flex-direction: column; gap: 14px; position: relative;
+  }
+  .bundle-badge { position: absolute; top: -12px; left: 22px; background: var(--teal); color: #06251F; font-family: var(--f-mono); font-size: 0.7rem; font-weight: 600; padding: 4px 12px; border-radius: 999px; }
+  .bundle-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+  .bundle-top h3 { font-size: 1.2rem; }
+  .bundle-top p { margin: 4px 0 0; color: var(--text-muted); font-size: 0.9rem; max-width: 46ch; }
+  .bundle-price .amount { font-family: var(--f-mono); font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bundle-price .unit { font-size: 0.8rem; color: var(--text-muted); }
+  .bundle-includes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bundle-includes span { font-size: 0.76rem; background: var(--surface-alt); border-radius: 999px; padding: 5px 11px; color: var(--text); }
+  .bundle-strike { text-decoration: line-through; color: var(--text-muted); font-size: 0.9rem; margin-right: 6px; }
+
+  .note-box { background: var(--surface-alt); border-radius: 8px; padding: 14px 18px; font-size: 0.86rem; color: var(--text-muted); }
+  .note-box strong { color: var(--text); }
+
+  footer { border-top: 1px solid var(--border); padding-top: 20px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 0.82rem; color: var(--text-muted); }
+</style>
+
+<main>
+  <div class="intro">
+    <div class="eyebrow">Grille tarifaire — Phase 1 · Fondations</div>
+    <h1 class="wordmark">Stock<span class="ily">ily</span> — un prix par module, par site</h1>
+    <p>Chaque module se paie indépendamment, au site — pas de forfait global à changer quand vous grandissez. Même tarif en mode Web ou Local. Prix en dinars algériens (DZD).</p>
+  </div>
+
+  <div class="trial-banner">
+    <span class="dot"></span>
+    <strong>15 jours d'essai gratuit</strong>
+    <span class="muted">sur les modules de votre choix — sans carte bancaire.</span>
+  </div>
+
+  <div class="toggle-wrap">
+    <div class="cycle-toggle">
+      <button class="on" id="btn-monthly" onclick="setCycle('monthly')">Mensuel</button>
+      <button id="btn-annual" onclick="setCycle('annual')">Annuel</button>
+    </div>
+    <span class="save-badge">2 mois offerts en annuel</span>
+  </div>
+
+  <div class="module-grid">
+    <div class="module-card">
+      <h3>Gestion de Stock</h3>
+      <div class="desc">Fiches produits, niveaux temps réel, mouvements, seuils, inventaires.</div>
+      <div class="dep">Module socle — aucune dépendance</div>
+      <div class="price-row">
+        <span class="amount price-monthly">4 500</span>
+        <span class="amount price-annual">45 000</span>
+        <span class="unit price-monthly">DZD / site / mois</span>
+        <span class="unit price-annual">DZD / site / an</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <h3>Qualité</h3>
+      <div class="desc">Lots, péremption, contrôle qualité, non-conformités.</div>
+      <div class="dep">Nécessite Gestion de Stock actif</div>
+      <div class="price-row">
+        <span class="amount price-monthly">3 000</span>
+        <span class="amount price-annual">30 000</span>
+        <span class="unit price-monthly">DZD / site / mois</span>
+        <span class="unit price-annual">DZD / site / an</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <h3>Factures</h3>
+      <div class="desc">Factures/devis, TVA, relances, conforme Décret 05-468.</div>
+      <div class="dep">Utilisable seul, sans Stock</div>
+      <div class="price-row">
+        <span class="amount price-monthly">4 000</span>
+        <span class="amount price-annual">40 000</span>
+        <span class="unit price-monthly">DZD / site / mois</span>
+        <span class="unit price-annual">DZD / site / an</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <h3>Multi-Sites</h3>
+      <div class="desc">Entrepôts illimités, transferts, vue consolidée.</div>
+      <div class="dep">Le 1ᵉʳ site est toujours inclus — ce tarif ne se paie qu'à partir du 2ᵉ site</div>
+      <div class="price-row">
+        <span class="amount price-monthly">1 500</span>
+        <span class="amount price-annual">15 000</span>
+        <span class="unit price-monthly">DZD / mois, pour chaque site au-delà du 1ᵉʳ</span>
+        <span class="unit price-annual">DZD / an, pour chaque site au-delà du 1ᵉʳ</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <h3>Scan / QR</h3>
+      <div class="desc">Codes-barres, scan mobile, impression d'étiquettes.</div>
+      <div class="dep">Nécessite Gestion de Stock actif</div>
+      <div class="price-row">
+        <span class="amount price-monthly">2 000</span>
+        <span class="amount price-annual">20 000</span>
+        <span class="unit price-monthly">DZD / site / mois</span>
+        <span class="unit price-annual">DZD / site / an</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="bundle-card">
+    <span class="bundle-badge">Le plus choisi</span>
+    <div class="bundle-top">
+      <div>
+        <h3>Pack Fondations — site unique</h3>
+        <p>Les 5 modules de la Phase 1 réunis, pour un premier site. Ajoutez des sites ensuite au tarif Multi-Sites.</p>
+      </div>
+      <div class="bundle-price">
+        <span class="bundle-strike price-monthly">13 500</span>
+        <span class="bundle-strike price-annual">135 000</span>
+        <span class="amount price-monthly">10 900</span>
+        <span class="amount price-annual">109 000</span>
+        <span class="unit price-monthly"> DZD / mois</span>
+        <span class="unit price-annual"> DZD / an</span>
+      </div>
+    </div>
+    <div class="bundle-includes">
+      <span>Gestion de Stock</span><span>Qualité</span><span>Factures</span><span>Scan / QR</span><span>Multi-Sites (1 site inclus)</span>
+    </div>
+  </div>
+
+  <div class="note-box"><strong>Règle Multi-Sites :</strong> le prix des autres modules couvre déjà un premier site. Activer Multi-Sites ne coûte donc rien pour ce premier site — vous ne payez que pour chaque site supplémentaire ouvert ensuite. Un client mono-site n'a pas besoin d'activer ce module.</div>
+
+  <footer>
+    <span>Stockily — grille tarifaire Phase 1, v1</span>
+    <span>Les modules Phase 2/3 auront leur propre grille, ajoutée au fur et à mesure de leur sortie.</span>
+  </footer>
+</main>
+
+<script>
+  function setCycle(cycle) {
+    document.body.classList.toggle('annual', cycle === 'annual');
+    document.getElementById('btn-monthly').classList.toggle('on', cycle === 'monthly');
+    document.getElementById('btn-annual').classList.toggle('on', cycle === 'annual');
+  }
+</script>

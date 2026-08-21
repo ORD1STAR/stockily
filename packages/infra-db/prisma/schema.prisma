@@ -1,0 +1,511 @@
+// Stockily — Phase 1 data model skeleton.
+// Authoritative design: docs/Action Plan.md §2 (multi-tenancy) and §3 (domain model).
+//
+// TODO (§2): this schema assumes shared-schema + org_id + Postgres Row-Level
+// Security (RLS) as defense-in-depth, with `SET LOCAL app.tenant_id` set per
+// request transaction. RLS policies themselves are NOT part of this skeleton —
+// they need a dedicated migration once the RLS+pgbouncer session-variable
+// interplay has been spiked (§8 risk #2). Every tenant-scoped table below
+// carries orgId so that policy can be added without a model rewrite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy & modules (§2)
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id            String   @id @default(uuid())
+  name          String
+  plan          String   @default("trial")
+  billingCustomerId String?
+  createdAt     DateTime @default(now())
+
+  sites         Site[]
+  users         User[]
+  roles         Role[]
+  entitlements  OrganizationModuleEntitlement[]
+  products      Product[]
+  productCategories ProductCategory[]
+  batches       Batch[]
+  qualityChecks QualityCheck[]
+  nonConformities NonConformity[]
+  expiryAlerts  ExpiryAlert[]
+  stockMovements StockMovement[]
+  stockTransfers StockTransfer[]
+  invoices      Invoice[]
+  taxRates      TaxRate[]
+  partners      Partner[]
+  auditLogs     AuditLog[]
+
+  @@map("organizations")
+}
+
+// One row per product module — all 13 from docs/Action Plan.md §1, not just
+// the 5 wired up in Phase 1. `dependencies` is a business decision (§4):
+// quality depends on stock; invoicing does not.
+model Module {
+  id           String   @id @default(uuid())
+  key          String   @unique // e.g. "stock", "quality", "invoicing", "sites", "scan", "purchasing", "orders", "delivery", "crm", "notifications", "returns", "accounting", "reporting"
+  name         String
+  phase        Int      // 1, 2, or 3
+  dependencies String[] // module keys this one requires to be active
+
+  entitlements OrganizationModuleEntitlement[]
+
+  @@map("modules")
+}
+
+model OrganizationModuleEntitlement {
+  id          String   @id @default(uuid())
+  orgId       String
+  moduleId    String
+  status      String   @default("active") // active | trial | suspended | cancelled
+  activatedAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  module       Module       @relation(fields: [moduleId], references: [id])
+
+  @@unique([orgId, moduleId])
+  @@index([orgId])
+  @@map("organization_module_entitlements")
+}
+
+model Site {
+  id       String  @id @default(uuid())
+  orgId    String
+  name     String
+  address  String?
+  isActive Boolean @default(true)
+
+  organization    Organization      @relation(fields: [orgId], references: [id])
+  userRoles       UserRole[]
+  stockLevels     StockLevel[]
+  stockMovements  StockMovement[]
+  transfersFrom   StockTransfer[]   @relation("transferFromSite")
+  transfersTo     StockTransfer[]   @relation("transferToSite")
+
+  @@index([orgId])
+  @@map("sites")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  orgId        String
+  email        String   @unique // globally unique across the platform (§2 simplicity decision)
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  organization   Organization    @relation(fields: [orgId], references: [id])
+  userRoles      UserRole[]
+  refreshTokens  RefreshToken[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// System-default roles (Super Admin, Gestionnaire, Opérateur Entrepôt,
+// Commercial, Comptable/Finance) have orgId = null; a future custom role is
+// org-scoped.
+model Role {
+  id       String  @id @default(uuid())
+  orgId    String?
+  name     String
+  isSystem Boolean @default(false)
+
+  organization    Organization?     @relation(fields: [orgId], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@index([orgId])
+  @@map("roles")
+}
+
+model RolePermission {
+  id       String @id @default(uuid())
+  roleId   String
+  moduleId String
+  action   String // e.g. "stock.movement.create", "invoice.void"
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, moduleId, action])
+  @@map("role_permissions")
+}
+
+// siteId nullable = org-wide role assignment vs. site-scoped (§2).
+model UserRole {
+  id     String  @id @default(uuid())
+  userId String
+  roleId String
+  siteId String?
+
+  user User  @relation(fields: [userId], references: [id])
+  role Role  @relation(fields: [roleId], references: [id])
+  site Site? @relation(fields: [siteId], references: [id])
+
+  @@index([userId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------------------
+// Stock (§3) — stockLevels is a projection; stockMovements is the source of
+// truth, append-only and immutable (§9 decision #10: corrections are always a
+// new offsetting movement, never an edit/delete).
+// ---------------------------------------------------------------------------
+
+model ProductCategory {
+  id       String  @id @default(uuid())
+  orgId    String
+  name     String
+  parentId String?
+
+  organization Organization      @relation(fields: [orgId], references: [id])
+  parent       ProductCategory?  @relation("categoryTree", fields: [parentId], references: [id])
+  children     ProductCategory[] @relation("categoryTree")
+  products     Product[]
+
+  @@index([orgId])
+  @@map("product_categories")
+}
+
+model Product {
+  id            String  @id @default(uuid())
+  orgId         String
+  sku           String
+  name          String
+  categoryId    String?
+  unitOfMeasure String  @default("unit") // single UoM per product, no case/unit conversion (§9)
+  isLotTracked  Boolean @default(false)
+  minThreshold  Decimal? @db.Decimal(14, 3)
+  maxThreshold  Decimal? @db.Decimal(14, 3)
+  averageCost   Decimal  @default(0) @db.Decimal(14, 2) // Weighted Average Cost (§9), recalculated on each IN movement
+
+  organization Organization     @relation(fields: [orgId], references: [id])
+  category     ProductCategory? @relation(fields: [categoryId], references: [id])
+  stockLevels  StockLevel[]
+  batches      Batch[]
+  barcodeLabels BarcodeLabel[]
+  invoiceLines InvoiceLine[]
+  qualityChecks QualityCheck[]
+  nonConformities NonConformity[]
+
+  @@unique([orgId, sku])
+  @@index([orgId])
+  @@map("products")
+}
+
+// Projection only — stockMovements is the ledger of record.
+model StockLevel {
+  id                 String  @id @default(uuid())
+  productId          String
+  siteId             String
+  quantityOnHand     Decimal @default(0) @db.Decimal(14, 3)
+  quantityQuarantined Decimal @default(0) @db.Decimal(14, 3) // failed QC / expired stock, excluded from sellable qty (§9)
+  quantityReserved   Decimal @default(0) @db.Decimal(14, 3) // stubbed for Phase 2 (Commandes)
+
+  product Product @relation(fields: [productId], references: [id])
+  site    Site    @relation(fields: [siteId], references: [id])
+
+  @@unique([productId, siteId])
+  @@map("stock_levels")
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  TRANSFER
+  ADJUSTMENT
+}
+
+// Append-only, immutable ledger (§9 decision #10). A mistaken entry is
+// corrected only via a new offsetting movement — never edited or deleted.
+model StockMovement {
+  id                String            @id @default(uuid())
+  orgId             String
+  productId         String?
+  siteId            String
+  type              StockMovementType
+  quantity          Decimal           @db.Decimal(14, 3)
+  batchId           String?
+  relatedEntityType String? // e.g. "invoice_line", "stock_transfer", "scan", "manual"
+  relatedEntityId   String?
+  performedBy       String?
+  occurredAt        DateTime          @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  site         Site         @relation(fields: [siteId], references: [id])
+  batch        Batch?       @relation(fields: [batchId], references: [id])
+
+  @@index([orgId, occurredAt])
+  @@index([productId])
+  @@map("stock_movements")
+}
+
+model StockTransfer {
+  id           String   @id @default(uuid())
+  orgId        String
+  fromSiteId   String
+  toSiteId     String
+  status       String   @default("prepared") // prepared | in_transit | delivered
+  driverName   String?
+  driverPhone  String?
+  vehicleRef   String?
+  createdAt    DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  fromSite     Site         @relation("transferFromSite", fields: [fromSiteId], references: [id])
+  toSite       Site         @relation("transferToSite", fields: [toSiteId], references: [id])
+
+  @@index([orgId])
+  @@map("stock_transfers")
+}
+
+model BarcodeLabel {
+  id         String  @id @default(uuid())
+  productId  String?
+  batchId    String?
+  codeValue  String
+  symbology  String  @default("EAN13")
+  printedCount Int   @default(0)
+
+  product Product? @relation(fields: [productId], references: [id])
+  batch   Batch?   @relation(fields: [batchId], references: [id])
+
+  @@map("barcode_labels")
+}
+
+// ---------------------------------------------------------------------------
+// Quality (§3) — quality_checks/non_conformities have a NULLABLE batchId:
+// a quality check is not limited to lot-tracked products. A non-lot-tracked
+// product (e.g. a belt) still needs an ad hoc check — a delivery-defect
+// inspection with no batch to attach to — so these reference the product
+// directly when there is no batch (explicit correction from the user).
+// ---------------------------------------------------------------------------
+
+model Batch {
+  id             String   @id @default(uuid())
+  orgId          String
+  productId      String
+  lotNumber      String
+  expiryDate     DateTime?
+  quantityReceived Decimal @db.Decimal(14, 3)
+  receivedAt     DateTime @default(now())
+  status         String   @default("active") // active | quarantined | depleted
+
+  organization  Organization    @relation(fields: [orgId], references: [id])
+  product       Product         @relation(fields: [productId], references: [id])
+  stockMovements StockMovement[]
+  qualityChecks QualityCheck[]
+  nonConformities NonConformity[]
+  expiryAlerts  ExpiryAlert[]
+  barcodeLabels BarcodeLabel[]
+
+  @@index([orgId])
+  @@index([productId])
+  @@map("batches")
+}
+
+model QualityCheck {
+  id        String   @id @default(uuid())
+  orgId     String
+  productId String
+  batchId   String? // nullable — see note above
+  checkedBy String?
+  result    String  // conforme | non_conforme
+  notes     String?
+  checkedAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+  batch        Batch?       @relation(fields: [batchId], references: [id])
+
+  @@index([orgId])
+  @@map("quality_checks")
+}
+
+model NonConformity {
+  id             String   @id @default(uuid())
+  orgId          String
+  productId      String
+  batchId        String? // nullable — see note above
+  severity       String  @default("normal")
+  status         String  @default("open") // open | resolved
+  resolutionNotes String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+  batch        Batch?       @relation(fields: [batchId], references: [id])
+
+  @@index([orgId])
+  @@map("non_conformities")
+}
+
+// Logged once per batch to avoid re-alerting; doubles as a ready-made source
+// for Phase 2 Notifications.
+model ExpiryAlert {
+  id        String   @id @default(uuid())
+  orgId     String
+  batchId   String
+  alertedAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  batch        Batch        @relation(fields: [batchId], references: [id])
+
+  @@unique([batchId])
+  @@map("expiry_alerts")
+}
+
+// ---------------------------------------------------------------------------
+// Invoicing (§3) — Décret Exécutif 05-468 compliance fields, DZD-only,
+// gapless per-org sequential numbering, unified partners table.
+// ---------------------------------------------------------------------------
+
+model TaxRate {
+  id        String  @id @default(uuid())
+  orgId     String
+  name      String
+  rate      Decimal @db.Decimal(5, 2)
+  isDefault Boolean @default(false)
+
+  organization Organization  @relation(fields: [orgId], references: [id])
+  invoiceLines InvoiceLine[]
+
+  @@index([orgId])
+  @@map("tax_rates")
+}
+
+// Unified customer/supplier entity (§9 decision #9) — one real-world company
+// can be both, flagged via booleans rather than duplicated as two records.
+model Partner {
+  id         String  @id @default(uuid())
+  orgId      String
+  name       String
+  isCustomer Boolean @default(false)
+  isSupplier Boolean @default(false)
+  nif        String  // required — 2022 finance law ties buyer VAT deduction to it
+  nis        String?
+  rc         String?
+  taxArticle String?
+  address    String?
+  phone      String?
+  email      String?
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  invoices     Invoice[]
+
+  @@index([orgId])
+  @@map("partners")
+}
+
+enum InvoiceType {
+  CUSTOMER
+  SUPPLIER
+}
+
+model Invoice {
+  id            String      @id @default(uuid())
+  orgId         String
+  type          InvoiceType
+  number        String      // gapless, sequential per organization across all sites (§8/§9) — Décret 05-468
+  partnerId     String?
+  currency      String      @default("DZD") // DZD-only in Phase 1 (§9); field kept for a future multi-currency addition
+  status        String      @default("unpaid") // unpaid | partially_paid | paid
+  issuedAt      DateTime    @default(now())
+  transmissionStatus String? // placeholder for Algeria's DGI e-invoicing/CTC platform — no active integration yet (§8/§9)
+
+  organization Organization  @relation(fields: [orgId], references: [id])
+  partner      Partner?      @relation(fields: [partnerId], references: [id])
+  lines        InvoiceLine[]
+  payments     Payment[]
+  reminders    InvoiceReminder[]
+
+  @@unique([orgId, number])
+  @@index([orgId])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id              String  @id @default(uuid())
+  invoiceId       String
+  productId       String? // nullable — a services-only business can invoice with no Stock module at all
+  description     String
+  quantity        Decimal @db.Decimal(14, 3)
+  unitPrice       Decimal @db.Decimal(14, 2)
+  discountPercent Decimal? @db.Decimal(5, 2)
+  discountAmount  Decimal? @db.Decimal(14, 2)
+  taxRateId       String?
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
+
+  @@map("invoice_lines")
+}
+
+// Multiple partial payments per invoice supported (§9 decision #8) — status
+// tracks unpaid -> partially_paid -> paid against a running balance.
+model Payment {
+  id        String   @id @default(uuid())
+  invoiceId String
+  amount    Decimal  @db.Decimal(14, 2)
+  method    String?
+  paidAt    DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+model InvoiceReminder {
+  id        String   @id @default(uuid())
+  invoiceId String
+  sentAt    DateTime @default(now())
+  channel   String   @default("email")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_reminders")
+}
+
+// ---------------------------------------------------------------------------
+// Audit (§4) — generic, populated via an interceptor across Stock/Quality/
+// Invoicing from day one; also the input for Phase 3 Comptabilité/Rapports.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  orgId      String
+  actorId    String?
+  entityType String
+  entityId   String
+  action     String
+  diff       Json?
+  occurredAt DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, occurredAt])
+  @@map("audit_log")
+}

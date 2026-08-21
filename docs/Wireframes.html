@@ -1,0 +1,837 @@
+<title>Stockily Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* Deliberate single visual world: this page mocks fixed product screens
+     (desktop-first light app + dark sidebar), not a theme-adaptive document.
+     Every color below is explicit so it holds on any host background. */
+
+  :root {
+    --mat: #EDEAF3;
+    --ink: #17111F;
+    --purple: #4B2E83;
+    --teal: #189885;
+    --teal-bright: #1FBFA0;
+
+    --paper: #FFFFFF;
+    --panel: #FBFAFD;
+    --line: #E1DBEF;
+    --text: #241C33;
+    --text-muted: #6B6478;
+
+    --success: #1C7A4C;
+    --success-bg: #E4F5EA;
+    --warning: #A45A08;
+    --warning-bg: #FBEEDC;
+    --danger: #B4231E;
+    --danger-bg: #FBE7E5;
+    --info: #2554C7;
+    --info-bg: #E8EEFC;
+
+    --f-display: 'Sora', 'Segoe UI', sans-serif;
+    --f-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--mat);
+    color: var(--text);
+    font-family: var(--f-body);
+    padding: 40px 20px 80px;
+  }
+
+  .page-head {
+    max-width: 1180px;
+    margin: 0 auto 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .page-head .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .page-head h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 1.6rem;
+    margin: 4px 0 0;
+  }
+  .page-head .wordmark .ily { color: var(--teal); }
+  .page-head p.hint {
+    margin: 0;
+    font-size: 0.86rem;
+    color: var(--text-muted);
+    max-width: 40ch;
+    text-align: right;
+  }
+
+  .frame {
+    max-width: 1180px;
+    margin: 0 auto;
+    background: var(--paper);
+    border-radius: 12px;
+    box-shadow: 0 24px 60px -30px rgba(23,17,31,0.35);
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 232px 1fr;
+    min-height: 640px;
+    position: relative;
+  }
+  @media (max-width: 800px) {
+    .frame { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+  }
+
+  /* ---------------- Sidebar / module switcher ---------------- */
+  .sidebar {
+    background: var(--ink);
+    color: #EDE7F7;
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sidebar .mini-word { font-family: var(--f-display); font-weight: 700; font-size: 1.1rem; padding: 4px 10px 20px; }
+  .sidebar .mini-word .ily { color: var(--teal-bright); }
+  .sidebar .group-label { font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: #7A6FA0; padding: 14px 10px 6px; }
+  .sidebar .spacer { flex: 1; }
+  .nav-btn {
+    all: unset;
+    cursor: pointer;
+    font-family: var(--f-body);
+    font-size: 0.88rem;
+    padding: 9px 10px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #C6BEE0;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,0.05); }
+  .nav-btn.active { background: rgba(31,191,160,0.16); color: #F4F1FB; border-left: 2px solid var(--teal-bright); padding-left: 8px; }
+  .nav-btn:focus-visible { outline: 2px solid var(--teal-bright); outline-offset: 2px; }
+  .nav-btn .tag { font-family: var(--f-mono); font-size: 0.62rem; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 999px; color: #9A8FBD; }
+  .sidebar hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 10px 6px; }
+  .nav-btn.settings { color: #9A8FBD; }
+  .nav-btn.settings:hover { color: #EDE7F7; }
+
+  /* ---------------- Content area ---------------- */
+  .content { padding: 30px 34px 40px; overflow-x: auto; }
+  .panel { display: none; flex-direction: column; gap: 22px; }
+  .panel.active { display: flex; }
+
+  .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--f-display); font-weight: 700; font-size: 1.4rem; margin: 0; }
+  .panel-head .sub { font-size: 0.86rem; color: var(--text-muted); margin-top: 4px; }
+  .btn-primary {
+    all: unset; cursor: pointer;
+    background: var(--ink); color: #F4F1FB;
+    font-family: var(--f-body); font-size: 0.86rem; font-weight: 500;
+    padding: 10px 16px; border-radius: 7px;
+    border-bottom: 2px solid var(--teal-bright);
+  }
+  .btn-primary:hover { background: #241934; }
+  .btn-primary:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  .btn-secondary {
+    all: unset; cursor: pointer;
+    background: var(--panel); color: var(--text);
+    font-family: var(--f-body); font-size: 0.86rem; font-weight: 500;
+    padding: 9px 15px; border-radius: 7px; border: 1px solid var(--line);
+  }
+  .btn-secondary:hover { background: var(--surface-alt, #EFEAF7); }
+  .btn-link { all: unset; cursor: pointer; color: var(--teal); font-size: 0.82rem; font-weight: 500; text-decoration: underline; }
+
+  .site-select {
+    font-family: var(--f-body); font-size: 0.82rem; color: var(--text-muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
+  }
+
+  .stat-strip { display: flex; flex-wrap: wrap; gap: 12px; }
+  .stat-card {
+    flex: 1; min-width: 160px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .stat-card .num { font-family: var(--f-mono); font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-card .label { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+  .stat-card.warn .num { color: var(--warning); }
+  .stat-card.bad .num { color: var(--danger); }
+  .stat-card.good .num { color: var(--success); }
+
+  .pill { font-family: var(--f-mono); font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.success { background: var(--success-bg); color: var(--success); }
+  .pill.warning { background: var(--warning-bg); color: var(--warning); }
+  .pill.danger { background: var(--danger-bg); color: var(--danger); }
+  .pill.info { background: var(--info-bg); color: var(--info); }
+
+  table.data { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  table.data th { text-align: left; font-weight: 500; color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 10px 10px; border-bottom: 1px solid var(--line); }
+  table.data td { padding: 11px 10px; border-bottom: 1px solid #F0ECF7; vertical-align: middle; }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data td.num, table.data th.num { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  table.data td.mono { font-family: var(--f-mono); font-size: 0.82rem; }
+  table.data td.muted { color: var(--text-muted); }
+  table.data tr.clickable { cursor: pointer; }
+  table.data tr.clickable:hover { background: var(--panel); }
+  .table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .table-wrap thead { background: var(--panel); }
+  .table-wrap table.data th { padding-top: 12px; }
+  .site-col { display: none; }
+  .site-col.show { display: table-cell; }
+
+  .has-tip { position: relative; cursor: default; border-bottom: 1px dotted var(--text-muted); }
+  .has-tip::after {
+    content: attr(data-tip);
+    position: absolute; left: 0; top: 100%; margin-top: 6px;
+    background: var(--ink); color: #F4F1FB; font-family: var(--f-mono); font-size: 0.72rem;
+    padding: 4px 8px; border-radius: 5px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transform: translateY(-4px);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    z-index: 5;
+  }
+  .has-tip:hover::after { opacity: 1; transform: translateY(0); }
+
+  .filter-tabs { display: flex; gap: 6px; }
+  .filter-tabs span { font-size: 0.78rem; padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--text-muted); }
+  .filter-tabs span.on { background: var(--ink); color: #F4F1FB; border-color: var(--ink); }
+
+  .site-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .site-card { border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; cursor: pointer; transition: border-color .12s ease; }
+  .site-card:hover { border-color: var(--teal); }
+  .site-card h3 { font-family: var(--f-display); font-size: 1rem; margin: 0; }
+  .site-card .val { font-family: var(--f-mono); font-size: 1.1rem; font-weight: 600; }
+  .site-card .row { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
+  .site-card .sync { font-size: 0.72rem; color: var(--teal); }
+  .transfer-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border: 1px solid var(--line); border-radius: 7px; font-size: 0.85rem; background: var(--panel); cursor: pointer; }
+  .transfer-item:hover { border-color: var(--teal); }
+  .transfer-item .route { font-family: var(--f-mono); font-size: 0.78rem; color: var(--text-muted); }
+
+  /* ---------------- Modals ---------------- */
+  .modal-backdrop {
+    display: none; position: absolute; inset: 0; background: rgba(23,17,31,0.45);
+    align-items: center; justify-content: center; padding: 24px; z-index: 20;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--paper); border-radius: 10px; width: 100%; max-width: 480px;
+    max-height: 86%; overflow-y: auto; padding: 24px 26px; position: relative;
+    box-shadow: 0 30px 60px -20px rgba(23,17,31,0.5);
+  }
+  .modal.wide { max-width: 620px; }
+  .modal-close { all: unset; cursor: pointer; position: absolute; top: 18px; right: 20px; color: var(--text-muted); font-size: 1.1rem; }
+  .modal-close:hover { color: var(--text); }
+  .modal h3 { font-family: var(--f-display); font-size: 1.15rem; margin: 0 0 4px; padding-right: 20px; }
+  .modal .modal-sub { font-size: 0.84rem; color: var(--text-muted); margin: 0 0 18px; }
+  .modal-section { margin-top: 18px; }
+  .modal-section-label { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+  .field-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .field-row label { font-size: 0.8rem; font-weight: 500; }
+  .field-row input, .field-row select, .field-row textarea {
+    font-family: var(--f-body); font-size: 0.88rem; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text);
+  }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .toggle-row { display: flex; gap: 8px; }
+  .toggle-btn { all: unset; cursor: pointer; flex: 1; text-align: center; padding: 8px; border-radius: 6px; border: 1px solid var(--line); font-size: 0.82rem; color: var(--text-muted); }
+  .toggle-btn.on { background: var(--ink); color: #F4F1FB; border-color: var(--ink); }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .upload-box { border: 1px dashed var(--line); border-radius: 8px; padding: 20px; text-align: center; font-size: 0.82rem; color: var(--text-muted); background: var(--panel); }
+
+  .lot-mini-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .lot-mini-table th { text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .lot-mini-table td { padding: 8px 0; border-bottom: 1px solid #F0ECF7; }
+  .lot-mini-table td.mono { font-family: var(--f-mono); }
+  .note-box { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 12px 14px; font-size: 0.84rem; color: var(--text-muted); }
+
+  .invoice-doc { background: #fff; }
+  .invoice-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .invoice-top .wordmark { font-family: var(--f-display); font-weight: 700; font-size: 1.3rem; color: var(--ink); }
+  .invoice-top .wordmark .ily { color: var(--teal); }
+  .invoice-meta-doc { text-align: right; color: var(--text-muted); font-size: 0.84rem; line-height: 1.5; }
+  .invoice-meta-doc strong { color: var(--text); font-family: var(--f-mono); font-weight: 600; }
+  .legal-block { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; color: #4A4258; font-family: var(--f-mono); font-size: 0.74rem; background: var(--panel); border-radius: 6px; padding: 12px 14px; margin: 16px 0; }
+  .legal-block b { color: var(--text); }
+  .invoice-lines-doc table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .invoice-lines-doc th { text-align: left; font-weight: 500; color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .invoice-lines-doc td { padding: 8px 0; border-bottom: 1px solid #F0ECF7; }
+  .invoice-lines-doc td.num, .invoice-lines-doc th.num { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  .invoice-total-words-doc { font-family: var(--f-mono); font-size: 0.76rem; color: var(--text-muted); font-style: italic; margin-top: 14px; }
+  .invoice-badges-doc { display: flex; gap: 8px; margin-top: 10px; }
+  .badge-lang { font-family: var(--f-mono); font-size: 0.68rem; padding: 3px 8px; border-radius: 4px; background: var(--panel); color: var(--purple); }
+
+  /* ---------------- Scan / phone frame ---------------- */
+  .scan-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 10px 0 20px; }
+  .phone {
+    width: 300px; border-radius: 34px; background: var(--ink); padding: 14px 12px 20px;
+    box-shadow: 0 30px 50px -25px rgba(23,17,31,0.5);
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .phone-head { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; color: #EDE7F7; font-family: var(--f-display); font-weight: 600; font-size: 0.95rem; }
+  .phone-head .close { color: #8A7FAA; font-size: 1rem; cursor: pointer; }
+  .viewfinder { position: relative; background: #0B0813; border-radius: 14px; height: 130px; overflow: hidden; flex: none; }
+  .vf-corner { position: absolute; width: 20px; height: 20px; border: 2px solid var(--teal-bright); }
+  .vf-corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+  .vf-corner.tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
+  .vf-corner.bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
+  .vf-corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+  .vf-line { position: absolute; left: 10px; right: 10px; height: 2px; background: var(--teal-bright); box-shadow: 0 0 8px var(--teal-bright); top: 40%; }
+  @media (prefers-reduced-motion: no-preference) { .vf-line { animation: sweep 2.2s ease-in-out infinite; } }
+  @keyframes sweep { 0%,100% { top: 16%; } 50% { top: 78%; } }
+  .vf-hint { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-family: var(--f-mono); font-size: 0.64rem; color: #8A7FAA; }
+
+  .scan-step { display: none; flex-direction: column; gap: 10px; }
+  .scan-step.on { display: flex; }
+  .scan-card { background: #241934; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .scan-card .step-title { color: #F4F1FB; font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 8px; }
+  .scan-card .step-title .back { cursor: pointer; color: #8A7FAA; font-size: 0.9rem; }
+  .scan-card .name { color: #F4F1FB; font-weight: 600; font-size: 0.92rem; }
+  .scan-card .meta { font-family: var(--f-mono); font-size: 0.72rem; color: #B3A9C7; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .qty-stepper { display: flex; align-items: center; justify-content: center; gap: 16px; background: #17111F; border-radius: 8px; padding: 8px; }
+  .qty-stepper button { all: unset; cursor: pointer; color: var(--teal-bright); font-family: var(--f-mono); font-size: 1.1rem; padding: 0 10px; }
+  .qty-stepper .n { font-family: var(--f-mono); font-size: 1rem; color: #F4F1FB; font-variant-numeric: tabular-nums; }
+  .action-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .action-row button { all: unset; cursor: pointer; text-align: center; font-size: 0.76rem; padding: 9px 4px; border-radius: 7px; background: rgba(255,255,255,0.06); color: #EDE7F7; }
+  .action-row button.primary { background: var(--teal-bright); color: #0B2620; font-weight: 600; }
+  .manual-link { text-align: center; font-size: 0.76rem; color: #8A7FAA; text-decoration: underline; cursor: pointer; }
+  .scan-caption { font-size: 0.82rem; color: var(--text-muted); max-width: 46ch; text-align: center; }
+
+  .scan-toggle-row { display: flex; gap: 6px; }
+  .scan-toggle-btn { all: unset; cursor: pointer; flex: 1; text-align: center; padding: 7px 4px; border-radius: 6px; font-size: 0.72rem; color: #C6BEE0; background: rgba(255,255,255,0.05); }
+  .scan-toggle-btn.on { background: var(--teal-bright); color: #0B2620; font-weight: 600; }
+  .scan-field { display: flex; flex-direction: column; gap: 4px; }
+  .scan-field label { font-size: 0.68rem; color: #8A7FAA; font-family: var(--f-mono); }
+  .scan-field input, .scan-field select { font-family: var(--f-body); font-size: 0.8rem; padding: 7px 8px; border-radius: 6px; border: none; background: #17111F; color: #F4F1FB; }
+  .suggested-lot { display: flex; justify-content: space-between; align-items: center; background: #17111F; border-radius: 7px; padding: 8px 10px; font-size: 0.76rem; color: #C6BEE0; }
+  .suggested-lot b { color: #F4F1FB; font-family: var(--f-mono); }
+  .scan-confirm { text-align: center; padding: 10px 0; }
+  .scan-confirm .check { font-size: 1.8rem; color: var(--teal-bright); }
+  .scan-confirm .line { color: #F4F1FB; font-size: 0.88rem; margin-top: 8px; }
+  .scan-btn-full { all: unset; cursor: pointer; text-align: center; background: var(--teal-bright); color: #0B2620; font-weight: 600; font-size: 0.82rem; padding: 10px; border-radius: 7px; }
+</style>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Wireframes — Phase 1 · haute-fidélité</div>
+    <h1 class="wordmark">Stock<span class="ily">ily</span></h1>
+  </div>
+  <p class="hint">Un écran clé par module. Cliquez un module dans le menu de gauche pour changer de vue.</p>
+</div>
+
+<div class="frame" id="frame">
+  <div class="sidebar">
+    <div class="mini-word">Stock<span class="ily">ily</span></div>
+    <div class="group-label">Phase 1</div>
+    <button class="nav-btn active" data-target="stock">Gestion de Stock</button>
+    <button class="nav-btn" data-target="quality">Qualité</button>
+    <button class="nav-btn" data-target="invoicing">Factures</button>
+    <button class="nav-btn" data-target="sites">Transferts Multi-Sites</button>
+    <button class="nav-btn" data-target="scan">Scan / QR</button>
+    <div class="group-label">Verrouillés</div>
+    <button class="nav-btn" disabled style="opacity:.5;cursor:default">Achats <span class="tag">Phase 2</span></button>
+    <button class="nav-btn" disabled style="opacity:.5;cursor:default">CRM <span class="tag">Phase 2</span></button>
+    <button class="nav-btn" disabled style="opacity:.5;cursor:default">Comptabilité <span class="tag">Phase 3</span></button>
+    <div class="spacer"></div>
+    <hr>
+    <button class="nav-btn settings" onclick="openModal('modal-settings')">⚙ Paramètres du Business</button>
+  </div>
+
+  <div class="content">
+
+    <!-- ===================== STOCK ===================== -->
+    <div class="panel active" data-panel="stock">
+      <div class="panel-head">
+        <div>
+          <h2>Gestion de Stock</h2>
+          <div class="sub">Site :
+            <select class="site-select" id="site-select" onchange="handleSiteChange(this.value)">
+              <option value="alger">Alger — Entrepôt Central</option>
+              <option value="oran">Oran — Dépôt Nord</option>
+              <option value="constantine">Constantine — Point de vente</option>
+              <option value="all">Tous les sites</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-primary">+ Nouveau mouvement</button>
+      </div>
+      <div class="stat-strip">
+        <div class="stat-card"><div class="num">342</div><div class="label">SKUs actifs</div></div>
+        <div class="stat-card warn"><div class="num">12</div><div class="label">Alertes seuil bas</div></div>
+        <div class="stat-card bad"><div class="num">5</div><div class="label">Unités en quarantaine</div></div>
+        <div class="stat-card good"><div class="num">8,42M</div><div class="label">Valeur de stock (DZD)</div></div>
+      </div>
+      <div class="table-wrap">
+        <table class="data" id="stock-table">
+          <thead><tr><th>SKU</th><th>Produit</th><th>Catégorie</th><th class="site-col">Site</th><th class="num">Qté dispo.</th><th class="num">Quarantaine</th><th class="num">Seuil min</th><th class="num">Coût moyen</th><th>État</th></tr></thead>
+          <tbody>
+            <tr class="clickable" data-site="alger" data-sku="HUI-1L-OLV" data-name="Huile d'olive extra vierge 1L" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">HUI-1L-OLV</td><td>Huile d'olive extra vierge 1L</td><td class="muted">Épicerie</td><td class="site-col muted">Alger</td><td class="num">184</td><td class="num muted">0</td><td class="num muted">50</td><td class="num">685,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="SEM-25K-FIN" data-name="Semoule fine 25kg" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">SEM-25K-FIN</td><td>Semoule fine 25kg</td><td class="muted">Épicerie</td><td class="site-col muted">Alger</td><td class="num">22</td><td class="num muted">0</td><td class="num muted">30</td><td class="num">2 450,00</td><td><span class="pill warning">Bas</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="DET-5L-LIQ" data-name="Détergent liquide 5L" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">DET-5L-LIQ</td><td>Détergent liquide 5L</td><td class="muted">Entretien</td><td class="site-col muted">Alger</td><td class="num">96</td><td class="num" style="color:var(--danger)">4</td><td class="num muted">40</td><td class="num">890,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="CONS-400G-TOM" data-name="Conserve tomate 400g" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">CONS-400G-TOM</td><td>Conserve tomate 400g</td><td class="muted">Épicerie</td><td class="site-col muted">Alger</td><td class="num">0</td><td class="num muted">0</td><td class="num muted">60</td><td class="num">145,00</td><td><span class="pill danger">Rupture</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="YAO-12X100G" data-name="Yaourt nature — pack 12x100g" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">YAO-12X100G</td><td>Yaourt nature — pack 12x100g</td><td class="muted">Frais</td><td class="site-col muted">Alger</td><td class="num">340</td><td class="num" style="color:var(--danger)">12</td><td class="num muted">100</td><td class="num">210,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="HUI-5L-TOUR" data-name="Huile de tournesol 5L" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">HUI-5L-TOUR</td><td>Huile de tournesol 5L</td><td class="muted">Épicerie</td><td class="site-col muted">Alger</td><td class="num">58</td><td class="num muted">0</td><td class="num muted">25</td><td class="num">1 780,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="SAV-BAR-125G" data-name="Savon de Marseille 125g" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">SAV-BAR-125G</td><td>Savon de Marseille 125g</td><td class="muted">Entretien</td><td class="site-col muted">Alger</td><td class="num">14</td><td class="num muted">0</td><td class="num muted">20</td><td class="num">95,00</td><td><span class="pill warning">Bas</span></td></tr>
+            <tr class="clickable" data-site="alger" data-sku="CEI-105-NR" data-name="Ceinture cuir noir 105cm" data-lot-tracked="false" onclick="openSkuDetail(this)"><td class="mono">CEI-105-NR</td><td>Ceinture cuir noir 105cm</td><td class="muted">Accessoires</td><td class="site-col muted">Alger</td><td class="num">62</td><td class="num muted">0</td><td class="num muted">15</td><td class="num">1 250,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="oran" data-sku="HUI-1L-OLV" data-name="Huile d'olive extra vierge 1L" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">HUI-1L-OLV</td><td>Huile d'olive extra vierge 1L</td><td class="muted">Épicerie</td><td class="site-col muted">Oran</td><td class="num">96</td><td class="num muted">0</td><td class="num muted">50</td><td class="num">685,00</td><td><span class="pill success">OK</span></td></tr>
+            <tr class="clickable" data-site="constantine" data-sku="SEM-25K-FIN" data-name="Semoule fine 25kg" data-lot-tracked="true" onclick="openSkuDetail(this)"><td class="mono">SEM-25K-FIN</td><td>Semoule fine 25kg</td><td class="muted">Épicerie</td><td class="site-col muted">Constantine</td><td class="num">6</td><td class="num muted">0</td><td class="num muted">30</td><td class="num">2 450,00</td><td><span class="pill warning">Bas</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="scan-caption" style="text-align:left;max-width:none">Cliquez un produit pour voir le détail par lot (avec l'état qualité si le module est actif).</p>
+    </div>
+
+    <!-- ===================== QUALITY ===================== -->
+    <div class="panel" data-panel="quality">
+      <div class="panel-head">
+        <div>
+          <h2>Qualité</h2>
+          <div class="sub">Lots, péremption et non-conformités — toutes activités confondues</div>
+        </div>
+        <button class="btn-primary" onclick="openModal('modal-quality-new')">+ Contrôle qualité</button>
+      </div>
+      <div class="note-box">Les produits non suivis par lot (ex. ceinture, textile) n'ont ni numéro de lot ni péremption, mais peuvent tout de même faire l'objet d'un contrôle qualité — par exemple un défaut constaté à la livraison. Ces contrôles apparaissent ci-dessous sans numéro de lot.</div>
+      <div class="stat-strip">
+        <div class="stat-card"><div class="num">58</div><div class="label">Lots actifs</div></div>
+        <div class="stat-card warn"><div class="num">6</div><div class="label">Péremption &lt; 30 j</div></div>
+        <div class="stat-card bad"><div class="num">3</div><div class="label">Non-conformités ouvertes</div></div>
+      </div>
+      <div class="table-wrap">
+        <table class="data" id="quality-table">
+          <thead><tr><th>N° de lot</th><th>Produit</th><th class="num">Qté</th><th>Péremption</th><th>Jours restants</th><th>Contrôle qualité</th><th>État</th></tr></thead>
+          <tbody>
+            <tr data-sku="YAO-12X100G"><td class="mono">LOT-2026-0847</td><td><span class="has-tip" data-tip="SKU : YAO-12X100G">Yaourt nature — pack 12x100g</span></td><td class="num">340</td><td class="mono">28/08/2026</td><td>7 j</td><td class="muted">Conforme</td><td><span class="pill warning">Péremption proche</span></td></tr>
+            <tr data-sku="CONS-400G-TOM"><td class="mono">LOT-2026-0812</td><td><span class="has-tip" data-tip="SKU : CONS-400G-TOM">Conserve tomate 400g</span></td><td class="num">0</td><td class="mono">15/03/2027</td><td>206 j</td><td class="muted">Conforme</td><td><span class="pill success">OK</span></td></tr>
+            <tr data-sku="HUI-1L-OLV"><td class="mono">LOT-2026-0803</td><td><span class="has-tip" data-tip="SKU : HUI-1L-OLV">Huile d'olive extra vierge 1L</span></td><td class="num">184</td><td class="mono">12/06/2027</td><td>295 j</td><td class="muted">Conforme</td><td><span class="pill success">OK</span></td></tr>
+            <tr data-sku="DET-5L-LIQ"><td class="mono">LOT-2026-0791</td><td><span class="has-tip" data-tip="SKU : DET-5L-LIQ">Détergent liquide 5L</span></td><td class="num">4</td><td class="mono">22/08/2026</td><td>Expiré</td><td class="muted">Non conforme — défaut d'étanchéité</td><td><span class="pill danger">Quarantaine</span></td></tr>
+            <tr data-sku="SEM-25K-FIN"><td class="mono">LOT-2026-0779</td><td><span class="has-tip" data-tip="SKU : SEM-25K-FIN">Semoule fine 25kg</span></td><td class="num">22</td><td class="mono">30/08/2026</td><td>9 j</td><td class="muted">Conforme</td><td><span class="pill warning">Péremption proche</span></td></tr>
+            <tr data-sku="CONS-400G-TOM"><td class="mono">LOT-2026-0758</td><td><span class="has-tip" data-tip="SKU : CONS-400G-TOM">Conserve tomate 400g</span></td><td class="num">0</td><td class="mono">—</td><td class="muted">—</td><td class="muted">Non conforme — défaut d'emballage à réception</td><td><span class="pill danger">Quarantaine</span></td></tr>
+            <tr data-sku="CEI-105-NR"><td class="mono muted">— (sans lot)</td><td><span class="has-tip" data-tip="SKU : CEI-105-NR">Ceinture cuir noir 105cm</span></td><td class="num">8</td><td class="muted">N/A</td><td class="muted">—</td><td class="muted">Non conforme — défaut de couture à la livraison</td><td><span class="pill danger">Quarantaine</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===================== INVOICING ===================== -->
+    <div class="panel" data-panel="invoicing">
+      <div class="panel-head">
+        <div>
+          <h2>Gestion des Factures</h2>
+          <div class="sub">Numérotation séquentielle unique — organisation entière</div>
+        </div>
+        <button class="btn-primary">+ Nouvelle facture</button>
+      </div>
+      <div class="stat-strip">
+        <div class="stat-card good"><div class="num">1,28M</div><div class="label">Facturé ce mois (DZD)</div></div>
+        <div class="stat-card bad"><div class="num">312 000</div><div class="label">Impayé (DZD)</div></div>
+        <div class="stat-card warn"><div class="num">4</div><div class="label">Factures en retard</div></div>
+      </div>
+      <div class="filter-tabs">
+        <span class="on">Toutes</span><span>Impayées</span><span>Partielles</span><span>Payées</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>N° Facture</th><th>Partenaire</th><th>NIF</th><th>Date</th><th class="num">Montant TTC</th><th>Statut</th></tr></thead>
+          <tbody>
+            <tr class="clickable" onclick="openInvoice(this)" data-num="FA-2026-000184" data-partner="SARL Épicerie El Baraka" data-nif="0026 2100 1847 03" data-date="21/08/2026" data-total="48 139,00"><td class="mono">FA-2026-000184</td><td>SARL Épicerie El Baraka</td><td class="mono muted">0026210018 4703</td><td class="mono">21/08/2026</td><td class="num">48 139,00</td><td><span class="pill success">Payée</span></td></tr>
+            <tr class="clickable" onclick="openInvoice(this)" data-num="FA-2026-000183" data-partner="Ets Boudiaf &amp; Fils" data-nif="0026 9800 2214 09" data-date="19/08/2026" data-total="112 400,00"><td class="mono">FA-2026-000183</td><td>Ets Boudiaf &amp; Fils</td><td class="mono muted">0026980022 1409</td><td class="mono">19/08/2026</td><td class="num">112 400,00</td><td><span class="pill info">Partielle</span></td></tr>
+            <tr class="clickable" onclick="openInvoice(this)" data-num="FA-2026-000182" data-partner="Superette Aïn Naadja" data-nif="0026 1200 9981 02" data-date="15/08/2026" data-total="27 850,00"><td class="mono">FA-2026-000182</td><td>Superette Aïn Naadja</td><td class="mono muted">0026120099 8102</td><td class="mono">15/08/2026</td><td class="num">27 850,00</td><td><span class="pill danger">Impayée — échue</span></td></tr>
+            <tr class="clickable" onclick="openInvoice(this)" data-num="FA-2026-000181" data-partner="Client comptant" data-nif="—" data-date="14/08/2026" data-total="6 200,00"><td class="mono">FA-2026-000181</td><td>Client comptant</td><td class="mono muted">—</td><td class="mono">14/08/2026</td><td class="num">6 200,00</td><td><span class="pill success">Payée</span></td></tr>
+            <tr class="clickable" onclick="openInvoice(this)" data-num="FA-2026-000180" data-partner="Grossiste Nord Distribution" data-nif="0026 0533 1120 17" data-date="10/08/2026" data-total="305 600,00"><td class="mono">FA-2026-000180</td><td>Grossiste Nord Distribution</td><td class="mono muted">0026053311 2017</td><td class="mono">10/08/2026</td><td class="num">305 600,00</td><td><span class="pill success">Payée</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===================== SITES ===================== -->
+    <div class="panel" data-panel="sites">
+      <div class="panel-head">
+        <div>
+          <h2>Transferts Multi-Sites</h2>
+          <div class="sub">Vue consolidée — 3 sites actifs</div>
+        </div>
+        <button class="btn-primary">+ Transfert inter-site</button>
+      </div>
+      <div class="site-grid">
+        <div class="site-card" data-site="alger" onclick="openSiteDetail(this)">
+          <h3>Alger — Entrepôt Central</h3>
+          <div class="val">8,42M DZD</div>
+          <div class="row"><span>342 SKUs</span><span style="color:var(--warning)">3 alertes</span></div>
+          <div class="sync">Synchronisé — il y a 2 min</div>
+        </div>
+        <div class="site-card" data-site="oran" onclick="openSiteDetail(this)">
+          <h3>Oran — Dépôt Nord</h3>
+          <div class="val">3,18M DZD</div>
+          <div class="row"><span>198 SKUs</span><span style="color:var(--warning)">1 alerte</span></div>
+          <div class="sync">Synchronisé — il y a 5 min</div>
+        </div>
+        <div class="site-card" data-site="constantine" onclick="openSiteDetail(this)">
+          <h3>Constantine — Point de vente</h3>
+          <div class="val">640K DZD</div>
+          <div class="row"><span>76 SKUs</span><span style="color:var(--success)">0 alerte</span></div>
+          <div class="sync">Synchronisé — il y a 1 min</div>
+        </div>
+      </div>
+      <div>
+        <div class="sub" style="margin-bottom:8px">Transferts en cours</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="transfer-item" onclick="openTransferDetail('transit')"><span>Huile d'olive extra vierge 1L — 40 cartons</span><span class="route">Alger → Oran · en transit</span></div>
+          <div class="transfer-item" onclick="openTransferDetail('prepared')"><span>Semoule fine 25kg — 15 sacs</span><span class="route">Alger → Constantine · préparé</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== SCAN ===================== -->
+    <div class="panel" data-panel="scan">
+      <div class="scan-wrap">
+        <p class="scan-caption" style="margin-bottom:-4px"><strong>Surface mobile indépendante</strong> — la PWA Scan n'affiche pas la sidebar desktop ; elle s'ouvre en plein écran sur téléphone.</p>
+        <div class="phone">
+          <div class="phone-head"><span>Scan</span><span class="close">✕</span></div>
+          <div class="viewfinder">
+            <div class="vf-corner tl"></div><div class="vf-corner tr"></div>
+            <div class="vf-corner bl"></div><div class="vf-corner br"></div>
+            <div class="vf-line"></div>
+            <div class="vf-hint">Recherche du code…</div>
+          </div>
+
+          <!-- Step: result after auto-scan -->
+          <div class="scan-step on" id="scan-step-result">
+            <div class="scan-card">
+              <div class="name">Détergent liquide 5L</div>
+              <div class="meta"><span>DET-5L-LIQ</span><span>·</span><span>LOT-2026-0791</span><span class="pill danger" style="margin-left:auto">Quarantaine</span></div>
+              <div class="qty-stepper"><button aria-label="Diminuer">−</button><span class="n">1</span><button aria-label="Augmenter">+</button></div>
+              <div class="action-row">
+                <button onclick="scanGo('in')">Entrée</button>
+                <button class="primary" onclick="scanGo('out')">Sortie</button>
+                <button onclick="scanGo('transfer')">Transfert</button>
+              </div>
+            </div>
+            <div class="manual-link">Saisie manuelle / douchette USB</div>
+          </div>
+
+          <!-- Step: Entrée -->
+          <div class="scan-step" id="scan-step-in">
+            <div class="scan-card">
+              <div class="step-title"><span class="back" onclick="scanGo('result')">←</span> Entrée de stock</div>
+              <div class="scan-toggle-row">
+                <button class="scan-toggle-btn on" id="in-existing-btn" onclick="setLotMode('existing')">Lot existant</button>
+                <button class="scan-toggle-btn" id="in-new-btn" onclick="setLotMode('new')">Nouveau lot</button>
+              </div>
+              <div id="in-existing-fields" class="scan-field">
+                <label>LOT (SUGGÉRÉ)</label>
+                <select><option>LOT-2026-0791 — expire 22/08/2026</option></select>
+              </div>
+              <div id="in-new-fields" style="display:none;flex-direction:column;gap:10px">
+                <div class="scan-field"><label>N° DE LOT</label><input value="LOT-2026-0852"></div>
+                <div class="scan-field"><label>DATE DE PÉREMPTION</label><input type="text" value="22/02/2027"></div>
+                <div class="scan-field"><label>CONTRÔLE QUALITÉ À RÉCEPTION</label>
+                  <div class="scan-toggle-row"><button class="scan-toggle-btn on">Conforme</button><button class="scan-toggle-btn">Non conforme</button></div>
+                </div>
+              </div>
+              <button class="scan-btn-full" onclick="scanGo('confirm', 'Entrée enregistrée — 1 unité ajoutée.')">Valider l'entrée</button>
+            </div>
+          </div>
+
+          <!-- Step: Sortie -->
+          <div class="scan-step" id="scan-step-out">
+            <div class="scan-card">
+              <div class="step-title"><span class="back" onclick="scanGo('result')">←</span> Sortie de stock</div>
+              <div class="suggested-lot"><span>Lot suggéré (FEFO)</span><b>LOT-2026-0779 · 9j</b></div>
+              <button class="btn-link" style="text-align:left">Changer de lot</button>
+              <div class="scan-field"><label>CLIENT / PARTENAIRE (OPTIONNEL)</label><input placeholder="Client comptant (par défaut)"></div>
+              <button class="scan-btn-full" onclick="scanGo('confirm', 'Sortie enregistrée — vente comptoir.')">Valider la sortie</button>
+            </div>
+          </div>
+
+          <!-- Step: Transfert -->
+          <div class="scan-step" id="scan-step-transfer">
+            <div class="scan-card">
+              <div class="step-title"><span class="back" onclick="scanGo('result')">←</span> Transfert inter-site</div>
+              <div class="suggested-lot"><span>Lot suggéré (FEFO)</span><b>LOT-2026-0779 · 9j</b></div>
+              <div class="scan-field"><label>SITE DE DESTINATION</label>
+                <select><option>Oran — Dépôt Nord</option><option>Constantine — Point de vente</option></select>
+              </div>
+              <button class="scan-btn-full" onclick="scanGo('confirm', 'Transfert créé vers Oran — Dépôt Nord.')">Valider le transfert</button>
+            </div>
+          </div>
+
+          <!-- Step: confirm -->
+          <div class="scan-step" id="scan-step-confirm">
+            <div class="scan-card scan-confirm">
+              <div class="check">✓</div>
+              <div class="line" id="confirm-line">Mouvement enregistré.</div>
+              <button class="scan-btn-full" style="margin-top:14px" onclick="scanGo('result')">Nouveau scan</button>
+            </div>
+          </div>
+
+          <div class="manual-link" style="display:none" id="unused"></div>
+        </div>
+        <p class="scan-caption">Douchette Bluetooth/USB et caméra acceptées indifféremment — le champ de saisie reçoit les deux comme du texte. Un code non reconnu bascule sur une recherche manuelle du produit.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== MODALS ===================== -->
+
+  <div class="modal-backdrop" id="modal-sku">
+    <div class="modal wide">
+      <button class="modal-close" onclick="closeModal('modal-sku')">✕</button>
+      <h3 id="sku-modal-name">Produit</h3>
+      <p class="modal-sub" id="sku-modal-code">SKU</p>
+      <div class="stat-strip" id="sku-modal-stats"></div>
+      <div class="modal-section">
+        <div class="modal-section-label">Lots</div>
+        <div id="sku-modal-lots"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-quality-new">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('modal-quality-new')">✕</button>
+      <h3>Nouveau contrôle qualité</h3>
+      <p class="modal-sub">Enregistre une inspection sur un lot — à réception ou en cours de stockage. Un résultat "Non conforme" met automatiquement le lot en quarantaine.</p>
+      <div class="field-row"><label>Produit</label><input placeholder="Rechercher un produit suivi par lot…"></div>
+      <div class="field-row"><label>Lot</label><select><option>Lot existant : LOT-2026-0803</option><option>+ Nouveau lot (réception)</option><option>Sans lot (produit non suivi — contrôle direct)</option></select></div>
+      <div class="field-row"><label>Quantité contrôlée</label><input type="text" value="184"></div>
+      <div class="field-row"><label>Résultat</label>
+        <div class="toggle-row"><button class="toggle-btn on">Conforme</button><button class="toggle-btn">Non conforme</button></div>
+      </div>
+      <div class="field-row"><label>Notes</label><textarea rows="2" placeholder="Observations, motif si non conforme…"></textarea></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-quality-new')">Annuler</button>
+        <button class="btn-primary">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-invoice">
+    <div class="modal wide">
+      <button class="modal-close" onclick="closeModal('modal-invoice')">✕</button>
+      <div class="invoice-doc">
+        <div class="invoice-top">
+          <div class="wordmark">Stock<span class="ily">ily</span></div>
+          <div class="invoice-meta-doc">Facture <strong id="inv-num">FA-2026-000184</strong><br><span id="inv-date">21/08/2026</span></div>
+        </div>
+        <p style="font-size:0.86rem;margin:14px 0 0"><strong id="inv-partner">SARL Épicerie El Baraka</strong></p>
+        <div class="legal-block">
+          <span>NIF <b id="inv-nif">0026 2100 1847 03</b></span>
+          <span>NIS <b>098226184700017</b></span>
+          <span>RC <b>16/00-3218472 B24</b></span>
+          <span>Art. imposition <b>34117210084</b></span>
+        </div>
+        <div class="invoice-lines-doc">
+          <table>
+            <thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">P.U. HT</th><th class="num">TVA</th><th class="num">Total HT</th></tr></thead>
+            <tbody>
+              <tr><td>Huile d'olive 1L — carton de 12</td><td class="num">40</td><td class="num">980,00</td><td class="num">19%</td><td class="num">39 200,00</td></tr>
+              <tr><td>Frais de livraison</td><td class="num">1</td><td class="num">1 500,00</td><td class="num">19%</td><td class="num">1 500,00</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="invoice-total-words-doc">Arrêtée la présente facture à la somme de : quarante-huit mille cent trente-neuf dinars algériens. — Total TTC : <b id="inv-total" style="font-style:normal">48 139,00 DZD</b></div>
+        <div class="invoice-badges-doc"><span class="badge-lang">FR</span><span class="badge-lang">AR — عربي</span></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="window.print()">Télécharger PDF</button>
+        <button class="btn-primary" onclick="window.print()">Imprimer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-site">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('modal-site')">✕</button>
+      <h3 id="site-modal-name">Site</h3>
+      <p class="modal-sub">Adresse fictive — 14 rue des Frères Bouadou</p>
+      <div class="stat-strip">
+        <div class="stat-card good"><div class="num" id="site-modal-val">—</div><div class="label">Valeur de stock</div></div>
+        <div class="stat-card"><div class="num" id="site-modal-skus">—</div><div class="label">SKUs</div></div>
+        <div class="stat-card warn"><div class="num" id="site-modal-alerts">—</div><div class="label">Alertes</div></div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-start">
+        <button class="btn-primary" id="site-modal-stock-btn" onclick="goToStockForSite()">Voir le stock de ce site →</button>
+      </div>
+      <p class="modal-sub" style="margin-top:10px">Visible uniquement si le module Stock est actif pour ce site.</p>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-transfer">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('modal-transfer')">✕</button>
+      <h3>Transfert inter-site</h3>
+      <div id="transfer-modal-body"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-settings">
+    <div class="modal wide">
+      <button class="modal-close" onclick="closeModal('modal-settings')">✕</button>
+      <h3>Paramètres du Business</h3>
+      <p class="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
+      <div class="field-row"><label>Logo</label><div class="upload-box">Glisser un logo ou cliquer pour parcourir<br><span style="font-size:0.72rem">PNG/SVG, fond transparent recommandé</span></div></div>
+      <div class="field-row"><label>Nom de l'entreprise</label><input value="SARL Stockily Distribution"></div>
+      <div class="field-grid">
+        <div class="field-row"><label>NIF</label><input value="0026 2100 1847 03"></div>
+        <div class="field-row"><label>NIS</label><input value="098226184700017"></div>
+        <div class="field-row"><label>RC</label><input value="16/00-3218472 B24"></div>
+        <div class="field-row"><label>Article d'imposition</label><input value="34117210084"></div>
+      </div>
+      <div class="field-row"><label>Adresse</label><textarea rows="2">14 rue des Frères Bouadou, Alger</textarea></div>
+      <div class="field-grid">
+        <div class="field-row"><label>Téléphone</label><input value="+213 21 00 00 00"></div>
+        <div class="field-row"><label>Email</label><input value="contact@stockily.dz"></div>
+      </div>
+      <div class="field-row"><label>Devise</label><input value="DZD" disabled></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-settings')">Annuler</button>
+        <button class="btn-primary">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ---------- module switching ----------
+  function activateModule(target) {
+    document.querySelectorAll('.nav-btn[data-target]').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+    var btn = document.querySelector('.nav-btn[data-target="' + target + '"]');
+    if (btn) btn.classList.add('active');
+    document.querySelector('.panel[data-panel="' + target + '"]').classList.add('active');
+  }
+  document.querySelectorAll('.nav-btn[data-target]').forEach(function (btn) {
+    btn.addEventListener('click', function () { activateModule(btn.dataset.target); });
+  });
+
+  // ---------- modals ----------
+  function openModal(id) { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  document.querySelectorAll('.modal-backdrop').forEach(function (bd) {
+    bd.addEventListener('click', function (e) { if (e.target === bd) bd.classList.remove('open'); });
+  });
+
+  // ---------- Stock: site filter ----------
+  function handleSiteChange(value) {
+    var showSiteCol = value === 'all';
+    document.querySelectorAll('#stock-table .site-col').forEach(function (el) {
+      el.classList.toggle('show', showSiteCol);
+    });
+    document.querySelectorAll('#stock-table tbody tr').forEach(function (tr) {
+      tr.style.display = (value === 'all' || tr.dataset.site === value) ? '' : 'none';
+    });
+  }
+
+  // ---------- Stock: SKU detail ----------
+  function openSkuDetail(tr) {
+    var sku = tr.dataset.sku, name = tr.dataset.name, lotTracked = tr.dataset.lotTracked === 'true';
+    var cells = tr.querySelectorAll('td');
+    var qty = cells[4].textContent.trim(), quarantine = cells[5].textContent.trim(), threshold = cells[6].textContent.trim(), cost = cells[7].textContent.trim();
+
+    document.getElementById('sku-modal-name').textContent = name;
+    document.getElementById('sku-modal-code').textContent = 'SKU ' + sku + (lotTracked ? ' · suivi par lot' : ' · non suivi par lot');
+
+    document.getElementById('sku-modal-stats').innerHTML =
+      '<div class="stat-card"><div class="num">' + qty + '</div><div class="label">Qté disponible</div></div>' +
+      '<div class="stat-card' + (quarantine !== '0' ? ' bad' : '') + '"><div class="num">' + quarantine + '</div><div class="label">En quarantaine</div></div>' +
+      '<div class="stat-card"><div class="num">' + threshold + '</div><div class="label">Seuil min</div></div>' +
+      '<div class="stat-card"><div class="num">' + cost + '</div><div class="label">Coût moyen (DZD)</div></div>';
+
+    var lotsHost = document.getElementById('sku-modal-lots');
+    var rows = Array.prototype.filter.call(document.querySelectorAll('#quality-table tbody tr'), function (r) { return r.dataset.sku === sku; });
+    var html = '';
+    if (!lotTracked) {
+      html += '<div class="note-box">Ce produit n&#39;est pas suivi par lot (article non périssable) — pas de péremption. Il peut tout de même faire l&#39;objet d&#39;un contrôle qualité ponctuel (ex. défaut constaté à la livraison), listé ci-dessous.</div>';
+    }
+    if (rows.length === 0) {
+      html += '<div class="note-box">Aucun contrôle qualité enregistré pour ce produit pour le moment.</div>';
+    } else {
+      html += '<table class="lot-mini-table"><thead><tr><th>N° de lot</th><th>Qté</th><th>Péremption</th><th>Jours restants</th><th>État</th></tr></thead><tbody>';
+      rows.forEach(function (r) {
+        var c = r.querySelectorAll('td');
+        html += '<tr><td class="mono">' + c[0].textContent + '</td><td>' + c[2].textContent + '</td><td class="mono">' + c[3].textContent + '</td><td>' + c[4].textContent + '</td><td>' + c[6].innerHTML + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    lotsHost.innerHTML = html;
+    openModal('modal-sku');
+  }
+
+  // ---------- Invoicing ----------
+  function openInvoice(tr) {
+    document.getElementById('inv-num').textContent = tr.dataset.num;
+    document.getElementById('inv-partner').textContent = tr.dataset.partner;
+    document.getElementById('inv-date').textContent = tr.dataset.date;
+    document.getElementById('inv-nif').textContent = tr.dataset.nif;
+    document.getElementById('inv-total').textContent = tr.dataset.total + ' DZD';
+    openModal('modal-invoice');
+  }
+
+  // ---------- Sites ----------
+  var siteData = {
+    alger: { name: 'Alger — Entrepôt Central', val: '8,42M DZD', skus: '342', alerts: '3' },
+    oran: { name: 'Oran — Dépôt Nord', val: '3,18M DZD', skus: '198', alerts: '1' },
+    constantine: { name: 'Constantine — Point de vente', val: '640K DZD', skus: '76', alerts: '0' }
+  };
+  var currentSiteModal = null;
+  function openSiteDetail(card) {
+    var s = card.dataset.site;
+    currentSiteModal = s;
+    var d = siteData[s];
+    document.getElementById('site-modal-name').textContent = d.name;
+    document.getElementById('site-modal-val').textContent = d.val;
+    document.getElementById('site-modal-skus').textContent = d.skus;
+    document.getElementById('site-modal-alerts').textContent = d.alerts;
+    openModal('modal-site');
+  }
+  function goToStockForSite() {
+    closeModal('modal-site');
+    activateModule('stock');
+    document.getElementById('site-select').value = currentSiteModal;
+    handleSiteChange(currentSiteModal);
+  }
+
+  function openTransferDetail(status) {
+    var body = document.getElementById('transfer-modal-body');
+    if (status === 'transit') {
+      body.innerHTML =
+        '<p class="modal-sub">Huile d&#39;olive extra vierge 1L — 40 cartons · Alger → Oran</p>' +
+        '<div class="field-grid">' +
+        '<div class="field-row"><label>Chauffeur</label><input value="Karim Belkacemi" disabled></div>' +
+        '<div class="field-row"><label>Téléphone</label><input value="+213 555 12 34 56" disabled></div>' +
+        '<div class="field-row"><label>Véhicule</label><input value="Fourgon — 16-A-1234-16" disabled></div>' +
+        '<div class="field-row"><label>Arrivée estimée</label><input value="Aujourd&#39;hui, 17h30" disabled></div>' +
+        '</div>';
+    } else {
+      body.innerHTML =
+        '<p class="modal-sub">Semoule fine 25kg — 15 sacs · Alger → Constantine</p>' +
+        '<div class="note-box">Livreur non assigné — le transfert est encore en préparation.</div>' +
+        '<div class="modal-footer" style="justify-content:flex-start"><button class="btn-secondary">Assigner un livreur</button></div>';
+    }
+    openModal('modal-transfer');
+  }
+
+  // ---------- Scan flow ----------
+  function scanGo(step, confirmText) {
+    document.querySelectorAll('.scan-step').forEach(function (s) { s.classList.remove('on'); });
+    document.getElementById('scan-step-' + step).classList.add('on');
+    if (step === 'confirm' && confirmText) document.getElementById('confirm-line').textContent = confirmText;
+  }
+  function setLotMode(mode) {
+    document.getElementById('in-existing-btn').classList.toggle('on', mode === 'existing');
+    document.getElementById('in-new-btn').classList.toggle('on', mode === 'new');
+    document.getElementById('in-existing-fields').style.display = mode === 'existing' ? 'flex' : 'none';
+    document.getElementById('in-new-fields').style.display = mode === 'new' ? 'flex' : 'none';
+  }
+</script>

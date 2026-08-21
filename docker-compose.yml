@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: stockily-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stockily
+      POSTGRES_USER: stockily
+      POSTGRES_PASSWORD: stockily
+    ports:
+      - '5432:5432'
+    volumes:
+      - stockily_pgdata:/var/lib/postgresql/data
+
+volumes:
+  stockily_pgdata:

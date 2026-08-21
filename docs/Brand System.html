@@ -1,0 +1,457 @@
+<title>Stockily Brand System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #F6F4FB;
+    --surface: #FFFFFF;
+    --surface-alt: #EFEAF7;
+    --text: #241C33;
+    --text-muted: #6B6478;
+    --border: #E1DBEF;
+
+    --brand-ink: #17111F;
+    --brand-purple: #4B2E83;
+    --brand-purple-soft: #6B4BA8;
+    --accent-teal: #189885;
+
+    --success: #2E7D5B;
+    --warning: #B45309;
+    --danger: #B42318;
+    --info: #2554C7;
+
+    --font-display: 'Sora', 'Segoe UI', sans-serif;
+    --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14101C;
+      --surface: #1D1730;
+      --surface-alt: #251D3B;
+      --text: #EDE9F5;
+      --text-muted: #ABA1C2;
+      --border: #362B52;
+
+      --brand-purple-soft: #8B6BD1;
+      --accent-teal: #2FE1C4;
+
+      --success: #4ADE80;
+      --warning: #F59E0B;
+      --danger: #F87171;
+      --info: #60A5FA;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #14101C;
+    --surface: #1D1730;
+    --surface-alt: #251D3B;
+    --text: #EDE9F5;
+    --text-muted: #ABA1C2;
+    --border: #362B52;
+
+    --brand-purple-soft: #8B6BD1;
+    --accent-teal: #2FE1C4;
+
+    --success: #4ADE80;
+    --warning: #F59E0B;
+    --danger: #F87171;
+    --info: #60A5FA;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    line-height: 1.55;
+  }
+
+  main {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 88px;
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  /* ---------- HERO (fixed brand ground, intentional single-theme block) ---------- */
+  .hero {
+    background:
+      radial-gradient(720px 420px at 82% -10%, rgba(31,191,133,0.35), transparent 60%),
+      radial-gradient(600px 500px at -10% 110%, rgba(107,75,168,0.45), transparent 65%),
+      var(--brand-ink);
+    color: #F4F1FB;
+    margin: 0 -28px;
+    padding: 76px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .hero .eyebrow { color: #B6ADD6; }
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(3rem, 9vw, 5.6rem);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .wordmark .ily { color: #34E8C9; }
+  .hero-tagline {
+    max-width: 46ch;
+    font-size: 1.1rem;
+    color: #D9D3EC;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: #B6ADD6;
+  }
+  .hero-meta strong { color: #F4F1FB; font-weight: 500; }
+
+  /* ---------- Section scaffolding ---------- */
+  section { display: flex; flex-direction: column; gap: 28px; }
+  .section-head { display: flex; flex-direction: column; gap: 8px; max-width: 62ch; }
+  .section-head h2 { font-size: 1.5rem; font-weight: 600; }
+  .section-head p { color: var(--text-muted); margin: 0; font-size: 0.98rem; }
+
+  /* ---------- Logo section ---------- */
+  .logo-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .logo-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 40px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+  }
+  .logo-card.on-dark { background: var(--brand-ink); }
+  .logo-card.on-light { background: #FFFFFF; border-color: #E1DBEF; }
+  .logo-card .wordmark { font-size: 2.4rem; }
+  .logo-card.on-dark .wordmark { color: #F4F1FB; }
+  .logo-card.on-dark .wordmark .ily { color: #34E8C9; }
+  .logo-card.on-light .wordmark { color: var(--brand-ink); }
+  .logo-card.on-light .wordmark .ily { color: var(--accent-teal); }
+
+  .logo-note {
+    display: flex;
+    gap: 16px;
+    padding: 18px 20px;
+    background: var(--surface-alt);
+    border-radius: 6px;
+    font-size: 0.92rem;
+    color: var(--text-muted);
+  }
+  .logo-note .icon-tile {
+    flex: none;
+    width: 40px; height: 40px;
+    border-radius: 9px;
+    background: var(--brand-ink);
+    color: #34E8C9;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 1.05rem;
+  }
+  .logo-note strong { color: var(--text); }
+
+  /* ---------- Palette ---------- */
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+  }
+  .swatch {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .swatch-color { height: 76px; }
+  .swatch-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+  .swatch-name { font-weight: 500; font-size: 0.92rem; }
+  .swatch-hex { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); }
+  .swatch-use { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+  .semantic-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .pill {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    padding: 6px 12px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.success { background: color-mix(in srgb, var(--success) 16%, var(--surface)); color: var(--success); }
+  .pill.warning { background: color-mix(in srgb, var(--warning) 16%, var(--surface)); color: var(--warning); }
+  .pill.danger  { background: color-mix(in srgb, var(--danger) 16%, var(--surface));  color: var(--danger); }
+  .pill.info    { background: color-mix(in srgb, var(--info) 16%, var(--surface));    color: var(--info); }
+
+  /* ---------- Typography specimen ---------- */
+  .type-specimen {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 32px;
+    background: var(--surface);
+  }
+  .type-row { display: grid; grid-template-columns: 140px 1fr; gap: 20px; align-items: baseline; }
+  .type-label { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-muted); letter-spacing: 0.04em; }
+  .type-sample-display { font-family: var(--font-display); font-weight: 700; font-size: 2.1rem; letter-spacing: -0.01em; }
+  .type-sample-h3 { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; }
+  .type-sample-body { font-family: var(--font-body); font-size: 1rem; max-width: 58ch; color: var(--text); }
+  .type-sample-mono { font-family: var(--font-mono); font-size: 0.98rem; font-variant-numeric: tabular-nums; color: var(--text); }
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+  /* ---------- Applied mockups ---------- */
+  .applied-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .applied-grid { grid-template-columns: 1fr; } }
+
+  /* Sidebar mock: fixed brand chrome, illustrative — not tied to viewer theme */
+  .app-mock {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    height: 380px;
+  }
+  .app-sidebar {
+    width: 100%;
+    background: var(--brand-ink);
+    color: #EDE7F7;
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .app-sidebar .mini-word { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; margin-bottom: 16px; padding: 0 8px; }
+  .app-sidebar .mini-word .ily { color: #34E8C9; }
+  .nav-item {
+    font-size: 0.86rem;
+    padding: 9px 10px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #C6BEE0;
+  }
+  .nav-item.active { background: rgba(52,232,201,0.14); color: #EDE7F7; border-left: 2px solid #34E8C9; padding-left: 8px; }
+  .nav-item.locked { color: #6E6588; }
+  .nav-item .tag { font-family: var(--font-mono); font-size: 0.66rem; background: rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 999px; }
+  .nav-item.locked .tag { color: #9A8FBD; }
+
+  /* Invoice mock: fixed paper ground — a printed document, not viewer-theme-dependent */
+  .invoice-mock {
+    background: #FFFFFF;
+    color: #241C33;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 26px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    font-size: 0.86rem;
+  }
+  .invoice-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .invoice-top .wordmark { font-size: 1.3rem; color: #17111F; }
+  .invoice-top .wordmark .ily { color: #189885; }
+  .invoice-meta { text-align: right; color: #6B6478; line-height: 1.5; }
+  .invoice-meta strong { color: #241C33; font-family: var(--font-mono); font-weight: 600; }
+  .legal-block { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; color: #4A4258; font-family: var(--font-mono); font-size: 0.76rem; background: #F6F4FB; border-radius: 6px; padding: 12px 14px; }
+  .legal-block span b { color: #241C33; }
+  .invoice-lines table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .invoice-lines th { text-align: left; font-weight: 500; color: #6B6478; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 8px; border-bottom: 1px solid #E1DBEF; }
+  .invoice-lines td { padding: 8px 0; border-bottom: 1px solid #EFEAF7; }
+  .invoice-lines td.num, .invoice-lines th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .invoice-total-words { font-family: var(--font-mono); font-size: 0.76rem; color: #6B6478; font-style: italic; }
+  .invoice-badges { display: flex; gap: 8px; }
+  .badge-lang { font-family: var(--font-mono); font-size: 0.68rem; padding: 3px 8px; border-radius: 4px; background: #EFEAF7; color: #4B2E83; }
+
+  .applied-caption { font-size: 0.82rem; color: var(--text-muted); margin-top: 10px; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero, .logo-card, section { animation: rise 0.5s ease both; }
+    section:nth-of-type(2) { animation-delay: 0.05s; }
+    section:nth-of-type(3) { animation-delay: 0.1s; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+</style>
+
+<div class="hero">
+  <div class="eyebrow">Identité de marque — v1 · Phase 1</div>
+  <div class="wordmark">Stock<span class="ily">ily</span></div>
+  <p class="hero-tagline">La plateforme modulaire de gestion de stock, qualité et facturation — pensée pour s'adapter à n'importe quelle activité, à n'importe quelle taille.</p>
+  <div class="hero-meta">
+    <span>Ton : <strong>Moderne &amp; professionnel</strong></span>
+    <span>Palette : <strong>Marine/violet + sarcelle</strong></span>
+    <span>Marché : <strong>Algérie</strong></span>
+  </div>
+</div>
+
+<main>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">01 — Logo</div>
+      <h2>Un wordmark, deux terrains</h2>
+      <p>Le nom porte la marque — pas de symbole séparé. "Stock" en encre, "ily" en sarcelle : la même lecture que la couverture du document de conception, affinée pour l'usage produit.</p>
+    </div>
+    <div class="logo-grid">
+      <div class="logo-card on-dark"><div class="wordmark">Stock<span class="ily">ily</span></div></div>
+      <div class="logo-card on-light"><div class="wordmark">Stock<span class="ily">ily</span></div></div>
+    </div>
+    <div class="logo-note">
+      <div class="icon-tile">St</div>
+      <div><strong>Icône d'application (usage pratique uniquement) :</strong> l'app Scan (Capacitor) a besoin d'une icône carrée pour l'écran d'accueil iOS/Android. Un monogramme dérivé du wordmark suffit — ce n'est pas un second système de marque, seulement une contrainte de plateforme.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">02 — Palette</div>
+      <h2>Encre, violet, sarcelle</h2>
+      <p>La base sombre de la couverture, réduite à des tokens exploitables : une encre pour les fonds de marque (sidebar, en-têtes), un violet de soutien, et la sarcelle comme unique accent — jamais dilué dans les couleurs sémantiques.</p>
+    </div>
+    <div class="swatch-grid">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#17111F"></div>
+        <div class="swatch-body"><span class="swatch-name">Encre</span><span class="swatch-hex">#17111F</span><span class="swatch-use">Fonds de marque, sidebar app</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#4B2E83"></div>
+        <div class="swatch-body"><span class="swatch-name">Violet Stockily</span><span class="swatch-hex">#4B2E83</span><span class="swatch-use">Dégradés, éléments secondaires</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#189885"></div>
+        <div class="swatch-body"><span class="swatch-name">Sarcelle (accent)</span><span class="swatch-hex">#189885</span><span class="swatch-use">CTA, états actifs, "ily"</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#F6F4FB; border-bottom:1px solid #E1DBEF"></div>
+        <div class="swatch-body"><span class="swatch-name">Neutre clair</span><span class="swatch-hex">#F6F4FB</span><span class="swatch-use">Fond d'application, jour</span></div>
+      </div>
+    </div>
+    <div>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 10px">Couleurs sémantiques — séparées de l'accent, pour les alertes (seuils de stock, péremption, factures) :</p>
+      <div class="semantic-row">
+        <span class="pill success">Succès · en stock</span>
+        <span class="pill warning">Attention · péremption proche</span>
+        <span class="pill danger">Erreur · rupture / non-conformité</span>
+        <span class="pill info">Info · en attente de paiement</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">03 — Typographie</div>
+      <h2>Sora, IBM Plex Sans, IBM Plex Mono</h2>
+      <p>Un display géométrique pour les titres, un texte courant conçu pour rester lisible dans des tableaux denses, et une mono pour tout ce qui s'aligne en colonnes — quantités, totaux, numéros de facture.</p>
+    </div>
+    <div class="type-specimen">
+      <div class="type-row"><span class="type-label">DISPLAY / SORA</span><span class="type-sample-display">Gestion de Stock</span></div>
+      <hr class="divider">
+      <div class="type-row"><span class="type-label">TITRE / SORA 600</span><span class="type-sample-h3">Alertes de péremption proche</span></div>
+      <hr class="divider">
+      <div class="type-row"><span class="type-label">TEXTE / PLEX SANS</span><span class="type-sample-body">Chaque module reste indépendant : un client active la Qualité sans jamais changer d'écran ni réapprendre l'outil.</span></div>
+      <hr class="divider">
+      <div class="type-row"><span class="type-label">DONNÉES / PLEX MONO</span><span class="type-sample-mono">SKU-04821 · Qté 128 · 24 500,00 DZD</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">04 — En contexte</div>
+      <h2>La marque appliquée</h2>
+      <p>Deux écrans qui portent le plus de poids en Phase 1 : la navigation par sidebar, sombre et groupée par module, et l'en-tête de facture, sur fond clair, avec les mentions obligatoires du Décret 05-468.</p>
+    </div>
+    <div class="applied-grid">
+      <div>
+        <div class="app-mock">
+          <div class="app-sidebar">
+            <div class="mini-word">Stock<span class="ily">ily</span></div>
+            <div class="nav-item active">Gestion de Stock</div>
+            <div class="nav-item">Qualité</div>
+            <div class="nav-item">Factures</div>
+            <div class="nav-item">Multi-Sites</div>
+            <div class="nav-item">Scan / QR</div>
+            <div class="nav-item locked">Achats <span class="tag">Phase 2</span></div>
+            <div class="nav-item locked">CRM <span class="tag">Phase 2</span></div>
+            <div class="nav-item locked">Comptabilité <span class="tag">Phase 3</span></div>
+          </div>
+        </div>
+        <p class="applied-caption">Sidebar repliable, modules actifs en clair, modules verrouillés en gris avec badge de phase.</p>
+      </div>
+      <div>
+        <div class="invoice-mock">
+          <div class="invoice-top">
+            <div class="wordmark">Stock<span class="ily">ily</span></div>
+            <div class="invoice-meta">Facture <strong>FA-2026-000184</strong><br>21/08/2026</div>
+          </div>
+          <div class="legal-block">
+            <span>NIF <b>0026 2100 1847 03</b></span>
+            <span>NIS <b>098226184700017</b></span>
+            <span>RC <b>16/00-3218472 B24</b></span>
+            <span>Art. imposition <b>34117210084</b></span>
+          </div>
+          <div class="invoice-lines">
+            <table>
+              <thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">P.U. HT</th><th class="num">TVA</th><th class="num">Total HT</th></tr></thead>
+              <tbody>
+                <tr><td>Huile d'olive 1L — carton de 12</td><td class="num">40</td><td class="num">980,00</td><td class="num">19%</td><td class="num">39 200,00</td></tr>
+                <tr><td>Frais de livraison</td><td class="num">1</td><td class="num">1 500,00</td><td class="num">19%</td><td class="num">1 500,00</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="invoice-total-words">Arrêtée la présente facture à la somme de : quarante-huit mille cent trente-neuf dinars algériens.</div>
+          <div class="invoice-badges"><span class="badge-lang">FR</span><span class="badge-lang">AR — عربي</span></div>
+        </div>
+        <p class="applied-caption">Fond papier fixe (blanc), mentions légales groupées, montant en lettres, sortie bilingue.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Stockily — identité de marque v1</span>
+    <span>Prochaine étape : wireframes des 5 modules de la Phase 1</span>
+  </footer>
+
+</main>
