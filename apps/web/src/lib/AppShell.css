@@ -1,0 +1,92 @@
+.shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
+}
+
+.shell-sidebar {
+  background: var(--ink);
+  color: #ede7f7;
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shell-wordmark {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 4px 10px 20px;
+}
+.shell-wordmark .ily {
+  color: var(--teal-bright);
+}
+
+.shell-group-label {
+  font-family: var(--f-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7a6fa0;
+  padding: 14px 10px 6px;
+}
+
+.shell-nav-item {
+  font-size: 0.88rem;
+  padding: 9px 10px;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #c6bee0;
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.shell-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.shell-nav-item.active {
+  background: rgba(31, 191, 160, 0.16);
+  color: #f4f1fb;
+  border-left: 2px solid var(--teal-bright);
+  padding-left: 8px;
+}
+.shell-nav-item.shell-locked {
+  opacity: 0.5;
+  cursor: default;
+}
+.shell-tag {
+  font-family: var(--f-mono);
+  font-size: 0.62rem;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #9a8fbd;
+}
+
+.shell-spacer {
+  flex: 1;
+}
+.shell-settings {
+  color: #9a8fbd;
+  font-size: 0.8rem;
+}
+.shell-settings:hover {
+  color: #ede7f7;
+}
+.shell-logout {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 6px;
+  padding-top: 12px;
+}
+
+.shell-content {
+  padding: 30px 34px 40px;
+  overflow-x: auto;
+}

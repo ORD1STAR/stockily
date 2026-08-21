@@ -16,6 +16,12 @@
 
   --danger: #b42318;
   --danger-bg: #fbe7e5;
+  --success: #1c7a4c;
+  --success-bg: #e4f5ea;
+  --warning: #a45a08;
+  --warning-bg: #fbeedc;
+  --info: #2554c7;
+  --info-bg: #e8eefc;
 
   --f-display: 'Sora', 'Segoe UI', sans-serif;
   --f-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;

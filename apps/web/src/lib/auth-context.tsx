@@ -13,6 +13,8 @@ export interface MeResponse {
 interface AuthContextValue {
   me: MeResponse | null;
   loading: boolean;
+  /** Null only while `loading` or logged out — pages behind ProtectedRoute can treat this as always present. */
+  accessToken: string | null;
   signup: (organizationName: string, email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -93,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [accessToken, clearSession]);
 
   return (
-    <AuthContext.Provider value={{ me, loading, signup, login, logout, logoutEverywhere }}>
+    <AuthContext.Provider value={{ me, loading, accessToken, signup, login, logout, logoutEverywhere }}>
       {children}
     </AuthContext.Provider>
   );
