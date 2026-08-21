@@ -1,0 +1,112 @@
+import { FormEvent, useEffect, useState } from 'react';
+import { useAuth } from './auth-context';
+import { ApiError, OrganizationProfile, invoicingApi } from './api';
+
+// Backs the wireframe's "⚙ Paramètres du Business" screen — the org's own
+// legal identity (Décret 05-468's 12 mandatory mentions on the seller
+// side), required before a CUSTOMER invoice can be finalized
+// (InvoicingService.finalizeInvoice checks these same fields server-side;
+// this form is what actually fills them in). Reachable from AppShell so
+// it's available regardless of which module page is open, matching the
+// wireframe's placement at the very bottom of the sidebar.
+export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) {
+  const { accessToken } = useAuth();
+  const [profile, setProfile] = useState<OrganizationProfile | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    invoicingApi.getOrganizationProfile(accessToken).then(setProfile);
+  }, [accessToken]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken || !profile) return;
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await invoicingApi.updateOrganizationProfile(accessToken, {
+        name: profile.name,
+        address: profile.address ?? undefined,
+        nif: profile.nif ?? undefined,
+        nis: profile.nis ?? undefined,
+        rc: profile.rc ?? undefined,
+        taxArticle: profile.taxArticle ?? undefined,
+        phone: profile.phone ?? undefined,
+        email: profile.email ?? undefined,
+      });
+      setProfile(updated);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+    }
+  }
+
+  if (!profile) return null;
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal wide">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Paramètres du Business</h3>
+        <p className="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
+        <form className="field-form" onSubmit={submit}>
+          <div className="upload-box">Glisser un logo ou cliquer pour parcourir (à venir)</div>
+          <div className="field-row">
+            <label>Nom de l'entreprise</label>
+            <input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} required />
+          </div>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>NIF</label>
+              <input value={profile.nif ?? ''} onChange={(e) => setProfile({ ...profile, nif: e.target.value })} />
+            </div>
+            <div className="field-row">
+              <label>NIS</label>
+              <input value={profile.nis ?? ''} onChange={(e) => setProfile({ ...profile, nis: e.target.value })} />
+            </div>
+            <div className="field-row">
+              <label>RC</label>
+              <input value={profile.rc ?? ''} onChange={(e) => setProfile({ ...profile, rc: e.target.value })} />
+            </div>
+            <div className="field-row">
+              <label>Article d'imposition</label>
+              <input value={profile.taxArticle ?? ''} onChange={(e) => setProfile({ ...profile, taxArticle: e.target.value })} />
+            </div>
+          </div>
+          <div className="field-row">
+            <label>Adresse</label>
+            <textarea rows={2} value={profile.address ?? ''} onChange={(e) => setProfile({ ...profile, address: e.target.value })} />
+          </div>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Téléphone</label>
+              <input value={profile.phone ?? ''} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
+            </div>
+            <div className="field-row">
+              <label>Email</label>
+              <input type="email" value={profile.email ?? ''} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
+            </div>
+          </div>
+          <div className="field-row">
+            <label>Devise</label>
+            <input value="DZD" disabled />
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          {saved && <div className="note-box">Enregistré.</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Fermer
+            </button>
+            <button type="submit" className="btn-primary">
+              Enregistrer
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

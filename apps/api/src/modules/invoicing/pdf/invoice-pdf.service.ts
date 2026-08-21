@@ -13,8 +13,21 @@ import { amountToArabicWords, amountToFrenchWords } from '@org/domain-invoicing'
 // exists and the font loads/draws without throwing) versus what wasn't
 // (a human or image-diff confirming the rendered glyph order is correct).
 // Recommend a visual QA pass before this ships to real customers.
+//
+// __non_webpack_require__ (not require.resolve) is load-bearing in the
+// webpack-bundled runtime, not stylistic: webpack intercepts
+// require.resolve() in a Node-target bundle and can replace it with its
+// own internal numeric module id instead of a real filesystem path —
+// confirmed by hitting exactly that failure (`path.join` receiving a
+// number) when this used plain require.resolve under `nx serve`/the built
+// image. But __non_webpack_require__ only exists inside an actual webpack
+// bundle — it's a ReferenceError under Jest (ts/swc-transpiled source, no
+// webpack involved at all), so fall back to plain require.resolve there.
+declare const __non_webpack_require__: NodeRequire | undefined;
+const resolvePackageJson: (id: string) => string =
+  typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__.resolve : require.resolve;
 const ARABIC_FONT_PATH = path.join(
-  require.resolve('@fontsource/noto-naskh-arabic/package.json'),
+  resolvePackageJson('@fontsource/noto-naskh-arabic/package.json'),
   '..',
   'files',
   'noto-naskh-arabic-arabic-400-normal.woff',

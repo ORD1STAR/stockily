@@ -18,4 +18,12 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: 'test-output/jest/coverage',
+  // Multiple e2e spec files each boot a full Nest app + its own Prisma
+  // connection pool; running them together (the default when this target
+  // executes the whole suite) is real concurrent resource contention, not
+  // a code bug — several `beforeAll`s intermittently exceeded Jest's 5000ms
+  // default under that load even though every one of them passes cleanly
+  // in isolation. Raised globally rather than per-file, since the cause is
+  // the same for all of them.
+  testTimeout: 30000,
 };

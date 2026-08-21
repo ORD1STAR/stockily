@@ -1,0 +1,33 @@
+# Milestone 4 — Invoicing
+
+Invoices, partners, tax rates, payments, Décret Exécutif 05-468 compliance, and real PDF generation, per Action Plan §7 milestone 4. Builds on Milestone 2's `domain-stock` contract (a stock-linked line's finalization triggers a real OUT movement) without modifying it.
+
+## What was built
+
+- **`packages/domain-invoicing`** — framework-agnostic: `computeInvoiceTotals`/`deriveInvoiceStatus` (line math, discounts, tax, running-balance status), `amountToFrenchWords`/`amountToArabicWords` (real number-to-words conversion, not a stub, in both languages).
+- **Schema additions**: `Invoice.siteId` (a stock-deducting line needs to know which site's stock to draw from — doesn't conflict with the org-wide gapless numbering, which is unrelated to site), `InvoiceCounter` (orgId+year+lastNumber, the concurrency-safe numbering mechanism — see below), `Organization.address/nif/nis/rc/taxArticle` (the seller's own legal identity — `Partner` already carried these for the buyer side; the org needed the same fields for itself).
+- **`apps/api` InvoicingModule** — real controllers behind the full guard chain (`@RequiresModule('invoicing')`, `@RequiresPermission('invoicing', ...)`), audit-logged on mutations: partners, tax rates, organization legal profile, invoices (create/list/detail/finalize/void/payments/PDF), a simple overdue-reminder check.
+- **Real PDF generation** via `pdfkit` (see "PDF library choice" below) — the 12 Décret 05-468 mandatory mentions, bilingual FR/AR amount-in-words, line items.
+- **Frontend**: the real Factures screen (list, filter tabs, stat strip, click-to-preview modal with real "Imprimer"/"Télécharger PDF" actions hitting the actual PDF endpoint — not `window.print()` on a mock — plus finalize/payment actions inline), a basic invoice-creation modal, and an "⚙ Paramètres du Business" settings modal (reachable from `AppShell`, gated on the `invoicing` entitlement since it edits the org's legal profile that Invoicing enforces).
+- **Demo seed**: the org's own legal profile (required before any CUSTOMER invoice can be finalized — without it, the demo would 400 on every finalize attempt), a TVA tax rate, four partners matching the wireframe, and five finalized demo invoices at a mix of paid/partial/unpaid statuses.
+
+## Decisions made
+
+1. **PDF library: `pdfkit`**, not a headless-browser HTML-to-PDF approach (Puppeteer/Playwright) — no ~300MB Chromium download in this environment, pure-JS, fast. Trade-off stated plainly: pdfkit/fontkit's Arabic text support has **not been visually verified** here (no PDF viewer available in this environment) — what was actually checked is that fontkit's script-direction/glyph-shaping code exists and the font loads/draws without throwing, not that a human or image-diff confirmed correct rendered glyph order. **Recommend a visual QA pass before this ships to real customers.**
+2. **A real webpack bug found and fixed, not routed around**: `invoice-pdf.service.ts` resolves the Arabic font file's path via `require.resolve('@fontsource/.../package.json')` at module-load time. Under the webpack-bundled runtime (`nx serve`/the built image), webpack intercepts `require.resolve()` in a Node-target bundle and can replace it with its own internal numeric module id instead of a real filesystem path — this crashed `path.join` with "path argument must be a string, received number" on every boot. Fixed with `__non_webpack_require__` (webpack's documented escape hatch back to real Node `require`), **but** that identifier only exists inside an actual bundle — it's a `ReferenceError` under Jest (ts/swc-transpiled source, no webpack at all) — so the fix checks `typeof __non_webpack_require__ !== 'undefined'` and falls back to plain `require.resolve` for the test environment. Verified working in **both** contexts: the Jest suite (51/51 passing) and a real built-bundle smoke test (booted the compiled `dist/apps/api/main.js`, logged in, generated a real PDF, confirmed `file` reports it as a valid PDF).
+3. **Invoice numbering concurrency**: `INSERT INTO invoice_counters (...) VALUES (...) ON CONFLICT (orgId, year) DO UPDATE SET lastNumber = lastNumber + 1 RETURNING lastNumber` — one atomic statement, safe under concurrent finalization because Postgres serializes concurrent `INSERT ... ON CONFLICT DO UPDATE` statements targeting the same row via ordinary row-level locking (the second concurrent transaction blocks until the first commits/rolls back, then sees the incremented value) — not a read-then-write from application code, which would race. Column names in the raw SQL are quoted camelCase since this schema has no per-field `@map`, only `@@map` on the table name.
+4. **Stock deduction is all-or-nothing with number assignment** — both happen inside the same database transaction as the finalize call, via `StockService.recordMovementInTransaction` (not the ordinary `recordMovement`, which opens its own transaction and couldn't participate in this one). An oversell on any line fails the whole finalization cleanly, with the specific line identified in the error — no partial deduction, no number burned on a failed attempt.
+5. **CUSTOMER vs SUPPLIER invoices have different lifecycles**: a CUSTOMER invoice goes draft → finalize (gets its compliance number, deducts stock) → paid/void. A SUPPLIER invoice is already final at creation — it carries the *supplier's own* reference number (never auto-assigned), never deducts stock (receiving/Purchasing is Phase 2, out of scope here), and has no draft/finalize step at all.
+6. **Reminder cadence is a fixed 30-day cutoff on `finalizedAt`**, not a real due-date/payment-terms field (the schema has none yet) — a documented simplification, not an oversight.
+7. **No email provider configured anywhere in this project** — `EmailSenderPort` is a real interface with a `NoOpEmailSender` (logs only) bound in `InvoicingModule`; wiring a real SMTP/provider is a follow-up, not invented credentials.
+
+## How to verify
+
+```bash
+docker compose up -d && npm install
+npm run prisma:migrate && npm run db:seed && npm run db:seed:demo
+npx nx run-many -t lint build test
+npx nx serve api   # :3000/api
+npx nx serve web   # :4200
+```
+Log in with `demo@stockily.dz` / `Demo1234!`, open Factures, click an invoice to preview/print/download its real PDF. `npx nx run-many -t lint build test` passes clean (51/51 api tests). Manually smoke-tested beyond the test suite: seeded the isolated test database, booted the actual compiled bundle (not just `ts-jest`), and confirmed real gapless numbering (`FA-2026-000001` through `...005`), correct paid/partial/unpaid statuses, and a genuinely valid generated PDF (`file` confirms "PDF document, version 1.3").
