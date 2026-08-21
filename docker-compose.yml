@@ -11,6 +11,44 @@ services:
       - '5432:5432'
     volumes:
       - stockily_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stockily -d stockily']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # api/web are an alternative to `nx serve` for running the app, not meant
+  # to run alongside it on the same ports (both default to 3000/4200).
+  # Migrations/seeding aren't run automatically here — do that once via
+  # `npm run prisma:migrate && npm run db:seed` against the same postgres
+  # before starting these, same as the nx serve workflow.
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: stockily-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://stockily:stockily@postgres:5432/stockily?schema=public
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: stockily-web
+    restart: unless-stopped
+    ports:
+      - '4200:80'
+    depends_on:
+      - api
 
 volumes:
   stockily_pgdata:
