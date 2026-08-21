@@ -64,11 +64,15 @@ model Module {
 }
 
 model OrganizationModuleEntitlement {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   orgId       String
   moduleId    String
-  status      String   @default("active") // active | trial | suspended | cancelled
-  activatedAt DateTime @default(now())
+  status      String    @default("trial") // active | trial | suspended | cancelled
+  activatedAt DateTime  @default(now())
+  // 15-day free trial, no card required (Action Plan §11). Only meaningful
+  // when status = "trial" — ModuleEntitlementGuard treats a trial as active
+  // only while now() < trialEndsAt; null for non-trial statuses.
+  trialEndsAt DateTime?
 
   organization Organization @relation(fields: [orgId], references: [id])
   module       Module       @relation(fields: [moduleId], references: [id])
