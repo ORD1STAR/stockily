@@ -199,6 +199,23 @@ async function main() {
     productIdBySku.set(p.sku, created.id);
   }
 
+  // Everything below this line (stock movements, batches, the Ceinture
+  // quarantine check, invoices) is NOT idempotent — each re-run posts more
+  // movements / creates duplicate batches with the same lot number /
+  // quarantines another 8 units / creates more invoices. Caught by
+  // actually clicking through the running app (a real lot showing up
+  // twice in the Quality table, quarantine counts double what the seed
+  // data intended), not by reading the code. One guard here is simpler
+  // and more robust than scattering an existence-check into every loop
+  // below: if this org already has its first demo batch, the whole demo
+  // dataset was already built by a prior run — skip straight to done.
+  const alreadySeeded = await prisma.batch.findFirst({ where: { orgId: org.id, lotNumber: BATCH_DEMOS[0].lotNumber } });
+  if (alreadySeeded) {
+    console.log('Demo data already fully seeded for this org — skipping (re-run against a fresh database to reseed from scratch).');
+    console.log(`Log in with ${DEMO_EMAIL} / Demo1234!`);
+    return; // main()'s own .finally() below still disconnects prisma
+  }
+
   console.log('Posting stock movements to reach demo quantities (via the real StockMovementService)...');
   for (const [siteKey, sku, onHandTarget, quarantineTarget] of STOCK_TARGETS) {
     const siteId = siteIdByKey.get(siteKey)!;

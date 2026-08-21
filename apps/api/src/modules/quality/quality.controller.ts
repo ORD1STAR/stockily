@@ -33,14 +33,15 @@ export class QualityController {
     return this.quality.createBatch(user.orgId, dto);
   }
 
-  // ?productId=<id> both filters AND enriches each batch with its most
-  // recent quality-check result (the Stock module's SKU-detail view uses
-  // this shape directly — see docs/MILESTONE_3.md).
+  // Always enriched with each batch's most recent quality-check result —
+  // the Quality overview table needs this org-wide (no productId), and
+  // Stock's SKU-detail view needs it scoped to one product; both go
+  // through the same method now (see listBatchesWithLatestCheck's own
+  // comment for why the org-wide case was silently broken before this).
   @Get('batches')
   @RequiresPermission('quality', 'quality.batch.read')
   listBatches(@CurrentUser() user: AuthenticatedUser, @Query('productId') productId?: string) {
-    if (productId) return this.quality.listBatchesWithLatestCheck(user.orgId, productId);
-    return this.quality.listBatches(user.orgId);
+    return this.quality.listBatchesWithLatestCheck(user.orgId, productId);
   }
 
   @Get('batches/:id')

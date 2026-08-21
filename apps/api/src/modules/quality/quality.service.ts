@@ -46,14 +46,19 @@ export class QualityService {
   }
 
   /**
-   * Batches for one product, each enriched with its most recent quality
-   * check result — exactly what the Stock module's SKU-detail view needs
-   * (docs/Wireframes.html's lot table). A presentation-shaping join, so it
-   * lives here (apps/api) rather than in domain-quality's own service,
-   * which stays about batch/check *logic*, not this kind of read-model
-   * assembly.
+   * Batches (optionally filtered to one product), each enriched with its
+   * most recent quality check result — the Stock module's SKU-detail view
+   * needs this scoped to one product (docs/Wireframes.html's lot table);
+   * the Quality module's own overview table needs it org-wide, with no
+   * productId at all (its own "Contrôle qualité" column silently showed
+   * "—" for every row before this — found by actually clicking through the
+   * running app, not by reading the code, since `listBatches` alone never
+   * had a reason to look wrong in isolation). A presentation-shaping join,
+   * so it lives here (apps/api) rather than in domain-quality's own
+   * service, which stays about batch/check *logic*, not this kind of
+   * read-model assembly.
    */
-  async listBatchesWithLatestCheck(orgId: string, productId: string) {
+  async listBatchesWithLatestCheck(orgId: string, productId?: string) {
     const batches = await this.domainService().listBatches(orgId, { productId });
     if (batches.length === 0) return [];
 
