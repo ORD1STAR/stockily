@@ -20,10 +20,13 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { StockMovementService } from '@org/domain-stock';
+import { QualityService as DomainQualityService } from '@org/domain-quality';
 import { PrismaStockDataPort } from '../src/lib/prisma-stock-data-port.js';
+import { PrismaQualityDataPort } from '../src/lib/prisma-quality-data-port.js';
 
 const prisma = new PrismaClient();
 const stock = new StockMovementService(new PrismaStockDataPort(prisma));
+const quality = new DomainQualityService(new PrismaQualityDataPort(prisma));
 
 const DEMO_ORG_NAME = 'Épicerie El Baraka (démo)';
 const DEMO_EMAIL = 'demo@stockily.dz';
