@@ -1,10 +1,16 @@
 import { Module } from '@nestjs/common';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { TenancyModule } from '../tenancy/tenancy.module';
+import { AuditModule } from '../audit/audit.module';
 
-// Placeholder — see docs/Action Plan.md §1/§7.
-// Real controllers/services/providers land here per the Phase 1 milestone
-// sequence (§7): platform bootstrap -> Stock+Sites -> Quality -> Invoicing ->
-// Scan. This module's *product* entitlement (module registry row / feature
-// gate, §1) is a separate, runtime, per-tenant concern from this NestJS
-// module's compile-time DI boundary — do not conflate the two.
-@Module({})
+// JwtService comes from the globally-registered JwtConfigModule
+// (apps/api/src/config/jwt-config.module.ts) — not imported here directly,
+// since TenancyModule's JwtAuthGuard needs the exact same configured
+// instance and importing/configuring JwtModule twice would risk drift.
+@Module({
+  imports: [TenancyModule, AuditModule],
+  controllers: [AuthController],
+  providers: [AuthService],
+})
 export class AuthModule {}

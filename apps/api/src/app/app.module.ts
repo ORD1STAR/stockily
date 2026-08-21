@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { JwtConfigModule } from '../config/jwt-config.module';
 import { AuthModule } from '../modules/auth/auth.module';
 import { TenancyModule } from '../modules/tenancy/tenancy.module';
 import { StockModule } from '../modules/stock/stock.module';
@@ -12,6 +15,9 @@ import { AuditModule } from '../modules/audit/audit.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
+    JwtConfigModule,
     AuthModule,
     TenancyModule,
     AuditModule,
