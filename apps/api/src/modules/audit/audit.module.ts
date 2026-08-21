@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
+import { AuditInterceptor } from './audit.interceptor';
 
-// Placeholder — see docs/Action Plan.md §1/§7.
-// Real controllers/services/providers land here per the Phase 1 milestone
-// sequence (§7): platform bootstrap -> Stock+Sites -> Quality -> Invoicing ->
-// Scan. This module's *product* entitlement (module registry row / feature
-// gate, §1) is a separate, runtime, per-tenant concern from this NestJS
-// module's compile-time DI boundary — do not conflate the two.
-@Module({})
+// Provides AuditInterceptor for other modules to apply via
+// `@UseInterceptors(AuditInterceptor)` alongside `@Audit(entityType,
+// action)` on the specific handlers that mutate state (docs/Action Plan.md
+// §4). Not applied globally — most GET routes have nothing to audit.
+@Module({
+  providers: [AuditInterceptor],
+  exports: [AuditInterceptor],
+})
 export class AuditModule {}
