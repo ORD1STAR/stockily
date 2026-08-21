@@ -28,6 +28,23 @@ model Organization {
   billingCustomerId String?
   createdAt     DateTime @default(now())
 
+  // Seller's own legal identity for Décret Exécutif 05-468 (§9/§11) — the
+  // 12 mandatory invoice mentions include the ISSUING org's own name
+  // (reuses `name` above — the wireframe's "Paramètres du Business" screen
+  // edits that same field, not a separate one), address,
+  // NIF/NIS/RC/tax-article-number (Partner carries the same fields for the
+  // BUYER side; these are the seller side, never populated at signup —
+  // filled in later via that settings screen). Nullable: InvoicingService
+  // blocks finalization (not org creation) until these are set, with a
+  // clear pointer to that screen — see docs/MILESTONE_4.md.
+  address       String?
+  nif           String?
+  nis           String?
+  rc            String?
+  taxArticle    String?
+  phone         String?
+  email         String?
+
   sites         Site[]
   users         User[]
   roles         Role[]
@@ -41,6 +58,7 @@ model Organization {
   stockMovements StockMovement[]
   stockTransfers StockTransfer[]
   invoices      Invoice[]
+  invoiceCounters InvoiceCounter[]
   taxRates      TaxRate[]
   partners      Partner[]
   auditLogs     AuditLog[]
@@ -95,6 +113,7 @@ model Site {
   stockMovements  StockMovement[]
   transfersFrom   StockTransfer[]   @relation("transferFromSite")
   transfersTo     StockTransfer[]   @relation("transferToSite")
+  invoices        Invoice[]
 
   @@index([orgId])
   @@map("sites")
@@ -430,18 +449,31 @@ enum InvoiceType {
   SUPPLIER
 }
 
+// number/status lifecycle differs by type — see docs/MILESTONE_4.md for the
+// full reasoning, in short:
+//   CUSTOMER (an invoice THIS org issues): draft (number=null, mutable) ->
+//     finalize assigns the gapless number via InvoiceCounter below and
+//     triggers stock OUT movements for stock-linked lines -> unpaid ->
+//     partially_paid -> paid. Only a draft may be voided.
+//   SUPPLIER (a bill THIS org received): created already carrying the
+//     SUPPLIER's own reference as `number` (never auto-assigned, never
+//     compliance-numbered by us, no stock movement — Purchasing/receiving
+//     is Phase 2, out of scope) -> unpaid -> partially_paid -> paid.
 model Invoice {
   id            String      @id @default(uuid())
   orgId         String
+  siteId        String      // added for Milestone 4 — a stock-deducting line needs to know which site's stock to draw down; independent of the org-wide numbering sequence.
   type          InvoiceType
-  number        String      // gapless, sequential per organization across all sites (§8/§9) — Décret 05-468
-  partnerId     String?
+  number        String?     // nullable: null while a CUSTOMER invoice is still a draft (§8/§9 — Décret 05-468)
+  partnerId     String?     // null = "vente comptoir" / walk-in — the confirmed override path, not a separate flag (see docs/MILESTONE_4.md)
   currency      String      @default("DZD") // DZD-only in Phase 1 (§9); field kept for a future multi-currency addition
-  status        String      @default("unpaid") // unpaid | partially_paid | paid
+  status        String      @default("draft") // draft | unpaid | partially_paid | paid | void
   issuedAt      DateTime    @default(now())
+  finalizedAt   DateTime?   // set when a CUSTOMER invoice's number is assigned; set at creation time for SUPPLIER invoices
   transmissionStatus String? // placeholder for Algeria's DGI e-invoicing/CTC platform — no active integration yet (§8/§9)
 
   organization Organization  @relation(fields: [orgId], references: [id])
+  site         Site          @relation(fields: [siteId], references: [id])
   partner      Partner?      @relation(fields: [partnerId], references: [id])
   lines        InvoiceLine[]
   payments     Payment[]
@@ -450,6 +482,27 @@ model Invoice {
   @@unique([orgId, number])
   @@index([orgId])
   @@map("invoices")
+}
+
+// Backs the gapless, per-organization, per-calendar-year sequential number
+// (§8/§9 — Décret 05-468). Scoped by year to match the "FA-2026-000184"
+// format already shown in docs/Wireframes.html — an explicit interpretation
+// of "gapless per organization" the Action Plan itself didn't pin down to a
+// specific format, documented in docs/MILESTONE_4.md. Incremented via a
+// single atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` statement
+// (not a read-then-write from application code), which is safe under
+// concurrent finalization because Postgres serializes concurrent statements
+// touching the same row via its normal row-level locking — see
+// InvoicingService.finalize's own comment for the exact mechanism.
+model InvoiceCounter {
+  orgId      String
+  year       Int
+  lastNumber Int @default(0)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@id([orgId, year])
+  @@map("invoice_counters")
 }
 
 model InvoiceLine {

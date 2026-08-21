@@ -1,6 +1,7 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from './auth-context';
+import { OrganizationSettingsModal } from './OrganizationSettingsModal';
 import './AppShell.css';
 
 // The real sidebar, matching docs/Wireframes.html's pattern: a persistent
@@ -10,6 +11,7 @@ import './AppShell.css';
 export function AppShell({ children }: { children: ReactNode }) {
   const { me, logout } = useAuth();
   const entitledKeys = new Set((me?.entitlements ?? []).map((e) => e.module));
+  const [showSettings, setShowSettings] = useState(false);
 
   return (
     <div className="shell">
@@ -20,9 +22,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="shell-group-label">Phase 1</div>
         <NavItem to="/stock" label="Gestion de Stock" enabled={entitledKeys.has('stock')} />
         <NavItem to="/quality" label="Qualité" enabled={entitledKeys.has('quality')} />
-        <NavItem to="/invoicing" label="Factures" enabled={entitledKeys.has('invoicing')} tag="Milestone 3" />
+        <NavItem to="/invoicing" label="Factures" enabled={entitledKeys.has('invoicing')} />
         <NavItem to="/sites" label="Transferts Multi-Sites" enabled={entitledKeys.has('sites')} />
-        <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} tag="Milestone 4" />
+        <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} tag="Milestone 5" />
         <div className="shell-group-label">Verrouillés</div>
         <div className="shell-nav-item shell-locked">
           Achats <span className="shell-tag">Phase 2</span>
@@ -37,11 +39,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavLink to="/dashboard" className="shell-nav-item shell-settings">
           {me?.organization.name}
         </NavLink>
+        {entitledKeys.has('invoicing') && (
+          <button className="shell-nav-item shell-settings" onClick={() => setShowSettings(true)}>
+            ⚙ Paramètres du Business
+          </button>
+        )}
         <button className="shell-nav-item shell-settings shell-logout" onClick={() => logout()}>
           Se déconnecter
         </button>
       </aside>
       <main className="shell-content">{children}</main>
+      {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

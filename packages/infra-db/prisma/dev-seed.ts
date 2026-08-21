@@ -303,6 +303,81 @@ async function main() {
   console.log('Running the expiry sweep (creates near-expiry alerts for the demo lots)...');
   await quality.runExpirySweep(org.id);
 
+  console.log("Setting the demo org's own legal profile (required to finalize a CUSTOMER invoice)...");
+  await prisma.organization.update({
+    where: { id: org.id },
+    data: {
+      address: '14 rue des Frères Bouadou, Alger',
+      nif: '0026 2100 1847 03',
+      nis: '098226184700017',
+      rc: '16/00-3218472 B24',
+      taxArticle: '34117210084',
+      phone: '+213 21 00 00 00',
+      email: 'contact@stockily.dz',
+    },
+  });
+
+  console.log('Creating demo tax rate and partners...');
+  const existingTva = await prisma.taxRate.findFirst({ where: { orgId: org.id, name: 'TVA' } });
+  const tva = existingTva ?? (await prisma.taxRate.create({ data: { orgId: org.id, name: 'TVA', rate: 19, isDefault: true } }));
+
+  const PARTNER_DEMOS = [
+    { name: 'SARL Épicerie El Baraka', nif: '0026 2100 1847 03' },
+    { name: 'Ets Boudiaf & Fils', nif: '0026 9800 2214 09' },
+    { name: 'Superette Aïn Naadja', nif: '0026 1200 9981 02' },
+    { name: 'Grossiste Nord Distribution', nif: '0026 0533 1120 17' },
+  ];
+  const partnerIdByName = new Map<string, string>();
+  for (const p of PARTNER_DEMOS) {
+    const existing = await prisma.partner.findFirst({ where: { orgId: org.id, name: p.name } });
+    const created = existing ?? (await prisma.partner.create({ data: { orgId: org.id, name: p.name, isCustomer: true, nif: p.nif } }));
+    partnerIdByName.set(p.name, created.id);
+  }
+
+  console.log('Creating demo invoices (matching docs/Wireframes.html)...');
+  const algerSiteId = siteIdByKey.get('alger')!;
+
+  async function createAndFinalize(partnerName: string | null, lines: { description: string; quantity: number; unitPrice: number }[], payFraction: 1 | 0.5 | 0) {
+    const invoice = await prisma.invoice.create({
+      data: {
+        orgId: org.id,
+        siteId: algerSiteId,
+        type: 'CUSTOMER',
+        partnerId: partnerName ? partnerIdByName.get(partnerName) : null,
+        status: 'draft',
+        lines: { create: lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRateId: tva.id })) },
+      },
+    });
+    // Assign the gapless number directly here (same mechanism as
+    // InvoicingService.finalizeInvoice) rather than calling that service —
+    // this is dev-seed data with no stock-linked lines, so there is no
+    // corresponding stock deduction to reproduce, and depending on
+    // apps/api from packages/infra-db would cross a layering boundary this
+    // repo otherwise keeps clean (domain-* / infra-db never import from apps/*).
+    const year = new Date().getFullYear();
+    const rows = await prisma.$queryRaw<{ lastNumber: number }[]>`
+      INSERT INTO "invoice_counters" ("orgId", "year", "lastNumber")
+      VALUES (${org.id}, ${year}, 1)
+      ON CONFLICT ("orgId", "year")
+      DO UPDATE SET "lastNumber" = "invoice_counters"."lastNumber" + 1
+      RETURNING "lastNumber"
+    `;
+    const number = `FA-${year}-${String(rows[0].lastNumber).padStart(6, '0')}`;
+    const totalTtc = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0) * 1.19;
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { number, status: 'unpaid', finalizedAt: new Date() } });
+    if (payFraction > 0) {
+      const amount = Math.round(totalTtc * payFraction * 100) / 100;
+      await prisma.payment.create({ data: { invoiceId: invoice.id, amount } });
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { status: payFraction >= 1 ? 'paid' : 'partially_paid' } });
+    }
+  }
+
+  await createAndFinalize('SARL Épicerie El Baraka', [{ description: "Huile d'olive 1L — carton de 12", quantity: 40, unitPrice: 980 }], 1);
+  await createAndFinalize('Ets Boudiaf & Fils', [{ description: 'Semoule fine 25kg — palette', quantity: 20, unitPrice: 2450 }], 0.5);
+  await createAndFinalize('Superette Aïn Naadja', [{ description: 'Assortiment épicerie', quantity: 1, unitPrice: 27850 }], 0);
+  await createAndFinalize(null, [{ description: 'Vente comptoir', quantity: 1, unitPrice: 6200 }], 1);
+  await createAndFinalize('Grossiste Nord Distribution', [{ description: "Huile de tournesol 5L — lot", quantity: 50, unitPrice: 6112 }], 1);
+
   console.log(`Demo seed complete. Log in with ${DEMO_EMAIL} / Demo1234!`);
 }
 

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import {
   computeThresholdStatus,
   InsufficientQuarantineSourceError,
@@ -213,6 +214,59 @@ export class StockService {
       orderBy: { occurredAt: 'desc' },
       take: 200,
     });
+  }
+
+  /**
+   * Cross-module composed-transaction variant (Action Plan §5) — for a
+   * caller (Invoicing's finalize, first) that needs a stock movement to
+   * commit-or-rollback atomically together with ITS OWN writes in the same
+   * DB transaction (e.g. assigning the invoice number + deducting stock for
+   * every line must be all-or-nothing). `recordMovement()` above always
+   * opens its own independent transaction via the root PrismaService — it
+   * is NOT suitable for this; calling it from inside another transaction
+   * would silently run as a second, unrelated transaction against a
+   * different connection, breaking atomicity rather than composing with
+   * it. This variant takes the caller's own already-open
+   * `Prisma.TransactionClient` and participates in it directly:
+   * `PrismaStockDataPort.withTransaction` detects it's already a
+   * transaction client (no `$transaction` method of its own) and reuses it
+   * rather than trying to open a nested one.
+   *
+   * Events are RETURNED, not published — the caller must call
+   * `publishEvents()` itself only AFTER its own transaction has actually
+   * committed. Publishing before commit would announce a movement over the
+   * websocket gateway that might still be rolled back if a later step in
+   * the caller's transaction fails.
+   */
+  async recordMovementInTransaction(
+    tx: Prisma.TransactionClient,
+    orgId: string,
+    performedBy: string | null,
+    input: Omit<RecordMovementInput, 'orgId' | 'performedBy'>,
+  ) {
+    try {
+      return await new StockMovementService(new PrismaStockDataPort(tx)).recordMovement({
+        orgId,
+        performedBy: performedBy ?? undefined,
+        ...input,
+      });
+    } catch (err) {
+      throw this.translateDomainError(err);
+    }
+  }
+
+  /** Same transaction-composition rationale as recordMovementInTransaction, for Quality's future quarantine-on-fail flow. */
+  async quarantineInTransaction(tx: Prisma.TransactionClient, input: QuarantineInput) {
+    try {
+      return await new StockMovementService(new PrismaStockDataPort(tx)).quarantine(input);
+    } catch (err) {
+      throw this.translateDomainError(err);
+    }
+  }
+
+  /** Publishes previously-collected events — see recordMovementInTransaction's own comment on why this is a separate step rather than automatic. */
+  publishEvents(events: { kind: string }[]): void {
+    this.publish(events);
   }
 
   private publish(events: { kind: string }[]): void {
