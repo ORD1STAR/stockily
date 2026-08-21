@@ -23,6 +23,7 @@
   "dependencies": {
     "tslib": "^2.3.0",
     "@prisma/client": "^6.19.3",
-    "@org/domain-stock": "0.0.1"
+    "@org/domain-stock": "0.0.1",
+    "@org/domain-quality": "0.0.1"
   }
 }
