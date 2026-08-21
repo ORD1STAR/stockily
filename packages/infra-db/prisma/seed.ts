@@ -66,8 +66,19 @@ const ACTIONS: Record<string, string[]> = {
   invoicing: [
     'invoicing.invoice.read',
     'invoicing.invoice.create',
+    'invoicing.invoice.finalize',
     'invoicing.invoice.void',
     'invoicing.payment.create',
+    'invoicing.partner.read',
+    'invoicing.partner.write',
+    'invoicing.taxrate.read',
+    'invoicing.taxrate.write',
+    // Business-legal-profile fields (name/address/NIF/NIS/RC/tax article)
+    // required before a CUSTOMER invoice can be finalized — see
+    // InvoicingService.finalizeInvoice and docs/MILESTONE_4.md.
+    'invoicing.profile.read',
+    'invoicing.profile.write',
+    'invoicing.reminder.run',
   ],
   sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create', 'sites.transfer.read', 'sites.transfer.update'],
   scan: ['scan.label.generate', 'scan.label.print'],

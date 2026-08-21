@@ -25,6 +25,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/domain-invoicing/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/infra-db/tsconfig.lib.json"
     },
     {
