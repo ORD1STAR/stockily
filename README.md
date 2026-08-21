@@ -4,14 +4,13 @@ Modular stock, quality &amp; invoicing platform. Full architecture, data model, 
 decision log: [`docs/Action Plan.md`](./docs/Action%20Plan.md). Brand system,
 wireframes, and pricing grid are also in `docs/`.
 
-Phase 1 ("Fondations") is being built per Action Plan §7's milestone
-sequence. **Milestones 1 (platform bootstrap — auth, tenancy, the guard
-chain), 2 (Stock + Multi-Site), and 3 (Quality) are done** — see
-[`docs/MILESTONE_1.md`](./docs/MILESTONE_1.md),
-[`docs/MILESTONE_2.md`](./docs/MILESTONE_2.md), and
-[`docs/MILESTONE_3.md`](./docs/MILESTONE_3.md) for what's implemented and
-every decision made along the way. Invoicing and Scan have no business
-logic yet.
+**All 5 Phase 1 modules are built and verified**: Auth/Tenancy, Stock +
+Multi-Sites, Quality, Invoicing, and Scan — see `docs/MILESTONE_1.md`
+through `docs/MILESTONE_5.md` for what was implemented and every decision
+made along the way, milestone by milestone. A security-hardening pass
+(CORS, rate limiting, security headers, real email capability) is also
+done — see "Production deployment" below. **Not yet done**: Postgres
+row-level security (RLS) — deliberately deferred, see that section for why.
 
 ## Quickstart
 
@@ -58,3 +57,58 @@ readiness).
   database that `apps/api`'s e2e test runs against (re-run after a schema
   change)
 - `npx nx graph` — visualize the project dependency graph
+
+## Production deployment
+
+`docker compose up -d` builds and runs all three services (Postgres, api,
+web) — see `apps/api/Dockerfile`/`apps/web/Dockerfile` for how. Before
+pointing this at real customer data:
+
+1. **Set real secrets** — `JWT_SECRET` (generate with `openssl rand -hex 32`;
+   `JwtConfigModule` refuses to boot without one once `NODE_ENV=production`),
+   and real Postgres credentials (the compose file's `stockily`/`stockily`
+   are dev-only defaults).
+2. **Set `CORS_ORIGIN`** to your actual web origin(s) (comma-separated for
+   more than one) — it defaults to `http://localhost:4200`, which is correct
+   for local dev but wrong for any real deployment.
+3. **Set the `SMTP_*` variables** if you want invoice-overdue reminder
+   emails actually sent, rather than only logged (`NoOpEmailSender`) — any
+   provider's SMTP credentials work, see `.env.example`.
+4. **Run migrations and seed the module/role registry** against the
+   production database before first use: `npm run prisma:migrate && npm run
+   db:seed` (this second one is idempotent — safe to re-run after every
+   deploy that adds new permission actions). Do **not** run
+   `db:seed:demo` in production — it creates a fake demo organization with
+   sample data.
+5. **Put a reverse proxy with TLS in front of both services** (Caddy, nginx,
+   your cloud provider's load balancer, ...) — neither container terminates
+   HTTPS itself. This also matters functionally, not just for security: the
+   Scan module's camera access (`getUserMedia`/`BarcodeDetector`) only works
+   in a secure context (HTTPS or `localhost`) per the browsers' own APIs.
+6. **`GET /health`** (outside the `/api` prefix) is a real Postgres
+   round-trip check, wired into the `api` container's own Docker
+   `HEALTHCHECK` already — point your orchestrator's health/readiness probe
+   at it too if you're not using Compose directly (Kubernetes, ECS, ...).
+
+**What's already hardened**: CORS allowlist (not wide-open), `helmet()`
+security headers, rate limiting (5/min on signup/login/refresh, 300/min
+elsewhere), a global exception filter (unexpected errors are logged
+server-side and never leak raw internals to the client), and — verified by
+reading every single query in every service file, not assumed — every
+database read, update, and delete across the entire backend is correctly
+scoped by `orgId`, either directly or via a preceding ownership check.
+
+**What's flagged, not done — Postgres RLS**: the Action Plan flagged this
+since Milestone 1 as needing a dedicated technical spike (Prisma's
+`SET LOCAL`/transaction-pooling interaction is a known tricky area), not a
+quick bolt-on. Implementing it carelessly under time pressure — getting the
+transaction composition wrong around the app's existing `$transaction`
+call sites (invoice finalization, payment recording) — risks silently
+breaking either tenant isolation or transactional atomicity, which is worse
+than the current state. The recommended path for whoever picks this up:
+an `AsyncLocalStorage`-based request-scoped tenant context populated right
+after `JwtAuthGuard`, a Prisma Client Extension that wraps each tenant-
+scoped query in `$transaction` to issue `SET LOCAL app.tenant_id` before
+it runs, and — critically — thorough testing against every existing
+`$transaction` call site to confirm nested transaction semantics behave as
+expected, not just against simple single-query reads.

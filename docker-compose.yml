@@ -33,11 +33,25 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@stockily.dz}
     ports:
       - '3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # wget (not curl) -- that's what's actually present in node:22-alpine.
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   web:
     build:
@@ -48,7 +62,8 @@ services:
     ports:
       - '4200:80'
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   stockily_pgdata:
