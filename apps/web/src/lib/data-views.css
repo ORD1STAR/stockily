@@ -157,6 +157,36 @@ table.data td {
   border-bottom: 1px solid var(--surface-alt);
   vertical-align: middle;
 }
+
+/* SKU-on-hover tooltip (Qualité's product name cells, per docs/Wireframes.html) */
+.has-tip {
+  position: relative;
+  cursor: default;
+  border-bottom: 1px dotted var(--text-muted);
+}
+.has-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 6px;
+  background: var(--ink);
+  color: #f4f1fb;
+  font-family: var(--f-mono);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 5;
+}
+.has-tip:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
 table.data tr:last-child td {
   border-bottom: none;
 }

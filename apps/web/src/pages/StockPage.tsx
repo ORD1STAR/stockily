@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, ProductDetail, Site, StockRow, sitesApi, stockApi } from '../lib/api';
+import { ApiError, Batch, ProductDetail, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { useStockRealtime } from '../lib/realtime';
 import '../lib/data-views.css';
 
@@ -164,6 +164,14 @@ export function StockPage() {
 }
 
 function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: () => void }) {
+  const { accessToken } = useAuth();
+  const [batches, setBatches] = useState<Batch[] | null>(null);
+
+  useEffect(() => {
+    if (!accessToken || !detail.isLotTracked) return;
+    qualityApi.listBatches(accessToken, detail.id).then(setBatches);
+  }, [accessToken, detail.id, detail.isLotTracked]);
+
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
@@ -207,10 +215,41 @@ function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: (
         </div>
         <div className="modal-section">
           <div className="modal-section-label">Qualité</div>
-          <div className="note-box">
-            Le module Qualité n&#39;est pas encore construit (Milestone 3) — les lots et contrôles qualité s&#39;afficheront ici une fois
-            disponibles.
-          </div>
+          {!detail.isLotTracked ? (
+            <div className="note-box">
+              Ce produit n&#39;est pas suivi par lot (article non périssable) — la péremption ne s&#39;applique pas. Un contrôle qualité
+              ponctuel reste possible depuis le module Qualité.
+            </div>
+          ) : batches === null ? (
+            <p className="sub">Chargement…</p>
+          ) : batches.length === 0 ? (
+            <div className="note-box">Aucun lot actif pour ce produit pour le moment.</div>
+          ) : (
+            <table className="lot-mini-table">
+              <thead>
+                <tr>
+                  <th>N° de lot</th>
+                  <th>Qté</th>
+                  <th>Péremption</th>
+                  <th>État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b) => (
+                  <tr key={b.id}>
+                    <td className="mono">{b.lotNumber}</td>
+                    <td>{b.quantityReceived}</td>
+                    <td className="mono">{b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('fr-FR') : '—'}</td>
+                    <td>
+                      <span className={`pill ${b.status === 'quarantined' ? 'danger' : b.status === 'depleted' ? 'info' : 'success'}`}>
+                        {b.status === 'quarantined' ? 'Quarantaine' : b.status === 'depleted' ? 'Épuisé' : 'OK'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
