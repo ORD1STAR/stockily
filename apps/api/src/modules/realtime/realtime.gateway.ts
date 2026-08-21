@@ -18,6 +18,15 @@ interface StockRealtimeEvent {
   [key: string]: unknown;
 }
 
+// Quality's events (docs/MILESTONE_3.md) are batch/product-level, not
+// site-scoped — a batch can span sites, so there's no single site room to
+// target. Broadcast org-wide only.
+interface QualityRealtimeEvent {
+  kind: string;
+  orgId: string;
+  [key: string]: unknown;
+}
+
 /**
  * Broadcasts @org/domain-stock's domain events to connected clients
  * (docs/Action Plan.md §4/§5) — org-wide and per-site rooms, single-instance
@@ -77,6 +86,27 @@ export class RealtimeGateway implements OnGatewayConnection {
     if (!this.server) return; // not yet initialized (e.g. under test)
     this.server.to(`org:${event.orgId}`).emit('stock-event', event);
     this.server.to(`org:${event.orgId}:site:${event.siteId}`).emit('stock-event', event);
+    this.logger.debug(`Broadcast ${event.kind} to org:${event.orgId}`);
+  }
+
+  @OnEvent('NonConformityOpened')
+  onNonConformityOpened(event: QualityRealtimeEvent): void {
+    this.broadcastQuality(event);
+  }
+
+  @OnEvent('BatchNearExpiry')
+  onBatchNearExpiry(event: QualityRealtimeEvent): void {
+    this.broadcastQuality(event);
+  }
+
+  @OnEvent('BatchExpired')
+  onBatchExpired(event: QualityRealtimeEvent): void {
+    this.broadcastQuality(event);
+  }
+
+  private broadcastQuality(event: QualityRealtimeEvent): void {
+    if (!this.server) return;
+    this.server.to(`org:${event.orgId}`).emit('quality-event', event);
     this.logger.debug(`Broadcast ${event.kind} to org:${event.orgId}`);
   }
 }

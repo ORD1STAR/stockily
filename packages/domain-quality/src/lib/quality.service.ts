@@ -52,8 +52,8 @@ export class QualityService {
     });
   }
 
-  listBatches(orgId: string): Promise<BatchRecord[]> {
-    return this.data.listBatches(orgId);
+  listBatches(orgId: string, filters?: { productId?: string }): Promise<BatchRecord[]> {
+    return this.data.listBatches(orgId, filters);
   }
 
   async getBatch(orgId: string, batchId: string): Promise<BatchRecord> {

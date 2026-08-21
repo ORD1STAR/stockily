@@ -47,8 +47,8 @@ export class InMemoryQualityDataPort implements QualityDataPort {
     return b && b.orgId === orgId ? b : null;
   }
 
-  async listBatches(orgId: string): Promise<BatchRecord[]> {
-    return [...this.batches.values()].filter((b) => b.orgId === orgId);
+  async listBatches(orgId: string, filters?: { productId?: string }): Promise<BatchRecord[]> {
+    return [...this.batches.values()].filter((b) => b.orgId === orgId && (!filters?.productId || b.productId === filters.productId));
   }
 
   async updateBatchStatus(batchId: string, status: 'active' | 'quarantined' | 'depleted'): Promise<void> {

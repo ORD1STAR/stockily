@@ -31,7 +31,7 @@ export interface QualityDataPort {
 
   createBatch(input: CreateBatchInput): Promise<BatchRecord>;
   getBatch(orgId: string, batchId: string): Promise<BatchRecord | null>;
-  listBatches(orgId: string): Promise<BatchRecord[]>;
+  listBatches(orgId: string, filters?: { productId?: string }): Promise<BatchRecord[]>;
   updateBatchStatus(batchId: string, status: 'active' | 'quarantined' | 'depleted'): Promise<void>;
 
   /**

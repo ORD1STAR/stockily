@@ -117,8 +117,11 @@ export class PrismaQualityDataPort implements QualityDataPort {
     return b ? toBatchRecord(b) : null;
   }
 
-  async listBatches(orgId: string): Promise<BatchRecord[]> {
-    const rows = await this.prisma.batch.findMany({ where: { orgId }, orderBy: { receivedAt: 'desc' } });
+  async listBatches(orgId: string, filters?: { productId?: string }): Promise<BatchRecord[]> {
+    const rows = await this.prisma.batch.findMany({
+      where: { orgId, ...(filters?.productId ? { productId: filters.productId } : {}) },
+      orderBy: { receivedAt: 'desc' },
+    });
     return rows.map(toBatchRecord);
   }
 
