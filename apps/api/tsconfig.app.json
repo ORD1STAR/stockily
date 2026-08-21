@@ -22,5 +22,13 @@
     "jest.config.cts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/infra-db/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/domain-stock/tsconfig.lib.json"
+    }
   ]
 }
