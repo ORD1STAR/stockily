@@ -8,6 +8,7 @@
     "prisma:migrate": "prisma migrate dev --schema packages/infra-db/prisma/schema.prisma",
     "db:up": "docker compose up -d",
     "db:seed": "prisma db seed --schema packages/infra-db/prisma/schema.prisma",
+    "db:seed:demo": "tsx packages/infra-db/prisma/dev-seed.ts",
     "test:e2e:db:setup": "node scripts/setup-test-db.mjs"
   },
   "prisma": {
@@ -73,8 +74,11 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11.2.1",
+    "@nestjs/websockets": "^11.2.1",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
@@ -83,6 +87,8 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.2",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
   }
 }
