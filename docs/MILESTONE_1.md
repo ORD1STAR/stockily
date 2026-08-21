@@ -81,8 +81,10 @@ implications) and found nothing new to flag.
 ```bash
 docker compose up -d                    # Postgres
 npm install
-cp .env.example .env                    # JWT_SECRET etc. for the API
-cp .env.example packages/infra-db/prisma/.env   # DATABASE_URL for Prisma CLI
+cp .env.example .env                    # JWT_SECRET etc. for the API; the Prisma CLI
+                                         # also reads this same root .env (see Milestone 2 note:
+                                         # a second copy at packages/infra-db/prisma/.env
+                                         # conflicts with this one — don't create it)
 npm run prisma:migrate
 npm run db:seed
 npx nx serve api                        # http://localhost:3000/api
