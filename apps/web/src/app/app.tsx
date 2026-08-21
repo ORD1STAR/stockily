@@ -6,6 +6,7 @@ import { SignupPage } from '../pages/SignupPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { StockPage } from '../pages/StockPage';
 import { SitesPage } from '../pages/SitesPage';
+import { QualityPage } from '../pages/QualityPage';
 
 export function App() {
   return (
@@ -38,8 +39,16 @@ export function App() {
               </ProtectedRoute>
             }
           />
-          {/* Quality/Invoicing/Scan routes land in Milestones 3-4 — AppShell
-              already greys these nav items out based on real entitlements. */}
+          <Route
+            path="/quality"
+            element={
+              <ProtectedRoute>
+                <QualityPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Invoicing/Scan routes land in Milestone 4 — AppShell already
+              greys these nav items out based on real entitlements. */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

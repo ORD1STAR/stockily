@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className="shell-group-label">Phase 1</div>
         <NavItem to="/stock" label="Gestion de Stock" enabled={entitledKeys.has('stock')} />
-        <NavItem to="/quality" label="Qualité" enabled={entitledKeys.has('quality')} tag="Milestone 3" />
+        <NavItem to="/quality" label="Qualité" enabled={entitledKeys.has('quality')} />
         <NavItem to="/invoicing" label="Factures" enabled={entitledKeys.has('invoicing')} tag="Milestone 3" />
         <NavItem to="/sites" label="Transferts Multi-Sites" enabled={entitledKeys.has('sites')} />
         <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} tag="Milestone 4" />

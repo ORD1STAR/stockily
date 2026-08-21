@@ -5,20 +5,26 @@ decision log: [`docs/Action Plan.md`](./docs/Action%20Plan.md). Brand system,
 wireframes, and pricing grid are also in `docs/`.
 
 Phase 1 ("Fondations") is being built per Action Plan §7's milestone
-sequence. **Milestone 1 (platform bootstrap — auth, tenancy, the guard
-chain) is done**; see [`docs/MILESTONE_1.md`](./docs/MILESTONE_1.md) for
-what's implemented and every decision made along the way. Stock, Quality,
-Invoicing, and Scan have no business logic yet — that's Milestone 2 onward.
+sequence. **Milestones 1 (platform bootstrap — auth, tenancy, the guard
+chain), 2 (Stock + Multi-Site), and 3 (Quality) are done** — see
+[`docs/MILESTONE_1.md`](./docs/MILESTONE_1.md),
+[`docs/MILESTONE_2.md`](./docs/MILESTONE_2.md), and
+[`docs/MILESTONE_3.md`](./docs/MILESTONE_3.md) for what's implemented and
+every decision made along the way. Invoicing and Scan have no business
+logic yet.
 
 ## Quickstart
 
 ```bash
 docker compose up -d                 # Postgres on localhost:5432
 npm install
-cp .env.example .env                            # JWT_SECRET etc. for the API
-cp .env.example packages/infra-db/prisma/.env    # DATABASE_URL for Prisma CLI
+cp .env.example .env                 # JWT_SECRET, DATABASE_URL, etc. — one root .env only
+                                      # (a second copy at packages/infra-db/prisma/.env used
+                                      # to be required; Milestone 2 removed that duplicate —
+                                      # the Prisma CLI reads the root one directly)
 npm run prisma:migrate               # creates the initial migration + tables
 npm run db:seed                      # seeds the 13-module registry + 5 system roles
+npm run db:seed:demo                 # seeds wireframe-matching demo data (Milestone 2+)
 npx nx serve api                     # http://localhost:3000/api
 npx nx serve web                     # Vite dev server, http://localhost:4200
 ```

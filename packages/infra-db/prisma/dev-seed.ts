@@ -20,10 +20,13 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { StockMovementService } from '@org/domain-stock';
+import { QualityService as DomainQualityService } from '@org/domain-quality';
 import { PrismaStockDataPort } from '../src/lib/prisma-stock-data-port.js';
+import { PrismaQualityDataPort } from '../src/lib/prisma-quality-data-port.js';
 
 const prisma = new PrismaClient();
 const stock = new StockMovementService(new PrismaStockDataPort(prisma));
+const quality = new DomainQualityService(new PrismaQualityDataPort(prisma));
 
 const DEMO_ORG_NAME = 'Épicerie El Baraka (démo)';
 const DEMO_EMAIL = 'demo@stockily.dz';
@@ -49,19 +52,78 @@ const PRODUCTS = [
 ] as const;
 
 // [siteKey, sku, onHandTarget, quarantineTarget] — matches
-// docs/Wireframes.html's Stock panel rows exactly.
+// docs/Wireframes.html's Stock panel rows, with one deliberate correction:
+// the wireframe (a static mockup, never required to be internally
+// consistent) showed the Yaourt lot as both "Conforme" in Quality AND
+// partly quarantined in Stock — a batch that passed inspection doesn't get
+// partially quarantined. Quarantine here now only comes from the real
+// Quality flow below (a failed check or an expired batch), not a
+// standalone placeholder number, so Yaourt's quarantineTarget drops to 0
+// and the entries below that get a dedicated batch are handled separately,
+// not through this generic loop (see main()).
 const STOCK_TARGETS: [string, string, number, number][] = [
-  ['alger', 'HUI-1L-OLV', 184, 0],
-  ['alger', 'SEM-25K-FIN', 22, 0],
-  ['alger', 'DET-5L-LIQ', 96, 4],
-  ['alger', 'CONS-400G-TOM', 0, 0],
-  ['alger', 'YAO-12X100G', 340, 12],
+  ['alger', 'DET-5L-LIQ', 96, 0], // generic good stock — the 4 bad units come from LOT-2026-0791 below, received separately so they can be tied to that specific batch
   ['alger', 'HUI-5L-TOUR', 58, 0],
   ['alger', 'SAV-BAR-125G', 14, 0],
-  ['alger', 'CEI-105-NR', 62, 0],
+  ['alger', 'CEI-105-NR', 62, 0], // 8 of these get quarantined via a product-direct check below — not baked in here
+  ['alger', 'CONS-400G-TOM', 0, 0], // values unused — matched by sku below for the dedicated rupture-simulation branch
   ['oran', 'HUI-1L-OLV', 96, 0],
   ['constantine', 'SEM-25K-FIN', 6, 0],
 ];
+
+// Products/quantities that get a specific batch tied to their receipt, so
+// the per-batch ledger derivation (QualityDataPort.getBatchQuantityBySite)
+// has real movement history to work from — matches docs/Wireframes.html's
+// Quality panel lot numbers exactly.
+const BATCH_DEMOS: {
+  lotNumber: string;
+  sku: string;
+  siteKey: string;
+  quantity: number;
+  expiryInDays: number | null;
+  check: 'conforme' | 'non_conforme' | null; // null = no check recorded (e.g. a lot still awaiting inspection) — not used currently, all demo lots get checked
+  notes?: string;
+}[] = [
+  { lotNumber: 'LOT-2026-0847', sku: 'YAO-12X100G', siteKey: 'alger', quantity: 340, expiryInDays: 7, check: 'conforme' },
+  { lotNumber: 'LOT-2026-0803', sku: 'HUI-1L-OLV', siteKey: 'alger', quantity: 184, expiryInDays: 295, check: 'conforme' },
+  { lotNumber: 'LOT-2026-0779', sku: 'SEM-25K-FIN', siteKey: 'alger', quantity: 22, expiryInDays: 9, check: 'conforme' },
+  {
+    lotNumber: 'LOT-2026-0791',
+    sku: 'DET-5L-LIQ',
+    siteKey: 'alger',
+    quantity: 4,
+    expiryInDays: 1,
+    check: 'non_conforme',
+    notes: "Défaut d'étanchéité",
+  },
+];
+
+// Historical lots with nothing left in the ledger (never received via
+// stock.recordMovement, so getBatchQuantityBySite correctly derives 0
+// everywhere) — matches the wireframe's two "Qté 0" Quality rows: one a
+// normal lot long since sold through, one rejected entirely at receipt.
+const HISTORICAL_BATCH_DEMOS: {
+  lotNumber: string;
+  sku: string;
+  historicalQuantityReceived: number;
+  expiryInDays: number | null;
+  check: 'conforme' | 'non_conforme';
+  notes?: string;
+}[] = [
+  { lotNumber: 'LOT-2026-0812', sku: 'CONS-400G-TOM', historicalQuantityReceived: 40, expiryInDays: 206, check: 'conforme' },
+  {
+    lotNumber: 'LOT-2026-0758',
+    sku: 'CONS-400G-TOM',
+    historicalQuantityReceived: 12,
+    expiryInDays: null,
+    check: 'non_conforme',
+    notes: "Défaut d'emballage à réception",
+  },
+];
+
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
 
 async function main() {
   const stockModule = await prisma.module.findUnique({ where: { key: 'stock' } });
@@ -157,10 +219,89 @@ async function main() {
     if (totalToReceive > 0) {
       await stock.recordMovement({ orgId: org.id, productId, siteId, type: 'IN', quantity: totalToReceive, unitCost: product.cost });
     }
-    if (quarantineTarget > 0) {
-      await stock.quarantine({ orgId: org.id, productId, siteId, quantity: quarantineTarget, reason: 'Démo — contrôle qualité (Milestone 3)' });
+    void quarantineTarget; // no longer used — every quarantine now flows through the real Quality checks below
+  }
+
+  console.log('Creating demo batches and posting them through the real Quality flow...');
+  for (const demo of BATCH_DEMOS) {
+    const productId = productIdBySku.get(demo.sku)!;
+    const siteId = siteIdByKey.get(demo.siteKey)!;
+    const product = PRODUCTS.find((p) => p.sku === demo.sku)!;
+
+    const batch = await quality.createBatch({
+      orgId: org.id,
+      productId,
+      lotNumber: demo.lotNumber,
+      expiryDate: demo.expiryInDays != null ? inDays(demo.expiryInDays) : null,
+      quantityReceived: demo.quantity,
+    });
+
+    // Tie the receipt to this specific batch so getBatchQuantityBySite has
+    // real ledger history to derive from — a batch-based quality check
+    // with no matching movements would (correctly) find nothing to
+    // quarantine, which is fine for the two "historical, qty 0" lots below
+    // but would be wrong here, where the batch IS the org's current stock.
+    await stock.recordMovement({
+      orgId: org.id,
+      productId,
+      siteId,
+      type: 'IN',
+      quantity: demo.quantity,
+      batchId: batch.id,
+      unitCost: product.cost,
+    });
+
+    if (demo.check) {
+      const result = await quality.recordQualityCheck({
+        orgId: org.id,
+        productId,
+        batchId: batch.id,
+        result: demo.check,
+        notes: demo.notes ?? null,
+      });
+      for (const target of result.quarantineTargets) {
+        await stock.quarantine({ orgId: org.id, productId, siteId: target.siteId, quantity: target.quantity, reason: demo.notes ?? 'Contrôle qualité' });
+      }
     }
   }
+
+  console.log('Creating historical batches (already depleted — nothing left in the ledger)...');
+  for (const demo of HISTORICAL_BATCH_DEMOS) {
+    const productId = productIdBySku.get(demo.sku)!;
+    const batch = await quality.createBatch({
+      orgId: org.id,
+      productId,
+      lotNumber: demo.lotNumber,
+      expiryDate: demo.expiryInDays != null ? inDays(demo.expiryInDays) : null,
+      quantityReceived: demo.historicalQuantityReceived,
+    });
+    // Deliberately no stock.recordMovement call — this batch's ledger
+    // history predates this seed run (or, for the rejected-at-receipt lot,
+    // never entered good stock at all), so quarantineTargets will
+    // correctly come back empty; nothing to actually quarantine, only the
+    // check/non-conformity record itself matters here.
+    await quality.recordQualityCheck({ orgId: org.id, productId, batchId: batch.id, result: demo.check, notes: demo.notes ?? null });
+  }
+
+  console.log('Quarantining 8 units of the non-lot-tracked Ceinture via a product-direct check...');
+  {
+    const productId = productIdBySku.get('CEI-105-NR')!;
+    const siteId = siteIdByKey.get('alger')!;
+    const result = await quality.recordQualityCheck({
+      orgId: org.id,
+      productId,
+      siteId,
+      quantity: 8,
+      result: 'non_conforme',
+      notes: 'Défaut de couture à la livraison',
+    });
+    for (const target of result.quarantineTargets) {
+      await stock.quarantine({ orgId: org.id, productId, siteId: target.siteId, quantity: target.quantity, reason: 'Défaut de couture à la livraison' });
+    }
+  }
+
+  console.log('Running the expiry sweep (creates near-expiry alerts for the demo lots)...');
+  await quality.runExpirySweep(org.id);
 
   console.log(`Demo seed complete. Log in with ${DEMO_EMAIL} / Demo1234!`);
 }

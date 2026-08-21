@@ -29,6 +29,9 @@
     },
     {
       "path": "../../packages/domain-stock/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/domain-quality/tsconfig.lib.json"
     }
   ]
 }

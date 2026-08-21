@@ -76,7 +76,6 @@ export interface ProductDetail {
   minThreshold: number | null;
   maxThreshold: number | null;
   levels: { site: { id: string; name: string }; quantityOnHand: number; quantityQuarantined: number }[];
-  lots: null; // Quality module doesn't exist yet (Milestone 3) — always null for now
 }
 
 export interface Site {
@@ -116,6 +115,60 @@ export const stockApi = {
       adjustmentDirection?: 'increase' | 'decrease';
     },
   ) => authedRequest('/stock/movements', token, { method: 'POST', body: JSON.stringify(data) }),
+};
+
+export interface Batch {
+  id: string;
+  productId: string;
+  lotNumber: string;
+  expiryDate: string | null;
+  quantityReceived: number;
+  receivedAt: string;
+  status: 'active' | 'quarantined' | 'depleted';
+  latestCheck: { result: 'conforme' | 'non_conforme'; checkedAt: string } | null;
+}
+
+export interface NonConformity {
+  id: string;
+  productId: string;
+  batchId: string | null;
+  severity: string;
+  status: 'open' | 'resolved';
+  resolutionNotes: string | null;
+  createdAt: string;
+}
+
+export interface ExpiryAlert {
+  id: string;
+  batchId: string;
+  alertedAt: string;
+  batch: { lotNumber: string; expiryDate: string | null; product: { id: string; sku: string; name: string } };
+}
+
+export const qualityApi = {
+  listBatches: (token: string, productId?: string) =>
+    authedRequest<Batch[]>(`/quality/batches${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`, token),
+  createBatch: (token: string, data: { productId: string; lotNumber: string; expiryDate?: string; quantityReceived: number }) =>
+    authedRequest<Batch>('/quality/batches', token, { method: 'POST', body: JSON.stringify(data) }),
+  recordCheck: (
+    token: string,
+    data: {
+      productId: string;
+      batchId?: string;
+      siteId?: string;
+      quantity?: number;
+      result: 'conforme' | 'non_conforme';
+      notes?: string;
+    },
+  ) => authedRequest('/quality/checks', token, { method: 'POST', body: JSON.stringify(data) }),
+  listNonConformities: (token: string, status?: 'open' | 'resolved') =>
+    authedRequest<NonConformity[]>(`/quality/non-conformities${status ? `?status=${status}` : ''}`, token),
+  resolveNonConformity: (token: string, id: string, resolutionNotes?: string) =>
+    authedRequest<NonConformity>(`/quality/non-conformities/${id}/resolve`, token, {
+      method: 'POST',
+      body: JSON.stringify({ resolutionNotes }),
+    }),
+  listExpiryAlerts: (token: string) => authedRequest<ExpiryAlert[]>('/quality/expiry-alerts', token),
 };
 
 export const sitesApi = {

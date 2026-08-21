@@ -2,7 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   computeThresholdStatus,
+  InsufficientQuarantineSourceError,
   NegativeStockError,
+  QuarantineInput,
   RecordMovementInput,
   StockMovementService,
   UnknownProductError,
@@ -124,11 +126,12 @@ export class StockService {
         quantityOnHand: Number(l.quantityOnHand),
         quantityQuarantined: Number(l.quantityQuarantined),
       })),
-      // Quality doesn't exist yet this milestone — the frontend's SKU-detail
-      // modal is expected to handle `lots: null` as "no quality data yet",
-      // not an error, and a later milestone's Quality module is what
-      // actually populates this the same way it populates the Quality panel.
-      lots: null as null,
+      // No `lots` field here (Milestone 2 had a `lots: null` placeholder).
+      // Milestone 3: the frontend's SKU-detail modal fetches
+      // GET /quality/batches?productId=<id> itself when isLotTracked is
+      // true, rather than StockModule reaching into Quality's data —
+      // avoids a StockModule -> QualityModule dependency (StockModule is
+      // deliberately the one Quality depends on, not the reverse).
     };
   }
 
@@ -160,6 +163,44 @@ export class StockService {
     } catch (err) {
       throw this.translateDomainError(err);
     }
+  }
+
+  /**
+   * The one entry point Quality (and, later, anything else) uses to
+   * reclassify already-on-hand quantity as quarantined — see
+   * docs/Action Plan.md §1/§5/§6 and domain-quality's own doc comment on why
+   * it returns quarantineTargets as data instead of calling this itself:
+   * StockService is the only thing in apps/api allowed to construct
+   * StockMovementService, same rule as recordMovement/createInventoryAdjustment
+   * above, so Quality's orchestration goes through this method rather than
+   * building its own StockMovementService.
+   */
+  async quarantine(input: QuarantineInput) {
+    try {
+      const result = await this.movementService().quarantine(input);
+      this.publish(result.events);
+      return result;
+    } catch (err) {
+      throw this.translateQuarantineError(err);
+    }
+  }
+
+  private translateQuarantineError(err: unknown): Error {
+    if (err instanceof InsufficientQuarantineSourceError) {
+      return new BadRequestException({
+        statusCode: 400,
+        error: 'insufficient_quarantine_source',
+        message: err.message,
+        productId: err.productId,
+        siteId: err.siteId,
+        requested: err.requested,
+        available: err.available,
+      });
+    }
+    if (err instanceof UnknownProductError) {
+      return new NotFoundException(err.message);
+    }
+    return err as Error;
   }
 
   async listMovements(orgId: string, filters: { siteId?: string; productId?: string }) {

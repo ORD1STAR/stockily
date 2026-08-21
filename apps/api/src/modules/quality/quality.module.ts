@@ -1,10 +1,23 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TenancyModule } from '../tenancy/tenancy.module';
+import { AuditModule } from '../audit/audit.module';
+import { StockModule } from '../stock/stock.module';
+import { QualityController } from './quality.controller';
+import { QualityService } from './quality.service';
+import { ExpirySweepScheduler } from './expiry-sweep.scheduler';
 
-// Placeholder — see docs/Action Plan.md §1/§7.
-// Real controllers/services/providers land here per the Phase 1 milestone
-// sequence (§7): platform bootstrap -> Stock+Sites -> Quality -> Invoicing ->
-// Scan. This module's *product* entitlement (module registry row / feature
-// gate, §1) is a separate, runtime, per-tenant concern from this NestJS
-// module's compile-time DI boundary — do not conflate the two.
-@Module({})
+// Real controllers/services (Action Plan §1/§7 Milestone 3). Imports
+// StockModule for its exported StockService — this is the one and only
+// cross-module dependency Quality has (quarantine orchestration); it does
+// NOT import anything from @org/domain-stock directly, same discipline as
+// @org/domain-quality itself. ScheduleModule.forRoot() here (not in
+// AppModule) since the periodic sweep is entirely a Quality concern — no
+// other module currently needs @nestjs/schedule, so it isn't registered
+// globally.
+@Module({
+  imports: [TenancyModule, AuditModule, StockModule, ScheduleModule.forRoot()],
+  controllers: [QualityController],
+  providers: [QualityService, ExpirySweepScheduler],
+})
 export class QualityModule {}
