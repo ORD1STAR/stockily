@@ -1,10 +1,19 @@
 import { Module } from '@nestjs/common';
+import { TenancyModule } from '../tenancy/tenancy.module';
+import { AuditModule } from '../audit/audit.module';
+import { ScanController } from './scan.controller';
+import { ScanService } from './scan.service';
 
-// Placeholder — see docs/Action Plan.md §1/§7.
-// Real controllers/services/providers land here per the Phase 1 milestone
-// sequence (§7): platform bootstrap -> Stock+Sites -> Quality -> Invoicing ->
-// Scan. This module's *product* entitlement (module registry row / feature
-// gate, §1) is a separate, runtime, per-tenant concern from this NestJS
-// module's compile-time DI boundary — do not conflate the two.
-@Module({})
+// Real controllers/services (Action Plan §1/§7 milestone 5). No StockModule
+// or QualityModule import here — Scan's own backend surface is only label
+// generation/lookup/resolve (see scan.service.ts's own comment); the
+// actual movement/batch/check creation a scan triggers goes straight
+// through Stock's and Quality's existing endpoints, called directly from
+// the frontend, exactly as Action Plan §5 describes ("Scan just calls the
+// existing POST /stock-movements... not a distinct domain").
+@Module({
+  imports: [TenancyModule, AuditModule],
+  controllers: [ScanController],
+  providers: [ScanService],
+})
 export class ScanModule {}

@@ -62,6 +62,7 @@ model Organization {
   taxRates      TaxRate[]
   partners      Partner[]
   auditLogs     AuditLog[]
+  barcodeLabels BarcodeLabel[]
 
   @@map("organizations")
 }
@@ -308,15 +309,19 @@ model StockTransfer {
 
 model BarcodeLabel {
   id         String  @id @default(uuid())
+  orgId      String
   productId  String?
   batchId    String?
   codeValue  String
   symbology  String  @default("EAN13")
   printedCount Int   @default(0)
 
+  organization Organization @relation(fields: [orgId], references: [id])
   product Product? @relation(fields: [productId], references: [id])
   batch   Batch?   @relation(fields: [batchId], references: [id])
 
+  @@unique([orgId, codeValue])
+  @@index([orgId])
   @@map("barcode_labels")
 }
 

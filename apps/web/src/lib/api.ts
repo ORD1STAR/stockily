@@ -282,3 +282,27 @@ export const sitesApi = {
     data: { status?: Transfer['status']; driverName?: string; driverPhone?: string; vehicleRef?: string },
   ) => authedRequest<Transfer>(`/sites/transfers/${id}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
 };
+
+export interface ScanResolution {
+  product: { id: string; sku: string; name: string; isLotTracked: boolean };
+  matchedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  suggestedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
+}
+
+export interface BarcodeLabelView {
+  id: string;
+  codeValue: string;
+  symbology: string;
+  printedCount: number;
+  product: { sku: string; name: string } | null;
+  batch: { lotNumber: string } | null;
+}
+
+export const scanApi = {
+  resolveCode: (token: string, code: string) => authedRequest<ScanResolution>(`/scan/resolve/${encodeURIComponent(code)}`, token),
+  listLabels: (token: string, productId?: string) =>
+    authedRequest<BarcodeLabelView[]>(`/scan/labels${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`, token),
+  generateLabel: (token: string, data: { productId?: string; batchId?: string; symbology?: 'EAN13' | 'QR' }) =>
+    authedRequest<BarcodeLabelView>('/scan/labels', token, { method: 'POST', body: JSON.stringify(data) }),
+  recordPrint: (token: string, id: string) => authedRequest<BarcodeLabelView>(`/scan/labels/${id}/print`, token, { method: 'POST' }),
+};

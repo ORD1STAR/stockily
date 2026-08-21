@@ -24,7 +24,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavItem to="/quality" label="Qualité" enabled={entitledKeys.has('quality')} />
         <NavItem to="/invoicing" label="Factures" enabled={entitledKeys.has('invoicing')} />
         <NavItem to="/sites" label="Transferts Multi-Sites" enabled={entitledKeys.has('sites')} />
-        <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} tag="Milestone 5" />
+        <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} />
         <div className="shell-group-label">Verrouillés</div>
         <div className="shell-nav-item shell-locked">
           Achats <span className="shell-tag">Phase 2</span>

@@ -1,0 +1,108 @@
+/* Scan is deliberately mobile-first and visually separate from the
+   desktop data-views (Stock/Quality/Factures) — a real device surface,
+   not a data table. See ScanPage.tsx's own header comment. */
+
+.scan-page {
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scan-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scan-card h3 {
+  margin: 0;
+  font-family: var(--f-display, inherit);
+  font-size: 1.05rem;
+}
+
+.viewfinder {
+  position: relative;
+  background: var(--ink, #17111f);
+  border-radius: 10px;
+  height: 220px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.viewfinder video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.vf-placeholder {
+  color: #8a7faa;
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.scan-product .name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.scan-product .meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.qty-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: var(--surface-alt);
+  border-radius: 8px;
+  padding: 10px;
+}
+.qty-stepper button {
+  all: unset;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0 14px;
+  color: var(--purple, #4b2e83);
+}
+.qty-stepper span {
+  font-size: 1.05rem;
+  min-width: 2ch;
+  text-align: center;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.btn-link {
+  all: unset;
+  cursor: pointer;
+  color: var(--purple, #4b2e83);
+  font-size: 0.84rem;
+  text-align: center;
+  text-decoration: underline;
+}
+
+.scan-confirm {
+  align-items: center;
+  text-align: center;
+}
+.scan-confirm .check {
+  font-size: 2rem;
+  color: var(--success, #1c7a4c);
+}
+.scan-confirm .line {
+  font-size: 0.92rem;
+}

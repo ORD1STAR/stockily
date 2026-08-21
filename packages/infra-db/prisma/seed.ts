@@ -81,7 +81,7 @@ const ACTIONS: Record<string, string[]> = {
     'invoicing.reminder.run',
   ],
   sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create', 'sites.transfer.read', 'sites.transfer.update'],
-  scan: ['scan.label.generate', 'scan.label.print'],
+  scan: ['scan.label.generate', 'scan.label.print', 'scan.label.read', 'scan.resolve.read'],
 };
 
 const ALL_PHASE1_ACTIONS = Object.values(ACTIONS).flat();

@@ -8,6 +8,7 @@ import { StockPage } from '../pages/StockPage';
 import { SitesPage } from '../pages/SitesPage';
 import { QualityPage } from '../pages/QualityPage';
 import { InvoicingPage } from '../pages/InvoicingPage';
+import { ScanPage } from '../pages/ScanPage';
 
 export function App() {
   return (
@@ -56,8 +57,14 @@ export function App() {
               </ProtectedRoute>
             }
           />
-          {/* Scan route lands in Milestone 5 — AppShell already
-              greys that nav item out based on real entitlements. */}
+          <Route
+            path="/scan"
+            element={
+              <ProtectedRoute>
+                <ScanPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
