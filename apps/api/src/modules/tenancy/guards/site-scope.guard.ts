@@ -5,16 +5,21 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // fine-grained one (see the comment there): "does this user have ANY role
 // assignment touching this site at all" — org-wide, or scoped to this exact
 // site. A no-op when the route has no siteId (nothing to scope). Applies
-// only to routes that actually resolve a target site from params/body; it
-// does not by itself grant any action, it only ever narrows.
+// only to routes that actually resolve a target site from params/body/query;
+// it does not by itself grant any action, it only ever narrows.
 @Injectable()
 export class SiteScopeGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
-    const siteId: string | undefined = req.params?.siteId ?? req.body?.siteId;
-    if (!siteId) return true; // route isn't site-scoped
+    const siteId: string | undefined = req.params?.siteId ?? req.body?.siteId ?? req.query?.siteId;
+    // No siteId at all -> not site-scoped. `site=all` (Milestone 2's
+    // consolidated-view query param, docs/Wireframes.html) targets no single
+    // site, so there's nothing for a yes/no gate to check here — filtering
+    // an "all sites" query down to what the caller can actually see is
+    // SiteAccessService's job, in the service layer, not this guard's.
+    if (!siteId || siteId === 'all') return true;
 
     const userId: string | undefined = req.authUser?.userId;
     if (!userId) throw new UnauthorizedException();

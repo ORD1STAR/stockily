@@ -5,6 +5,7 @@ import { ModuleEntitlementGuard } from './guards/module-entitlement.guard';
 import { PermissionGuard } from './guards/permission.guard';
 import { SiteScopeGuard } from './guards/site-scope.guard';
 import { EntitlementCacheService } from './services/entitlement-cache.service';
+import { SiteAccessService } from './services/site-access.service';
 
 // The guard chain from docs/Action Plan.md §4 — JwtAuthGuard ->
 // ModuleEntitlementGuard -> PermissionGuard -> SiteScopeGuard, in that
@@ -19,7 +20,14 @@ import { EntitlementCacheService } from './services/entitlement-cache.service';
 // relies on, not something a customer activates or pays for (§1).
 @Module({
   controllers: [MeController],
-  providers: [JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard, EntitlementCacheService],
-  exports: [JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard],
+  providers: [JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard, EntitlementCacheService, SiteAccessService],
+  // EntitlementCacheService must be exported too, not just provided — a
+  // `@UseGuards(ModuleEntitlementGuard)` reference in a *different* module
+  // (StockModule, SitesModule, ...) resolves that guard's own dependencies
+  // against the consuming module's available providers, not just against
+  // TenancyModule's internal ones. Milestone 1 never hit this because
+  // ModuleEntitlementGuard was only ever used from within TenancyModule
+  // itself (MeController); Milestone 2 is the first cross-module use.
+  exports: [JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard, EntitlementCacheService, SiteAccessService],
 })
 export class TenancyModule {}

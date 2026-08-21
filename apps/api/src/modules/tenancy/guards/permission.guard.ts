@@ -34,15 +34,28 @@ export class PermissionGuard implements CanActivate {
     const module = await this.prisma.module.findUnique({ where: { key: required.moduleKey } });
     if (!module) throw new NotFoundException(`Unknown module: ${required.moduleKey}`);
 
-    const siteId: string | undefined = req.params?.siteId ?? req.body?.siteId;
+    const rawSiteId: string | undefined = req.params?.siteId ?? req.body?.siteId ?? req.query?.siteId;
 
-    const userRoles = await this.prisma.userRole.findMany({
-      where: {
-        userId,
-        OR: siteId ? [{ siteId: null }, { siteId }] : [{ siteId: null }],
-      },
-      select: { roleId: true },
-    });
+    // Three distinct cases, not two — conflating the last two would either
+    // wrongly deny a site-scoped-only user on ordinary non-site-scoped
+    // routes, or wrongly grant an all-sites request the same strictness as a
+    // single concrete site:
+    //  - no siteId at all (route has no site dimension, e.g. GET /stock/categories):
+    //    unchanged from Milestone 1 — org-wide roles only.
+    //  - a concrete siteId: org-wide OR that exact site (unchanged).
+    //  - `site=all` (Milestone 2's consolidated-view query param): the
+    //    permission check itself should pass for ANY of the user's roles
+    //    regardless of site — a site-scoped-only user (e.g. Opérateur
+    //    Entrepôt at one site) does have `stock.product.read`, just not for
+    //    every site. This guard only answers "is the action ever permitted
+    //    for this user"; SiteAccessService (service layer) is what actually
+    //    restricts which sites' rows an all-sites request returns to them.
+    const roleWhere =
+      rawSiteId === 'all'
+        ? { userId }
+        : { userId, OR: rawSiteId ? [{ siteId: null }, { siteId: rawSiteId }] : [{ siteId: null }] };
+
+    const userRoles = await this.prisma.userRole.findMany({ where: roleWhere, select: { roleId: true } });
     if (userRoles.length === 0) {
       throw new ForbiddenException({
         statusCode: 403,

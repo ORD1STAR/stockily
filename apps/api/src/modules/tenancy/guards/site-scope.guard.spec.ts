@@ -44,4 +44,17 @@ describe('SiteScopeGuard', () => {
       expect.objectContaining({ where: { userId: 'user-1', OR: [{ siteId: null }, { siteId: 'site-7' }] } }),
     );
   });
+
+  it('reads siteId from the query string (Milestone 2 list/consolidated-view endpoints)', async () => {
+    prisma.userRole.findFirst.mockResolvedValue({ id: 'ur-1', siteId: 'site-3' });
+    await guard.canActivate(makeContext({ query: { siteId: 'site-3' } }));
+    expect(prisma.userRole.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user-1', OR: [{ siteId: null }, { siteId: 'site-3' }] } }),
+    );
+  });
+
+  it('is a no-op for ?site=all — filtering an all-sites request is SiteAccessService\'s job, not this guard\'s', async () => {
+    await expect(guard.canActivate(makeContext({ query: { siteId: 'all' } }))).resolves.toBe(true);
+    expect(prisma.userRole.findFirst).not.toHaveBeenCalled();
+  });
 });

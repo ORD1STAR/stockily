@@ -74,6 +74,32 @@ describe('PermissionGuard', () => {
     );
   });
 
+  it('reads siteId from the query string (Milestone 2 list endpoints) the same as params', async () => {
+    jest.spyOn(reflector, 'get').mockReturnValue({ moduleKey: 'stock', action: 'stock.product.read' });
+    prisma.module.findUnique.mockResolvedValue({ id: 'mod-1' });
+    prisma.userRole.findMany.mockResolvedValue([{ roleId: 'role-1' }]);
+    prisma.rolePermission.findFirst.mockResolvedValue({ id: 'perm-1' });
+
+    await guard.canActivate(makeContext({ query: { siteId: 'site-9' } }));
+
+    expect(prisma.userRole.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ OR: [{ siteId: null }, { siteId: 'site-9' }] }) }),
+    );
+  });
+
+  it('?site=all considers ANY of the user\'s roles regardless of site — a site-scoped-only user still has the permission somewhere, filtering happens downstream', async () => {
+    jest.spyOn(reflector, 'get').mockReturnValue({ moduleKey: 'stock', action: 'stock.product.read' });
+    prisma.module.findUnique.mockResolvedValue({ id: 'mod-1' });
+    prisma.userRole.findMany.mockResolvedValue([{ roleId: 'role-1' }]);
+    prisma.rolePermission.findFirst.mockResolvedValue({ id: 'perm-1' });
+
+    await expect(guard.canActivate(makeContext({ query: { siteId: 'all' } }))).resolves.toBe(true);
+
+    expect(prisma.userRole.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user-1' } }),
+    );
+  });
+
   it('does NOT grant access from a role scoped only to a different site (the unsound-decomposition case)', async () => {
     // A role scoped to site-1 that DOES grant the action should not count
     // toward a request targeting site-2 — this is exactly the failure mode
