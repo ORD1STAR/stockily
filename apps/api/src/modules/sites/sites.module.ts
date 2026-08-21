@@ -1,10 +1,16 @@
 import { Module } from '@nestjs/common';
+import { TenancyModule } from '../tenancy/tenancy.module';
+import { AuditModule } from '../audit/audit.module';
+import { StockModule } from '../stock/stock.module';
+import { SitesController } from './sites.controller';
+import { SitesService } from './sites.service';
 
-// Placeholder — see docs/Action Plan.md §1/§7.
-// Real controllers/services/providers land here per the Phase 1 milestone
-// sequence (§7): platform bootstrap -> Stock+Sites -> Quality -> Invoicing ->
-// Scan. This module's *product* entitlement (module registry row / feature
-// gate, §1) is a separate, runtime, per-tenant concern from this NestJS
-// module's compile-time DI boundary — do not conflate the two.
-@Module({})
+// Real controllers/services land here per Action Plan §1/§7 Milestone 2.
+// Imports StockModule for StockService — transfers move the stock ledger
+// through it rather than duplicating @org/domain-stock's wiring here.
+@Module({
+  imports: [TenancyModule, AuditModule, StockModule],
+  controllers: [SitesController],
+  providers: [SitesService],
+})
 export class SitesModule {}
