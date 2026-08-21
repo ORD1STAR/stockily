@@ -12,6 +12,7 @@ export function SitesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTransferForm, setShowTransferForm] = useState(false);
+  const [showSiteForm, setShowSiteForm] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
 
   const load = useCallback(async () => {
@@ -51,9 +52,14 @@ export function SitesPage() {
           <h2>Transferts Multi-Sites</h2>
           <div className="sub">Vue consolidée — {sites.length} site(s) actif(s)</div>
         </div>
-        <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
-          + Transfert inter-site
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={() => setShowSiteForm(true)}>
+            + Nouveau site
+          </button>
+          <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
+            + Transfert inter-site
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -95,6 +101,15 @@ export function SitesPage() {
         </>
       )}
 
+      {showSiteForm && (
+        <SiteFormModal
+          onClose={() => setShowSiteForm(false)}
+          onSaved={() => {
+            setShowSiteForm(false);
+            load();
+          }}
+        />
+      )}
       {showTransferForm && (
         <TransferFormModal
           sites={sites}
@@ -122,6 +137,59 @@ export function SitesPage() {
 
 function statusLabel(status: Transfer['status']): string {
   return status === 'prepared' ? 'préparé' : status === 'in_transit' ? 'en transit' : 'livré';
+}
+
+function SiteFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { accessToken } = useAuth();
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await sitesApi.create(accessToken, { name, address: address || undefined });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du site.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Nouveau site</h3>
+        <form onSubmit={handleSubmit} className="field-form">
+          <div className="field-row">
+            <label>Nom</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Alger — Entrepôt Central" required />
+          </div>
+          <div className="field-row">
+            <label>Adresse (optionnel)</label>
+            <textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Création…' : 'Créer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 function TransferFormModal({

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, Batch, ScanResolution, Site, qualityApi, scanApi, sitesApi, stockApi } from '../lib/api';
+import { ApiError, Batch, BarcodeLabelView, ScanResolution, Site, StockRow, qualityApi, scanApi, sitesApi, stockApi } from '../lib/api';
 import '../lib/data-views.css';
 import './ScanPage.css';
 
@@ -15,6 +15,7 @@ type Step = 'scan' | 'action' | 'in' | 'out' | 'transfer' | 'confirm';
 // Capacitor-wrapped build would drop AppShell entirely for this route.
 export function ScanPage() {
   const { accessToken } = useAuth();
+  const [mode, setMode] = useState<'scan' | 'labels'>('scan');
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
   const [code, setCode] = useState('');
@@ -226,9 +227,20 @@ export function ScanPage() {
           </div>
         </div>
 
+        <div className="toggle-row">
+          <button className={`toggle-btn${mode === 'scan' ? ' on' : ''}`} onClick={() => setMode('scan')}>
+            Scanner
+          </button>
+          <button className={`toggle-btn${mode === 'labels' ? ' on' : ''}`} onClick={() => setMode('labels')}>
+            Étiquettes
+          </button>
+        </div>
+
         {error && <div className="error-banner">{error}</div>}
 
-        {step === 'scan' && (
+        {mode === 'labels' && <LabelsPanel />}
+
+        {mode === 'scan' && step === 'scan' && (
           <div className="scan-card">
             <div className="viewfinder">
               <video ref={videoRef} muted playsInline style={{ display: cameraActive ? 'block' : 'none' }} />
@@ -265,7 +277,7 @@ export function ScanPage() {
           </div>
         )}
 
-        {step === 'action' && resolution && (
+        {mode === 'scan' && step === 'action' && resolution && (
           <div className="scan-card">
             <div className="scan-product">
               <div className="name">{resolution.product.name}</div>
@@ -296,7 +308,7 @@ export function ScanPage() {
           </div>
         )}
 
-        {step === 'in' && resolution && (
+        {mode === 'scan' && step === 'in' && resolution && (
           <div className="scan-card">
             <h3>Entrée de stock</h3>
             {resolution.product.isLotTracked ? (
@@ -363,7 +375,7 @@ export function ScanPage() {
           </div>
         )}
 
-        {step === 'out' && resolution && (
+        {mode === 'scan' && step === 'out' && resolution && (
           <div className="scan-card">
             <h3>Sortie de stock</h3>
             {resolution.suggestedBatch && (
@@ -383,7 +395,7 @@ export function ScanPage() {
           </div>
         )}
 
-        {step === 'transfer' && resolution && (
+        {mode === 'scan' && step === 'transfer' && resolution && (
           <div className="scan-card">
             <h3>Transfert inter-site</h3>
             <div className="field-row">
@@ -410,7 +422,7 @@ export function ScanPage() {
           </div>
         )}
 
-        {step === 'confirm' && (
+        {mode === 'scan' && step === 'confirm' && (
           <div className="scan-card scan-confirm">
             <div className="check">✓</div>
             <div className="line">{confirmMessage}</div>
@@ -421,5 +433,112 @@ export function ScanPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+// Label generation/printing — the wireframe's "Impression d'étiquettes",
+// a distinct desktop-style admin task (batch-print labels ahead of time)
+// from the mobile scan-in-the-moment flow above, but kept as a mode toggle
+// on this same page rather than a separate route/nav item since it's a
+// small, closely-related surface, not its own module.
+function LabelsPanel() {
+  const { accessToken } = useAuth();
+  const [products, setProducts] = useState<StockRow[]>([]);
+  const [labels, setLabels] = useState<BarcodeLabelView[]>([]);
+  const [productId, setProductId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    try {
+      const [productRows, labelRows] = await Promise.all([stockApi.listProducts(accessToken, 'all'), scanApi.listLabels(accessToken)]);
+      const unique = Array.from(new Map(productRows.map((p) => [p.productId, p])).values());
+      setProducts(unique);
+      setLabels(labelRows);
+      if (!productId && unique[0]) setProductId(unique[0].productId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
+    } finally {
+      setLoading(false);
+    }
+    // productId deliberately excluded from deps — this only needs to seed a default once, not re-run when the selector changes
+  }, [accessToken]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function generate() {
+    if (!accessToken || !productId) return;
+    setError(null);
+    try {
+      await scanApi.generateLabel(accessToken, { productId, symbology: 'QR' });
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la génération.');
+    }
+  }
+
+  async function print(id: string) {
+    if (!accessToken) return;
+    await scanApi.recordPrint(accessToken, id);
+    load();
+  }
+
+  return (
+    <div className="scan-card">
+      <h3>Étiquettes</h3>
+      <div className="field-row">
+        <label>Produit</label>
+        <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+          {products.map((p) => (
+            <option key={p.productId} value={p.productId}>
+              {p.sku} — {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button className="btn-primary" onClick={generate} disabled={!productId}>
+        + Générer une étiquette
+      </button>
+      {error && <div className="error-banner">{error}</div>}
+      {loading ? (
+        <p className="sub">Chargement…</p>
+      ) : (
+        <table className="lot-mini-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Produit / Lot</th>
+              <th>Imprimée</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {labels.map((l) => (
+              <tr key={l.id}>
+                <td className="mono">{l.codeValue}</td>
+                <td className="muted">{l.product ? l.product.name : l.batch ? `Lot ${l.batch.lotNumber}` : '—'}</td>
+                <td className="mono">{l.printedCount}×</td>
+                <td>
+                  <button className="btn-link" onClick={() => print(l.id)}>
+                    Imprimer
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {labels.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '16px 0' }}>
+                  Aucune étiquette générée pour le moment.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

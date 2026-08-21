@@ -57,6 +57,14 @@
   background: var(--surface-alt);
 }
 
+.btn-link {
+  all: unset;
+  cursor: pointer;
+  color: var(--purple, #4b2e83);
+  font-size: 0.82rem;
+  text-decoration: underline;
+}
+
 .site-select {
   font-family: var(--f-body);
   font-size: 0.82rem;

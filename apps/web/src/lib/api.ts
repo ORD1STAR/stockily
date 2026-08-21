@@ -98,11 +98,22 @@ export interface Transfer {
   createdAt: string;
 }
 
+export interface ProductCategory {
+  id: string;
+  name: string;
+  parentId: string | null;
+}
+
 export const stockApi = {
   listProducts: (token: string, siteId: string) => authedRequest<StockRow[]>(`/stock/products?siteId=${encodeURIComponent(siteId)}`, token),
   getProduct: (token: string, productId: string) => authedRequest<ProductDetail>(`/stock/products/${productId}`, token),
-  createProduct: (token: string, data: { sku: string; name: string; isLotTracked?: boolean; minThreshold?: number; maxThreshold?: number }) =>
-    authedRequest<ProductDetail>('/stock/products', token, { method: 'POST', body: JSON.stringify(data) }),
+  createProduct: (
+    token: string,
+    data: { sku: string; name: string; categoryId?: string; isLotTracked?: boolean; minThreshold?: number; maxThreshold?: number },
+  ) => authedRequest<ProductDetail>('/stock/products', token, { method: 'POST', body: JSON.stringify(data) }),
+  listCategories: (token: string) => authedRequest<ProductCategory[]>('/stock/categories', token),
+  createCategory: (token: string, data: { name: string; parentId?: string }) =>
+    authedRequest<ProductCategory>('/stock/categories', token, { method: 'POST', body: JSON.stringify(data) }),
   recordMovement: (
     token: string,
     data: {

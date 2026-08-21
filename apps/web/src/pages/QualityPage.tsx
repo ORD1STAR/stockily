@@ -27,6 +27,7 @@ interface QualityRow {
   result: 'conforme' | 'non_conforme' | null;
   status: 'ok' | 'warning' | 'danger';
   statusLabel: string;
+  openNonConformityId: string | null;
 }
 
 export function QualityPage() {
@@ -38,6 +39,7 @@ export function QualityPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCheckForm, setShowCheckForm] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -75,6 +77,7 @@ export function QualityPage() {
       const days = daysRemaining(b.expiryDate);
       const isQuarantined = b.status === 'quarantined';
       const isNearExpiry = days != null && days <= 30 && days >= 0 && b.status === 'active';
+      const openNc = nonConformities.find((n) => n.batchId === b.id && n.status === 'open');
       return {
         key: b.id,
         lotLabel: b.lotNumber,
@@ -86,6 +89,7 @@ export function QualityPage() {
         result: b.latestCheck?.result ?? null,
         status: isQuarantined ? 'danger' : isNearExpiry ? 'warning' : 'ok',
         statusLabel: isQuarantined ? 'Quarantaine' : isNearExpiry ? 'Péremption proche' : 'OK',
+        openNonConformityId: openNc?.id ?? null,
       };
     });
 
@@ -105,6 +109,7 @@ export function QualityPage() {
           result: 'non_conforme',
           status: n.status === 'open' ? 'danger' : 'ok',
           statusLabel: n.status === 'open' ? 'Quarantaine' : 'Résolue',
+          openNonConformityId: n.status === 'open' ? n.id : null,
         };
       });
 
@@ -166,6 +171,7 @@ export function QualityPage() {
                 <th>Jours restants</th>
                 <th>Contrôle qualité</th>
                 <th>État</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -188,12 +194,19 @@ export function QualityPage() {
                         {r.statusLabel}
                       </span>
                     </td>
+                    <td>
+                      {r.openNonConformityId && (
+                        <button className="btn-link" onClick={() => setResolvingId(r.openNonConformityId)}>
+                          Résoudre
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
                     Aucun lot ni contrôle qualité pour le moment.
                   </td>
                 </tr>
@@ -213,7 +226,77 @@ export function QualityPage() {
           }}
         />
       )}
+      {resolvingId && (
+        <ResolveNonConformityModal
+          nonConformityId={resolvingId}
+          onClose={() => setResolvingId(null)}
+          onSaved={() => {
+            setResolvingId(null);
+            load();
+          }}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function ResolveNonConformityModal({
+  nonConformityId,
+  onClose,
+  onSaved,
+}: {
+  nonConformityId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { accessToken } = useAuth();
+  const [resolutionNotes, setResolutionNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await qualityApi.resolveNonConformity(accessToken, nonConformityId, resolutionNotes || undefined);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la résolution.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Résoudre la non-conformité</h3>
+        <p className="modal-sub">
+          Marque cette non-conformité comme résolue. La quantité concernée reste en quarantaine — la remise en stock ou le rebut se fait
+          via un mouvement de stock séparé (le Retours/SAV du Phase 3 gérera ce flux plus finement).
+        </p>
+        <form onSubmit={handleSubmit} className="field-form">
+          <div className="field-row">
+            <label>Notes de résolution (optionnel)</label>
+            <textarea rows={3} value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)} />
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Enregistrement…' : 'Marquer comme résolue'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

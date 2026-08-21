@@ -37,6 +37,7 @@ export function InvoicingPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<InvoiceView | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -105,9 +106,14 @@ export function InvoicingPage() {
           <h2>Gestion des Factures</h2>
           <div className="sub">Numérotation séquentielle unique — organisation entière</div>
         </div>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + Nouvelle facture
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={() => setShowPartnerForm(true)}>
+            + Nouveau client
+          </button>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>
+            + Nouvelle facture
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -214,7 +220,115 @@ export function InvoicingPage() {
           }}
         />
       )}
+      {showPartnerForm && (
+        <PartnerFormModal
+          onClose={() => setShowPartnerForm(false)}
+          onSaved={() => {
+            setShowPartnerForm(false);
+            load();
+          }}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function PartnerFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { accessToken } = useAuth();
+  const [name, setName] = useState('');
+  const [nif, setNif] = useState('');
+  const [nis, setNis] = useState('');
+  const [rc, setRc] = useState('');
+  const [taxArticle, setTaxArticle] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await invoicingApi.createPartner(accessToken, {
+        name,
+        nif,
+        isCustomer: true,
+        isSupplier: false,
+        nis: nis || null,
+        rc: rc || null,
+        taxArticle: taxArticle || null,
+        address: address || null,
+        phone: phone || null,
+        email: email || null,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la création du client.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Nouveau client</h3>
+        <p className="modal-sub">Le NIF est requis pour pouvoir finaliser une facture à ce client (Décret 05-468).</p>
+        <form onSubmit={handleSubmit} className="field-form">
+          <div className="field-row">
+            <label>Nom</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>NIF</label>
+              <input value={nif} onChange={(e) => setNif(e.target.value)} required />
+            </div>
+            <div className="field-row">
+              <label>NIS</label>
+              <input value={nis} onChange={(e) => setNis(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <label>RC</label>
+              <input value={rc} onChange={(e) => setRc(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <label>Article d'imposition</label>
+              <input value={taxArticle} onChange={(e) => setTaxArticle(e.target.value)} />
+            </div>
+          </div>
+          <div className="field-row">
+            <label>Adresse</label>
+            <textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
+          </div>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Téléphone</label>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <label>Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Création…' : 'Créer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

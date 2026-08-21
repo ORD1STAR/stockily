@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, Batch, ProductDetail, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { ApiError, Batch, ProductCategory, ProductDetail, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { useStockRealtime } from '../lib/realtime';
 import '../lib/data-views.css';
 
@@ -16,15 +16,22 @@ export function StockPage() {
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [showMovementForm, setShowMovementForm] = useState(false);
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
 
   const load = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
     setError(null);
     try {
-      const [siteList, productRows] = await Promise.all([sitesApi.list(accessToken), stockApi.listProducts(accessToken, siteId)]);
+      const [siteList, productRows, categoryList] = await Promise.all([
+        sitesApi.list(accessToken),
+        stockApi.listProducts(accessToken, siteId),
+        stockApi.listCategories(accessToken),
+      ]);
       setSites(siteList);
       setRows(productRows);
+      setCategories(categoryList);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
     } finally {
@@ -71,9 +78,14 @@ export function StockPage() {
             </select>
           </div>
         </div>
-        <button className="btn-primary" onClick={() => setShowMovementForm(true)}>
-          + Nouveau mouvement
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={() => setShowProductForm(true)}>
+            + Nouveau produit
+          </button>
+          <button className="btn-primary" onClick={() => setShowMovementForm(true)} disabled={rows.length === 0}>
+            + Nouveau mouvement
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -148,6 +160,16 @@ export function StockPage() {
       )}
 
       {detail && <SkuDetailModal detail={detail} onClose={() => setDetail(null)} />}
+      {showProductForm && (
+        <ProductFormModal
+          categories={categories}
+          onClose={() => setShowProductForm(false)}
+          onSaved={() => {
+            setShowProductForm(false);
+            load();
+          }}
+        />
+      )}
       {showMovementForm && (
         <MovementFormModal
           sites={sites}
@@ -251,6 +273,120 @@ function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: (
             </table>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductFormModal({
+  categories,
+  onClose,
+  onSaved,
+}: {
+  categories: ProductCategory[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { accessToken } = useAuth();
+  const [sku, setSku] = useState('');
+  const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [isLotTracked, setIsLotTracked] = useState(false);
+  const [minThreshold, setMinThreshold] = useState<number | ''>('');
+  const [maxThreshold, setMaxThreshold] = useState<number | ''>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      let finalCategoryId = categoryId || undefined;
+      if (newCategoryName.trim()) {
+        const created = await stockApi.createCategory(accessToken, { name: newCategoryName.trim() });
+        finalCategoryId = created.id;
+      }
+      await stockApi.createProduct(accessToken, {
+        sku,
+        name,
+        categoryId: finalCategoryId,
+        isLotTracked,
+        ...(minThreshold !== '' ? { minThreshold: Number(minThreshold) } : {}),
+        ...(maxThreshold !== '' ? { maxThreshold: Number(maxThreshold) } : {}),
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du produit.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Nouveau produit</h3>
+        <form onSubmit={handleSubmit} className="field-form">
+          <div className="field-row">
+            <label>SKU</label>
+            <input className="mono" value={sku} onChange={(e) => setSku(e.target.value)} required />
+          </div>
+          <div className="field-row">
+            <label>Nom</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="field-row">
+            <label>Catégorie existante</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!!newCategoryName.trim()}>
+              <option value="">— aucune —</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field-row">
+            <label>Ou nouvelle catégorie</label>
+            <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Laisser vide si non applicable" />
+          </div>
+          <div className="field-row">
+            <label>Suivi par lot (péremption, contrôle qualité)</label>
+            <div className="toggle-row">
+              <button type="button" className={`toggle-btn ${isLotTracked ? 'on' : ''}`} onClick={() => setIsLotTracked(true)}>
+                Oui
+              </button>
+              <button type="button" className={`toggle-btn ${!isLotTracked ? 'on' : ''}`} onClick={() => setIsLotTracked(false)}>
+                Non
+              </button>
+            </div>
+          </div>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Seuil min (optionnel)</label>
+              <input type="number" min={0} step="any" value={minThreshold} onChange={(e) => setMinThreshold(e.target.value === '' ? '' : Number(e.target.value))} />
+            </div>
+            <div className="field-row">
+              <label>Seuil max (optionnel)</label>
+              <input type="number" min={0} step="any" value={maxThreshold} onChange={(e) => setMaxThreshold(e.target.value === '' ? '' : Number(e.target.value))} />
+            </div>
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Création…' : 'Créer'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
