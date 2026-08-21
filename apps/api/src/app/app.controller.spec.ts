@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 describe('AppController', () => {
   let app: TestingModule;
@@ -8,7 +9,10 @@ describe('AppController', () => {
   beforeAll(async () => {
     app = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      // AppController now also depends on PrismaService (the /health
+      // endpoint's real DB round-trip check) — this test only exercises
+      // getData(), so a bare mock is enough, no real database needed.
+      providers: [AppService, { provide: PrismaService, useValue: {} }],
     }).compile();
   });
 

@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -8,11 +9,18 @@ import { JwtAuthGuard } from '../tenancy/guards/jwt-auth.guard';
 import { AuditInterceptor } from '../audit/audit.interceptor';
 import { Audit } from '../audit/audit.decorator';
 
+// Stricter than the global default (main app.module.ts) on the three
+// routes that are actual brute-force/credential-stuffing targets — the
+// global limit alone is generous enough for normal API usage that it
+// wouldn't meaningfully slow down a password-guessing script.
+const AUTH_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('signup')
+  @Throttle(AUTH_THROTTLE)
   @UseInterceptors(AuditInterceptor)
   @Audit('organization', 'organization.created')
   signup(@Body() dto: SignupDto) {
@@ -20,12 +28,14 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle(AUTH_THROTTLE)
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
 
   @Post('refresh')
+  @Throttle(AUTH_THROTTLE)
   @HttpCode(HttpStatus.OK)
   refresh(@Body() dto: RefreshDto) {
     return this.authService.refresh(dto.refreshToken);
