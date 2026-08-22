@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, InvoiceView, Partner, Site, TaxRate, invoicingApi, sitesApi } from '../lib/api';
+import { ApiError, InvoiceView, Partner, Site, StockRow, TaxRate, invoicingApi, sitesApi, stockApi } from '../lib/api';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<InvoiceView['status'], string> = {
@@ -32,12 +32,14 @@ export function InvoicingPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [products, setProducts] = useState<StockRow[]>([]);
   const [filter, setFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<InvoiceView | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [showTaxRateForm, setShowTaxRateForm] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -45,16 +47,18 @@ export function InvoicingPage() {
     setLoading(true);
     setError(null);
     try {
-      const [invoiceRows, partnerRows, siteRows, taxRows] = await Promise.all([
+      const [invoiceRows, partnerRows, siteRows, taxRows, productRows] = await Promise.all([
         invoicingApi.listInvoices(accessToken, filter),
         invoicingApi.listPartners(accessToken),
         sitesApi.list(accessToken),
         invoicingApi.listTaxRates(accessToken),
+        stockApi.listProducts(accessToken, 'all'),
       ]);
       setInvoices(invoiceRows);
       setPartners(partnerRows);
       setSites(siteRows);
       setTaxRates(taxRows);
+      setProducts(productRows);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
     } finally {
@@ -107,6 +111,9 @@ export function InvoicingPage() {
           <div className="sub">Numérotation séquentielle unique — organisation entière</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={() => setShowTaxRateForm(true)}>
+            + Taux de TVA
+          </button>
           <button className="btn-secondary" onClick={() => setShowPartnerForm(true)}>
             + Nouveau client
           </button>
@@ -213,6 +220,7 @@ export function InvoicingPage() {
           partners={partners}
           sites={sites}
           taxRates={taxRates}
+          products={products}
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
@@ -229,7 +237,80 @@ export function InvoicingPage() {
           }}
         />
       )}
+      {showTaxRateForm && (
+        <TaxRateFormModal
+          onClose={() => setShowTaxRateForm(false)}
+          onSaved={() => {
+            setShowTaxRateForm(false);
+            load();
+          }}
+        />
+      )}
     </AppShell>
+  );
+}
+
+// A brand-new organization has no tax rates at all — the "Nouvelle facture"
+// modal's TVA dropdown only ever showed "Aucune", with no way through the
+// UI to add one, even though POST /invoicing/tax-rates already existed and
+// worked (found by trying to invoice a real wholesale client and hitting a
+// dead end at 19% VAT, mandatory on an Algerian invoice under Décret
+// 05-468). Mirrors PartnerFormModal's own pattern.
+function TaxRateFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { accessToken } = useAuth();
+  const [name, setName] = useState('');
+  const [rate, setRate] = useState('19');
+  const [isDefault, setIsDefault] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await invoicingApi.createTaxRate(accessToken, { name, rate: Number(rate), isDefault });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la création du taux de TVA.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <button className="modal-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Nouveau taux de TVA</h3>
+        <form onSubmit={handleSubmit} className="field-form">
+          <div className="field-row">
+            <label>Nom</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. TVA normale" required />
+          </div>
+          <div className="field-row">
+            <label>Taux (%)</label>
+            <input type="number" min="0" max="100" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} required />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
+            Taux par défaut
+          </label>
+          {error && <div className="error-banner">{error}</div>}
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Création…' : 'Créer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -453,27 +534,54 @@ function InvoiceModal({
   );
 }
 
+interface DraftLine {
+  productId: string; // '' = free-text/service line, no stock impact
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRateId: string;
+}
+
 function CreateInvoiceModal({
   partners,
   sites,
   taxRates,
+  products,
   onClose,
   onCreated,
 }: {
   partners: Partner[];
   sites: Site[];
   taxRates: TaxRate[];
+  products: StockRow[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { accessToken } = useAuth();
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [partnerId, setPartnerId] = useState('');
-  const [description, setDescription] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [unitPrice, setUnitPrice] = useState('');
-  const [taxRateId, setTaxRateId] = useState(taxRates.find((t) => t.isDefault)?.id ?? '');
+  const defaultTaxRateId = taxRates.find((t) => t.isDefault)?.id ?? '';
+  const blankLine = (): DraftLine => ({ productId: '', description: '', quantity: '1', unitPrice: '', taxRateId: defaultTaxRateId });
+  const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [error, setError] = useState<string | null>(null);
+
+  // One row per distinct product (StockRow is one row per product+site) —
+  // a real wholesale order has several different products on the SAME
+  // invoice (yaourt + huile + thon + eau...), which the single-line form
+  // this replaced could never express: creating one invoice per product for
+  // a real bulk order isn't a workaround, it's a dead end (a separate
+  // gapless-numbered document per item, for one delivery). Found by trying
+  // to actually invoice a wholesale client's order.
+  const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
+
+  function updateLine(index: number, patch: Partial<DraftLine>) {
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+
+  function selectProduct(index: number, productId: string) {
+    const product = uniqueProducts.find((p) => p.productId === productId);
+    updateLine(index, { productId, description: product ? `${product.sku} — ${product.name}` : '' });
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -484,7 +592,13 @@ function CreateInvoiceModal({
         type: 'CUSTOMER',
         siteId,
         partnerId: partnerId || undefined,
-        lines: [{ description, quantity: Number(quantity), unitPrice: Number(unitPrice), taxRateId: taxRateId || undefined }],
+        lines: lines.map((l) => ({
+          productId: l.productId || undefined,
+          description: l.description,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          taxRateId: l.taxRateId || undefined,
+        })),
       });
       onCreated();
     } catch (err) {
@@ -494,7 +608,7 @@ function CreateInvoiceModal({
 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal" style={{ maxWidth: 640 }}>
         <button className="modal-close" onClick={onClose}>
           ✕
         </button>
@@ -524,29 +638,71 @@ function CreateInvoiceModal({
                 ))}
             </select>
           </div>
-          <div className="field-row">
-            <label>Désignation</label>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} required />
-          </div>
-          <div className="field-row">
-            <label>Quantité</label>
-            <input type="number" min="0.001" step="0.001" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
-          </div>
-          <div className="field-row">
-            <label>Prix unitaire HT</label>
-            <input type="number" min="0" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} required />
-          </div>
-          <div className="field-row">
-            <label>TVA</label>
-            <select value={taxRateId} onChange={(e) => setTaxRateId(e.target.value)}>
-              <option value="">Aucune</option>
-              {taxRates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.rate}%)
-                </option>
-              ))}
-            </select>
-          </div>
+
+          <div className="modal-section-label">Lignes</div>
+          {lines.map((line, i) => (
+            <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+              <div className="field-row">
+                <label>Produit (optionnel — laissez vide pour une ligne de service)</label>
+                <select value={line.productId} onChange={(e) => selectProduct(i, e.target.value)}>
+                  <option value="">— aucun (service) —</option>
+                  {uniqueProducts.map((p) => (
+                    <option key={p.productId} value={p.productId}>
+                      {p.sku} — {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field-row">
+                <label>Désignation</label>
+                <input value={line.description} onChange={(e) => updateLine(i, { description: e.target.value })} required />
+              </div>
+              <div className="field-grid">
+                <div className="field-row">
+                  <label>Quantité</label>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="0.001"
+                    value={line.quantity}
+                    onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="field-row">
+                  <label>Prix unitaire HT</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={line.unitPrice}
+                    onChange={(e) => updateLine(i, { unitPrice: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="field-row">
+                <label>TVA</label>
+                <select value={line.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })}>
+                  <option value="">Aucune</option>
+                  {taxRates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.rate}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {lines.length > 1 && (
+                <button type="button" className="btn-link" onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}>
+                  Retirer cette ligne
+                </button>
+              )}
+            </div>
+          ))}
+          <button type="button" className="btn-secondary" onClick={() => setLines((prev) => [...prev, blankLine()])} style={{ marginBottom: 10 }}>
+            + Ajouter une ligne
+          </button>
+
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>

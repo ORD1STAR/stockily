@@ -255,11 +255,23 @@ export class InvoicingService {
         } catch (err) {
           if (err instanceof BadRequestException) {
             const body = err.getResponse();
-            throw new BadRequestException({
-              ...(typeof body === 'object' ? body : { message: body }),
-              lineId: line.id,
-              lineDescription: line.description,
-            });
+            const parsed = typeof body === 'object' ? (body as Record<string, unknown>) : { message: body };
+            // The domain layer's own message names the product/site by id
+            // ("Movement would take stock negative for product
+            // 28995e46-...") — perfectly fine as a developer-facing detail,
+            // but it's exactly what reached the invoicing UI raw: a user
+            // finalizing a real multi-line order saw that string with no
+            // way to tell which of their lines it was even about. Rebuilt
+            // here using `line.description`, which this loop already has
+            // on hand — no extra lookup needed — while `requested`/
+            // `available` (already on the error body) still say concretely
+            // by how much. Found by actually finalizing an order that
+            // oversold one of its lines.
+            const message =
+              parsed.error === 'negative_stock'
+                ? `Stock insuffisant pour « ${line.description} » : ${parsed.requested} demandé(s), ${parsed.available} disponible(s).`
+                : parsed.message;
+            throw new BadRequestException({ ...parsed, message, lineId: line.id, lineDescription: line.description });
           }
           throw err;
         }
