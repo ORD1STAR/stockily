@@ -283,6 +283,7 @@ export interface OrganizationProfile {
   taxArticle: string | null;
   phone: string | null;
   email: string | null;
+  logo: string | null;
 }
 
 export interface InvoiceLineView {

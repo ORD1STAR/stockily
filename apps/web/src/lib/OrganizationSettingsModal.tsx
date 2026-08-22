@@ -1,6 +1,41 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth-context';
 import { ApiError, OrganizationProfile, invoicingApi } from './api';
+
+const MAX_LOGO_DIMENSION = 240; // px — a logo printed at ~36pt on an invoice never needs more
+const ACCEPTED_LOGO_TYPES = ['image/png', 'image/jpeg'];
+
+// Resizes/re-encodes to PNG client-side so a phone photo (several MB,
+// wrong aspect ratio for a logo) never gets pushed at DB-storage size or
+// pdfkit-decoding cost — draws onto an offscreen canvas at a capped
+// dimension (never upscaling a smaller source) and reads back a data:
+// URL, which is exactly the shape both the DB column and the invoice
+// PDF's image renderer already expect.
+function resizeToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Lecture du fichier impossible.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image illisible.'));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_LOGO_DIMENSION / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Rendu impossible sur ce navigateur.'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // Backs the wireframe's "⚙ Paramètres du Business" screen — the org's own
 // legal identity (Décret 05-468's 12 mandatory mentions on the seller
@@ -14,11 +49,28 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
   const [profile, setProfile] = useState<OrganizationProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!accessToken) return;
     invoicingApi.getOrganizationProfile(accessToken).then(setProfile);
   }, [accessToken]);
+
+  async function handleLogoFile(file: File | undefined) {
+    if (!file || !profile) return;
+    setLogoError(null);
+    if (!ACCEPTED_LOGO_TYPES.includes(file.type)) {
+      setLogoError('Format non supporté — utilisez un PNG ou un JPEG.');
+      return;
+    }
+    try {
+      const dataUrl = await resizeToDataUrl(file);
+      setProfile({ ...profile, logo: dataUrl });
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : "Échec du traitement de l'image.");
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -35,6 +87,7 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         taxArticle: profile.taxArticle ?? undefined,
         phone: profile.phone ?? undefined,
         email: profile.email ?? undefined,
+        logo: profile.logo,
       });
       setProfile(updated);
       setSaved(true);
@@ -54,7 +107,53 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         <h3>Paramètres du Business</h3>
         <p className="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
         <form className="field-form" onSubmit={submit}>
-          <div className="upload-box">Glisser un logo ou cliquer pour parcourir (à venir)</div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              handleLogoFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          {profile.logo ? (
+            <div
+              className="upload-box"
+              style={{ display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left' }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleLogoFile(e.dataTransfer.files?.[0]);
+              }}
+            >
+              <img src={profile.logo} alt="Logo de l'entreprise" style={{ width: 56, height: 56, objectFit: 'contain', background: '#fff', borderRadius: 6 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <button type="button" className="btn-link" onClick={() => fileInputRef.current?.click()}>
+                  Remplacer le logo
+                </button>
+                <button type="button" className="btn-link" onClick={() => setProfile({ ...profile, logo: null })}>
+                  Retirer le logo
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="upload-box"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleLogoFile(e.dataTransfer.files?.[0]);
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              Glisser un logo ou cliquer pour parcourir
+              <br />
+              <span style={{ fontSize: '0.72rem' }}>PNG ou JPEG</span>
+            </div>
+          )}
+          {logoError && <div className="error-banner">{logoError}</div>}
           <div className="field-row">
             <label>Nom de l'entreprise</label>
             <input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} required />

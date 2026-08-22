@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from './auth-context';
+import { PHASE1_MODULES } from './modules';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
 import { PartnersModal } from './PartnersModal';
 import './AppShell.css';
@@ -22,11 +23,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           Stock<span className="ily">ily</span>
         </div>
         <div className="shell-group-label">Phase 1</div>
-        <NavItem to="/stock" label="Gestion de Stock" enabled={entitledKeys.has('stock')} />
-        <NavItem to="/quality" label="Qualité" enabled={entitledKeys.has('quality')} />
-        <NavItem to="/invoicing" label="Factures" enabled={entitledKeys.has('invoicing')} />
-        <NavItem to="/sites" label="Transferts Multi-Sites" enabled={entitledKeys.has('sites')} />
-        <NavItem to="/scan" label="Scan / QR" enabled={entitledKeys.has('scan')} />
+        {PHASE1_MODULES.map((m) => (
+          <NavItem key={m.key} to={m.to} label={m.label} enabled={entitledKeys.has(m.key)} />
+        ))}
         <div className="shell-group-label">Verrouillés</div>
         <div className="shell-nav-item shell-locked">
           Achats <span className="shell-tag">Phase 2</span>

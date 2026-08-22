@@ -44,6 +44,12 @@ model Organization {
   taxArticle    String?
   phone         String?
   email         String?
+  // A data: URL (already resized/compressed client-side before upload) —
+  // simplest storage for a small logo image without standing up object
+  // storage or a multipart upload endpoint for what's a rare, low-volume
+  // write. Shown on the org settings screen and printed on every invoice
+  // PDF next to the seller's name.
+  logo          String?  @db.Text
 
   sites         Site[]
   users         User[]

@@ -38,4 +38,12 @@ export class UpdateOrganizationProfileDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  // A data: URL, already resized/compressed client-side — see
+  // OrganizationSettingsModal.tsx's own upload handler. Not further
+  // validated here (format/size are a UI-level concern for this
+  // low-volume, admin-only field); Prisma stores it as plain text.
+  @IsOptional()
+  @IsString()
+  logo?: string;
 }

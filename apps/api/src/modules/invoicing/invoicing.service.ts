@@ -90,7 +90,18 @@ export class InvoicingService {
   async getOrganizationProfile(orgId: string) {
     return this.prisma.organization.findUniqueOrThrow({
       where: { id: orgId },
-      select: { id: true, name: true, address: true, nif: true, nis: true, rc: true, taxArticle: true, phone: true, email: true },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        nif: true,
+        nis: true,
+        rc: true,
+        taxArticle: true,
+        phone: true,
+        email: true,
+        logo: true,
+      },
     });
   }
 
@@ -428,6 +439,7 @@ export class InvoicingService {
         rc: invoice.organization.rc,
         taxArticle: invoice.organization.taxArticle,
         phone: invoice.organization.phone,
+        logo: invoice.organization.logo,
       },
       buyer: invoice.partner ? { name: invoice.partner.name, nif: invoice.partner.nif } : null,
       lines: totals.lines.map((computed, i) => ({

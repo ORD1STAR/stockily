@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
+import { useIsMobile } from '../lib/useIsMobile';
 import {
   ApiError,
   Batch,
@@ -38,7 +40,9 @@ interface CartLine {
 // so the demo/dev environment has one consistent auth+nav wrapper; a real
 // Capacitor-wrapped build would drop AppShell entirely for this route.
 export function ScanPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, logout } = useAuth();
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [mode, setMode] = useState<'scan' | 'labels' | 'checkout'>('scan');
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
@@ -362,8 +366,8 @@ export function ScanPage() {
     }
   }
 
-  return (
-    <AppShell>
+  const body = (
+    <>
       <div className="scan-page">
         <div className="panel-head">
           <div>
@@ -714,8 +718,33 @@ export function ScanPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </>
   );
+
+  // On a phone, this route drops AppShell's desktop sidebar entirely (its
+  // own header comment already anticipated this: "a real Capacitor-wrapped
+  // build would drop AppShell entirely for this route") — a fixed 232px
+  // dark column has no room on a 375px screen, and Scan is the one module
+  // meant to run genuinely full-screen. A minimal top bar takes over the
+  // sidebar's two jobs that still matter here: getting back to the mobile
+  // home screen, and logging out.
+  if (isMobile) {
+    return (
+      <div className="scan-mobile-shell">
+        <div className="scan-mobile-topbar">
+          <button className="btn-link" onClick={() => navigate('/dashboard')}>
+            ← Accueil
+          </button>
+          <button className="btn-link" onClick={() => logout()}>
+            Se déconnecter
+          </button>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  return <AppShell>{body}</AppShell>;
 }
 
 // The retail-till mode: no entrée/sortie/transfert choice per scan, just a

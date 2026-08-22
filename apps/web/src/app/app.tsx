@@ -4,6 +4,7 @@ import { ProtectedRoute } from '../lib/ProtectedRoute';
 import { LoginPage } from '../pages/LoginPage';
 import { SignupPage } from '../pages/SignupPage';
 import { DashboardPage } from '../pages/DashboardPage';
+import { AppsListPage } from '../pages/AppsListPage';
 import { StockPage } from '../pages/StockPage';
 import { SitesPage } from '../pages/SitesPage';
 import { QualityPage } from '../pages/QualityPage';
@@ -22,6 +23,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/apps"
+            element={
+              <ProtectedRoute>
+                <AppsListPage />
               </ProtectedRoute>
             }
           />

@@ -51,12 +51,27 @@ export interface InvoicePdfInput {
     rc: string | null;
     taxArticle: string | null;
     phone: string | null;
+    /** A data: URL (see OrganizationSettingsModal.tsx's upload handler), or null if the org never set one. */
+    logo: string | null;
   };
   buyer: { name: string; nif: string } | null; // null = vente comptoir
   lines: InvoicePdfLine[];
   totalHt: number;
   totalTax: number;
   totalTtc: number;
+}
+
+// Org logos are stored as data: URLs (see OrganizationSettingsModal.tsx) —
+// pdfkit's image() needs a raw Buffer, not the URL string itself.
+function parseDataUrl(dataUrl: string | null): Buffer | null {
+  if (!dataUrl) return null;
+  const match = /^data:image\/(?:png|jpe?g);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  try {
+    return Buffer.from(match[1], 'base64');
+  } catch {
+    return null;
+  }
 }
 
 // Layout constants — A4 (595 x 842pt), 50pt margins → 495pt content width.
@@ -128,7 +143,16 @@ export class InvoicePdfService {
   private renderHeader(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     const title = input.type === 'SUPPLIER' ? 'FACTURE FOURNISSEUR' : 'FACTURE';
 
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text(input.seller.name, MARGIN, 54, { width: 300 });
+    // Logo is optional (most orgs never set one) — when present it sits
+    // to the left of the seller name instead of pushing it down, so the
+    // header keeps the same two-line height either way.
+    const logoBuffer = parseDataUrl(input.seller.logo);
+    const logoSize = 36;
+    const nameX = logoBuffer ? MARGIN + logoSize + 10 : MARGIN;
+    if (logoBuffer) {
+      doc.image(logoBuffer, MARGIN, 52, { fit: [logoSize, logoSize] });
+    }
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text(input.seller.name, nameX, 54, { width: 300 - (nameX - MARGIN) });
     doc
       .fillColor(BRAND)
       .font('Helvetica-Bold')

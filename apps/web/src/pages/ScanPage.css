@@ -10,6 +10,22 @@
   gap: 16px;
 }
 
+/* Replaces AppShell entirely on a phone (see ScanPage.tsx's own comment on
+   why) — a thin bar carrying just the two things the sidebar otherwise
+   provided that still matter full-screen: a way back, and logout. */
+.scan-mobile-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 16px 16px 32px;
+}
+.scan-mobile-topbar {
+  max-width: 420px;
+  margin: 0 auto 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .scan-card {
   background: var(--surface);
   border: 1px solid var(--border);
