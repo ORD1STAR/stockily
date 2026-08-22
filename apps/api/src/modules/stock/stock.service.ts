@@ -35,8 +35,24 @@ export class StockService {
     return new StockMovementService(new PrismaStockDataPort(this.prisma));
   }
 
+  // No unique constraint exists on (orgId, name) — this used to insert
+  // unconditionally, so the "Nouveau produit" modal's free-text "nouvelle
+  // catégorie" field (shown right next to an "existing category" dropdown)
+  // could silently create a second, indistinguishable "Produits Laitiers"
+  // row the moment someone typed a name that already existed. Two real
+  // products then sit in "the same" category by name but are actually
+  // split across rows in the data model, with no merge path anywhere in
+  // the UI. Found by reusing a category name while adding new products.
+  // Case-insensitive reuse here is cheaper and safer than a DB constraint
+  // (which would need a migration + conflict-handling everywhere this is
+  // called) for what is, in practice, a small, rarely-changing list.
   async createCategory(orgId: string, dto: CreateCategoryDto) {
-    return this.prisma.productCategory.create({ data: { orgId, name: dto.name, parentId: dto.parentId ?? null } });
+    const name = dto.name.trim();
+    const existing = await this.prisma.productCategory.findFirst({
+      where: { orgId, name: { equals: name, mode: 'insensitive' } },
+    });
+    if (existing) return existing;
+    return this.prisma.productCategory.create({ data: { orgId, name, parentId: dto.parentId ?? null } });
   }
 
   async listCategories(orgId: string) {

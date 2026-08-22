@@ -36,7 +36,7 @@ export function SignupPage() {
           <div className="auth-wordmark">
             Stock<span className="ily">ily</span>
           </div>
-          <p className="auth-subtitle">15-day free trial — no card required.</p>
+          <p className="auth-subtitle">Essai gratuit de 15 jours — sans carte bancaire.</p>
         </div>
 
         {error && <div className="error-banner">{error}</div>}

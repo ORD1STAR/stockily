@@ -297,7 +297,13 @@ export function ScanPage() {
             </div>
             <div className="qty-stepper">
               <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
-              <span className="mono">{quantity}</span>
+              <input
+                className="mono qty-input"
+                type="number"
+                min={1}
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(1, Math.round(Number(e.target.value)) || 1))}
+              />
               <button onClick={() => setQuantity((q) => q + 1)}>+</button>
             </div>
             {resolution.availableQuantity != null && (
@@ -412,7 +418,17 @@ export function ScanPage() {
             <h3>Sortie de stock</h3>
             <div className="qty-stepper">
               <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
-              <span className="mono">{quantity}</span>
+              <input
+                className="mono qty-input"
+                type="number"
+                min={1}
+                max={resolution.availableQuantity ?? undefined}
+                value={quantity}
+                onChange={(e) => {
+                  const next = Math.max(1, Math.round(Number(e.target.value)) || 1);
+                  setQuantity(resolution.availableQuantity != null ? Math.min(next, resolution.availableQuantity) : next);
+                }}
+              />
               <button
                 onClick={() =>
                   setQuantity((q) => (resolution.availableQuantity != null ? Math.min(q + 1, resolution.availableQuantity) : q + 1))
@@ -448,7 +464,17 @@ export function ScanPage() {
             <h3>Transfert inter-site</h3>
             <div className="qty-stepper">
               <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
-              <span className="mono">{quantity}</span>
+              <input
+                className="mono qty-input"
+                type="number"
+                min={1}
+                max={resolution.availableQuantity ?? undefined}
+                value={quantity}
+                onChange={(e) => {
+                  const next = Math.max(1, Math.round(Number(e.target.value)) || 1);
+                  setQuantity(resolution.availableQuantity != null ? Math.min(next, resolution.availableQuantity) : next);
+                }}
+              />
               <button
                 onClick={() =>
                   setQuantity((q) => (resolution.availableQuantity != null ? Math.min(q + 1, resolution.availableQuantity) : q + 1))

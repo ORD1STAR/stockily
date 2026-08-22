@@ -80,6 +80,28 @@
   text-align: center;
 }
 
+/* A tap-to-edit number field replacing what used to be a plain <span> —
+   receiving a real pallet (e.g. 200 units) by tapping "+" 200 times was
+   the only option before this (found by actually trying it). Spinner
+   arrows hidden since the +/- buttons already cover that role. */
+.qty-input {
+  all: unset;
+  font-size: 1.05rem;
+  width: 4ch;
+  text-align: center;
+  background: var(--surface, #fff);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.qty-input[type='number'] {
+  -moz-appearance: textfield;
+}
+
 .action-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
