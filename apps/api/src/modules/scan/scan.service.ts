@@ -68,18 +68,18 @@ export class ScanService {
    *  2. The code IS a product's SKU.
    *  3. The code IS a batch's lot number (resolves to that batch's product).
    */
-  async resolveCode(orgId: string, code: string) {
+  async resolveCode(orgId: string, code: string, siteId?: string) {
     const label = await this.prisma.barcodeLabel.findUnique({
       where: { orgId_codeValue: { orgId, codeValue: code } },
       include: { product: true, batch: true },
     });
-    if (label?.product) return this.buildResolution(orgId, label.product, label.batch ?? undefined);
+    if (label?.product) return this.buildResolution(orgId, label.product, siteId, label.batch ?? undefined);
 
     const bySku = await this.prisma.product.findUnique({ where: { orgId_sku: { orgId, sku: code } } });
-    if (bySku) return this.buildResolution(orgId, bySku);
+    if (bySku) return this.buildResolution(orgId, bySku, siteId);
 
     const byLot = await this.prisma.batch.findFirst({ where: { orgId, lotNumber: code }, include: { product: true } });
-    if (byLot) return this.buildResolution(orgId, byLot.product, byLot);
+    if (byLot) return this.buildResolution(orgId, byLot.product, siteId, byLot);
 
     throw new NotFoundException({
       statusCode: 404,
@@ -88,7 +88,12 @@ export class ScanService {
     });
   }
 
-  private async buildResolution(orgId: string, product: { id: string; sku: string; name: string; isLotTracked: boolean }, matchedBatch?: { id: string; lotNumber: string; expiryDate: Date | null }) {
+  private async buildResolution(
+    orgId: string,
+    product: { id: string; sku: string; name: string; isLotTracked: boolean },
+    siteId?: string,
+    matchedBatch?: { id: string; lotNumber: string; expiryDate: Date | null },
+  ) {
     // FEFO suggestion for an OUT/TRANSFER flow: the earliest-expiring batch
     // still in active status. A UI suggestion only, not authoritative —
     // Stock's own negative-stock check is what actually protects the
@@ -102,10 +107,20 @@ export class ScanService {
         })
       : null;
 
+    // Available/sellable quantity at the scanning site — quantityOnHand
+    // already excludes quarantined stock. Lets the Scan UI cap a Sortie/
+    // Transfert quantity before submit instead of only failing server-side
+    // after the fact (Entrée has no such cap: receiving more than what's
+    // currently on hand is the normal case, not an error).
+    const availableQuantity = siteId
+      ? Number((await this.prisma.stockLevel.findUnique({ where: { productId_siteId: { productId: product.id, siteId } } }))?.quantityOnHand ?? 0)
+      : null;
+
     return {
       product: { id: product.id, sku: product.sku, name: product.name, isLotTracked: product.isLotTracked },
       matchedBatch: matchedBatch ? { id: matchedBatch.id, lotNumber: matchedBatch.lotNumber, expiryDate: matchedBatch.expiryDate } : null,
       suggestedBatch,
+      availableQuantity,
     };
   }
 }

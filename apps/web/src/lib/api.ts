@@ -134,6 +134,7 @@ export interface Batch {
   lotNumber: string;
   expiryDate: string | null;
   quantityReceived: number;
+  remainingQuantity: number;
   receivedAt: string;
   status: 'active' | 'quarantined' | 'depleted';
   latestCheck: { result: 'conforme' | 'non_conforme'; checkedAt: string } | null;
@@ -298,6 +299,7 @@ export interface ScanResolution {
   product: { id: string; sku: string; name: string; isLotTracked: boolean };
   matchedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
   suggestedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
+  availableQuantity: number | null;
 }
 
 export interface BarcodeLabelView {
@@ -310,7 +312,8 @@ export interface BarcodeLabelView {
 }
 
 export const scanApi = {
-  resolveCode: (token: string, code: string) => authedRequest<ScanResolution>(`/scan/resolve/${encodeURIComponent(code)}`, token),
+  resolveCode: (token: string, code: string, siteId?: string) =>
+    authedRequest<ScanResolution>(`/scan/resolve/${encodeURIComponent(code)}${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`, token),
   listLabels: (token: string, productId?: string) =>
     authedRequest<BarcodeLabelView[]>(`/scan/labels${productId ? `?productId=${encodeURIComponent(productId)}` : ''}`, token),
   generateLabel: (token: string, data: { productId?: string; batchId?: string; symbology?: 'EAN13' | 'QR' }) =>

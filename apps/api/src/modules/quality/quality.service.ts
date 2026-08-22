@@ -57,6 +57,18 @@ export class QualityService {
    * so it lives here (apps/api) rather than in domain-quality's own
    * service, which stays about batch/check *logic*, not this kind of
    * read-model assembly.
+   *
+   * Also enriched with `remainingQuantity` — `quantityReceived` is a fixed
+   * historical fact (how much this lot originally had), but both the
+   * Quality overview and Stock's SKU-detail table show it in a "Qté"
+   * column next to a live "État" pill, which reads as current quantity.
+   * A lot fully sold through (or a historical demo lot with no ledger
+   * movements at all) then displays a large "Qté" next to "OK" while the
+   * product itself sits at zero/rupture — a real, reproducible
+   * self-contradiction found by actually opening the app, not a
+   * hypothetical. `getBatchQuantityBySite` already derives real remaining
+   * quantity from the ledger for quarantine purposes; reuse it here rather
+   * than adding a second, divergent computation.
    */
   async listBatchesWithLatestCheck(orgId: string, productId?: string) {
     const batches = await this.domainService().listBatches(orgId, { productId });
@@ -71,10 +83,19 @@ export class QualityService {
       if (c.batchId && !latestByBatch.has(c.batchId)) latestByBatch.set(c.batchId, c);
     }
 
-    return batches.map((b) => {
-      const latest = latestByBatch.get(b.id);
-      return { ...b, latestCheck: latest ? { result: latest.result, checkedAt: latest.checkedAt.toISOString() } : null };
-    });
+    const port = new PrismaQualityDataPort(this.prisma);
+    return Promise.all(
+      batches.map(async (b) => {
+        const latest = latestByBatch.get(b.id);
+        const bySite = await port.getBatchQuantityBySite(orgId, b.id);
+        const remainingQuantity = Array.from(bySite.values()).reduce((sum, q) => sum + q, 0);
+        return {
+          ...b,
+          remainingQuantity,
+          latestCheck: latest ? { result: latest.result, checkedAt: latest.checkedAt.toISOString() } : null,
+        };
+      }),
+    );
   }
 
   async getBatch(orgId: string, batchId: string) {

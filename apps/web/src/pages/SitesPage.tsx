@@ -212,6 +212,16 @@ function TransferFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A transfer can never move more than the source site actually has —
+  // quantityOnHand is the sellable/available amount (quarantined stock is
+  // tracked separately), the same figure the delivery-time ledger move will
+  // be checked against.
+  const availableAtSource = products.find((p) => p.productId === productId && p.site.id === fromSiteId)?.quantityOnHand ?? 0;
+
+  useEffect(() => {
+    if (quantity > availableAtSource) setQuantity(availableAtSource > 0 ? availableAtSource : 0);
+  }, [availableAtSource, quantity]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!accessToken) return;
@@ -268,8 +278,16 @@ function TransferFormModal({
             </select>
           </div>
           <div className="field-row">
-            <label>Quantité</label>
-            <input type="number" min={0.001} step="any" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
+            <label>Quantité (disponible : {availableAtSource})</label>
+            <input
+              type="number"
+              min={0.001}
+              max={availableAtSource}
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(Math.min(Number(e.target.value), availableAtSource))}
+              required
+            />
           </div>
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">

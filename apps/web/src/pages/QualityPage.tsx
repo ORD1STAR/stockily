@@ -84,7 +84,7 @@ export function QualityPage() {
         productId: b.productId,
         productName: product?.name ?? b.productId,
         productSku: product?.sku ?? '',
-        quantity: b.quantityReceived,
+        quantity: b.remainingQuantity,
         expiryDate: b.expiryDate,
         result: b.latestCheck?.result ?? null,
         status: isQuarantined ? 'danger' : isNearExpiry ? 'warning' : 'ok',

@@ -260,7 +260,7 @@ function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: (
                 {batches.map((b) => (
                   <tr key={b.id}>
                     <td className="mono">{b.lotNumber}</td>
-                    <td>{b.quantityReceived}</td>
+                    <td>{b.remainingQuantity}</td>
                     <td className="mono">{b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('fr-FR') : '—'}</td>
                     <td>
                       <span className={`pill ${b.status === 'quarantined' ? 'danger' : b.status === 'depleted' ? 'info' : 'success'}`}>
@@ -415,6 +415,18 @@ function MovementFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // OUT/TRANSFER/a decreasing ADJUSTMENT can never take a site below what it
+  // actually has — quantityOnHand already excludes quarantined stock, so
+  // it's directly the sellable/available amount the server's own
+  // NegativeStockError check compares against. Clamping here just surfaces
+  // that limit before submit instead of after a round trip.
+  const requiresCap = type === 'OUT' || type === 'TRANSFER' || (type === 'ADJUSTMENT' && adjustmentDirection === 'decrease');
+  const availableAtSite = rows.find((r) => r.productId === productId && r.site.id === movementSiteId)?.quantityOnHand ?? 0;
+
+  useEffect(() => {
+    if (requiresCap && quantity > availableAtSite) setQuantity(availableAtSite > 0 ? availableAtSite : 0);
+  }, [requiresCap, availableAtSite, quantity]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!accessToken) return;
@@ -511,8 +523,19 @@ function MovementFormModal({
             </div>
           )}
           <div className="field-row">
-            <label>Quantité</label>
-            <input type="number" min={0.001} step="any" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} required />
+            <label>Quantité{requiresCap ? ` (disponible : ${availableAtSite})` : ''}</label>
+            <input
+              type="number"
+              min={0.001}
+              max={requiresCap ? availableAtSite : undefined}
+              step="any"
+              value={quantity}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setQuantity(requiresCap ? Math.min(next, availableAtSite) : next);
+              }}
+              required
+            />
           </div>
           {type === 'IN' && (
             <div className="field-row">

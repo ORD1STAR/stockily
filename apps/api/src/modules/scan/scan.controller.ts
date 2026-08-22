@@ -41,7 +41,7 @@ export class ScanController {
 
   @Get('resolve/:code')
   @RequiresPermission('scan', 'scan.resolve.read')
-  resolveCode(@CurrentUser() user: AuthenticatedUser, @Param('code') code: string) {
-    return this.scan.resolveCode(user.orgId, code);
+  resolveCode(@CurrentUser() user: AuthenticatedUser, @Param('code') code: string, @Query('siteId') siteId?: string) {
+    return this.scan.resolveCode(user.orgId, code, siteId);
   }
 }

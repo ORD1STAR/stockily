@@ -104,7 +104,7 @@ export function ScanPage() {
     if (!accessToken || !rawCode.trim()) return;
     setError(null);
     try {
-      const r = await scanApi.resolveCode(accessToken, rawCode.trim());
+      const r = await scanApi.resolveCode(accessToken, rawCode.trim(), siteId);
       setResolution(r);
       setCode(rawCode.trim());
       setQuantity(1);
@@ -291,14 +291,37 @@ export function ScanPage() {
               <span className="mono">{quantity}</span>
               <button onClick={() => setQuantity((q) => q + 1)}>+</button>
             </div>
+            {resolution.availableQuantity != null && (
+              <div className="sub" style={{ textAlign: 'center' }}>
+                Disponible sur ce site : {resolution.availableQuantity}
+              </div>
+            )}
             <div className="action-row">
               <button className="btn-secondary" onClick={() => setStep('in')}>
                 Entrée
               </button>
-              <button className="btn-primary" onClick={() => setStep('out')}>
+              <button
+                className="btn-primary"
+                disabled={resolution.availableQuantity === 0}
+                onClick={() => {
+                  // Sortie/Transfert can never exceed what's actually on
+                  // hand at this site — quantityOnHand already excludes
+                  // quarantined stock. Entrée has no such cap (receiving
+                  // more than currently on hand is the normal case).
+                  if (resolution.availableQuantity != null) setQuantity((q) => Math.min(q, resolution.availableQuantity as number));
+                  setStep('out');
+                }}
+              >
                 Sortie
               </button>
-              <button className="btn-secondary" onClick={() => setStep('transfer')}>
+              <button
+                className="btn-secondary"
+                disabled={resolution.availableQuantity === 0}
+                onClick={() => {
+                  if (resolution.availableQuantity != null) setQuantity((q) => Math.min(q, resolution.availableQuantity as number));
+                  setStep('transfer');
+                }}
+              >
                 Transfert
               </button>
             </div>
@@ -378,6 +401,22 @@ export function ScanPage() {
         {mode === 'scan' && step === 'out' && resolution && (
           <div className="scan-card">
             <h3>Sortie de stock</h3>
+            <div className="qty-stepper">
+              <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
+              <span className="mono">{quantity}</span>
+              <button
+                onClick={() =>
+                  setQuantity((q) => (resolution.availableQuantity != null ? Math.min(q + 1, resolution.availableQuantity) : q + 1))
+                }
+              >
+                +
+              </button>
+            </div>
+            {resolution.availableQuantity != null && (
+              <div className="sub" style={{ textAlign: 'center' }}>
+                Disponible sur ce site : {resolution.availableQuantity}
+              </div>
+            )}
             {resolution.suggestedBatch && (
               <div className="note-box">
                 Lot suggéré (FEFO) : <b className="mono">{resolution.suggestedBatch.lotNumber}</b>
@@ -398,6 +437,22 @@ export function ScanPage() {
         {mode === 'scan' && step === 'transfer' && resolution && (
           <div className="scan-card">
             <h3>Transfert inter-site</h3>
+            <div className="qty-stepper">
+              <button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</button>
+              <span className="mono">{quantity}</span>
+              <button
+                onClick={() =>
+                  setQuantity((q) => (resolution.availableQuantity != null ? Math.min(q + 1, resolution.availableQuantity) : q + 1))
+                }
+              >
+                +
+              </button>
+            </div>
+            {resolution.availableQuantity != null && (
+              <div className="sub" style={{ textAlign: 'center' }}>
+                Disponible sur ce site : {resolution.availableQuantity}
+              </div>
+            )}
             <div className="field-row">
               <label>Site de destination</label>
               <select value={toSiteId} onChange={(e) => setToSiteId(e.target.value)}>
@@ -457,13 +512,23 @@ function LabelsPanel() {
       const unique = Array.from(new Map(productRows.map((p) => [p.productId, p])).values());
       setProducts(unique);
       setLabels(labelRows);
-      if (!productId && unique[0]) setProductId(unique[0].productId);
+      // Functional update, not `if (!productId) ...` — `load` is memoized
+      // with `productId` excluded from its deps (intentionally: it should
+      // only seed a default once, not re-run every time the selector
+      // changes), which means its closure over `productId` is permanently
+      // stale at the component's very first render (always ''). Every
+      // subsequent call — e.g. the one `generate()` triggers right after a
+      // label is created — read that stale '' and silently reset the
+      // dropdown back to the first product. Found by generating a label
+      // for a product other than the first one and watching the selector
+      // snap back, which looked exactly like "generation failed" even
+      // though the label had, in fact, just been created correctly.
+      setProductId((prev) => prev || (unique[0]?.productId ?? ''));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
     } finally {
       setLoading(false);
     }
-    // productId deliberately excluded from deps — this only needs to seed a default once, not re-run when the selector changes
   }, [accessToken]);
 
   useEffect(() => {
