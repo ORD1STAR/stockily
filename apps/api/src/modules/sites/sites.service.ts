@@ -83,7 +83,7 @@ export class SitesService {
         toSiteId: existing.toSiteId,
         type: 'TRANSFER',
         quantity: Number(existing.quantity),
-        batchId: existing.batchId,
+        batchId: existing.batchId ?? undefined,
         relatedEntityType: 'stock_transfer',
         relatedEntityId: existing.id,
       });

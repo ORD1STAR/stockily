@@ -26,6 +26,15 @@ export interface LabelPdfInput {
 // not a guarantee the value is EAN13-shaped.
 const EAN13_PATTERN = /^\d{12,13}$/;
 
+// pdfkit's own `openImage()` would give us this directly, but @types/pdfkit
+// doesn't declare it (it exists at runtime, just untyped) — reading a PNG's
+// width/height straight from its IHDR chunk (always the first chunk, always
+// 13 bytes starting right after the 8-byte PNG signature + 4-byte length +
+// 4-byte "IHDR" tag) avoids depending on an undocumented method at all.
+function readPngDimensions(png: Buffer): { width: number; height: number } {
+  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}
+
 @Injectable()
 export class LabelPdfService {
   async render(input: LabelPdfInput): Promise<Buffer> {
@@ -55,7 +64,7 @@ export class LabelPdfService {
     const isQr = input.symbology === 'QR';
     const imgWidth = isQr ? 110 : pageWidth - 40;
     const imgX = (pageWidth - imgWidth) / 2;
-    const { height: naturalHeight, width: naturalWidth } = doc.openImage(barcodePng);
+    const { width: naturalWidth, height: naturalHeight } = readPngDimensions(barcodePng);
     const imgHeight = imgWidth * (naturalHeight / naturalWidth);
     doc.image(barcodePng, imgX, doc.y, { width: imgWidth });
     doc.y += imgHeight + 8;

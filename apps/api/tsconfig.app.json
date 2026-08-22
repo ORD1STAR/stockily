@@ -7,6 +7,23 @@
     "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    // The workspace-wide isolatedModules:true (tsconfig.base.json) exists
+    // for the web app's Vite/esbuild build, which transpiles file-by-file
+    // with no cross-file type info — genuinely ambiguous there whether an
+    // import used only as a type needs to survive at runtime. The API's
+    // actual build is full `tsc` (webpack.config.js: compiler: 'tsc'), with
+    // complete program knowledge, so it already resolves that ambiguity
+    // correctly on its own — specifically, it already keeps a DTO class
+    // imported as a value even when a decorated method only ever uses it
+    // as a type annotation, because emitDecoratorMetadata needs the real
+    // class there for NestJS's ValidationPipe to reflect at runtime.
+    // Turning `import { CreateInvoiceDto } from ...` into `import type` to
+    // silence isolatedModules's TS1272 here would "fix" the diagnostic by
+    // erasing that import at compile time — and then NestJS reflects
+    // `Object` instead of the DTO class for that parameter, which silently
+    // disables class-validator's checks for the whole request body. Off
+    // here since nothing about this project's real build needs it.
+    "isolatedModules": false,
     "target": "es2021",
     "strictNullChecks": true,
     "noImplicitAny": true,

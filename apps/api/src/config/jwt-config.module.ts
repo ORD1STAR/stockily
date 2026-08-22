@@ -1,5 +1,6 @@
 import { Global, Logger, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import type { StringValue } from 'ms';
 
 const logger = new Logger('JwtConfigModule');
 
@@ -28,7 +29,13 @@ function resolveSecret(): string {
   imports: [
     JwtModule.register({
       secret: resolveSecret(),
-      signOptions: { expiresIn: process.env.JWT_ACCESS_TTL ?? '15m' },
+      // JWT_ACCESS_TTL is an env var (plain `string`), but @nestjs/jwt's
+      // expiresIn wants `ms`'s StringValue — a huge template-literal union
+      // ("15m", "1h", "7 days"...) that TS can't verify an arbitrary string
+      // satisfies at compile time. The cast is the actual contract here:
+      // whatever's configured must already be one of those forms, the same
+      // trust boundary as any other env-driven config value.
+      signOptions: { expiresIn: (process.env.JWT_ACCESS_TTL ?? '15m') as StringValue },
     }),
   ],
   exports: [JwtModule],
