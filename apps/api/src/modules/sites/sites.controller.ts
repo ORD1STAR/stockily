@@ -52,6 +52,6 @@ export class SitesController {
   @UseInterceptors(AuditInterceptor)
   @Audit('stock_transfer', 'sites.transfer.updated')
   updateTransfer(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateTransferDto) {
-    return this.sites.updateTransfer(user.orgId, id, dto);
+    return this.sites.updateTransfer(user.orgId, user.userId, id, dto);
   }
 }

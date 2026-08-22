@@ -293,7 +293,18 @@ model StockTransfer {
   orgId        String
   fromSiteId   String
   toSiteId     String
+  productId    String
+  quantity     Decimal  @db.Decimal(14, 3)
+  batchId      String?
   status       String   @default("prepared") // prepared | in_transit | delivered
+  // The ledger move (both legs, atomically) now fires once, on the
+  // prepared/in_transit -> delivered transition, not at creation — a
+  // transfer sitting at "in_transit" no longer makes stock appear
+  // available at the destination before it has physically arrived (found
+  // by actually creating one and watching the destination site's stock
+  // count update immediately, which contradicted its own "en transit"
+  // label). See SitesService.createTransfer/updateTransfer.
+  deliveredAt  DateTime?
   driverName   String?
   driverPhone  String?
   vehicleRef   String?

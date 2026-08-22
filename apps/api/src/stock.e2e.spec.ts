@@ -108,13 +108,28 @@ describe('Stock + Sites e2e', () => {
     expect(res.body.error).toBe('negative_stock');
   });
 
-  it('creates a transfer that moves both legs of the ledger atomically', async () => {
+  it('creates a transfer without moving the ledger, then moves both legs atomically on delivery', async () => {
     const transfer = await request(app.getHttpServer())
       .post('/api/sites/transfers')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ productId, fromSiteId: siteAId, toSiteId: siteBId, quantity: 20 })
       .expect(201);
-    expect(transfer.body.status).toBe('in_transit');
+    expect(transfer.body.status).toBe('prepared');
+
+    const beforeDelivery = await request(app.getHttpServer())
+      .get('/api/stock/products?siteId=all')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const siteARowBefore = beforeDelivery.body.find(
+      (r: { productId: string; site: { id: string } }) => r.productId === productId && r.site.id === siteAId,
+    );
+    expect(siteARowBefore.quantityOnHand).toBe(50); // untouched — nothing moves until delivered
+
+    await request(app.getHttpServer())
+      .patch(`/api/sites/transfers/${transfer.body.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ status: 'delivered' })
+      .expect(200);
 
     const list = await request(app.getHttpServer())
       .get('/api/stock/products?siteId=all')
