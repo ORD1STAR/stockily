@@ -21,6 +21,8 @@ export interface RecordMovementInput {
   /** Always positive — direction is implied by `type`, never by sign. */
   quantity: number;
   batchId?: string | null;
+  /** The supplier an IN was received from, or the customer an OUT was sold to — optional, no meaning for TRANSFER/ADJUSTMENT. */
+  partnerId?: string | null;
   /** IN only. Feeds the Weighted Average Cost recalculation (§9 decision #1); ignored for other types. */
   unitCost?: number | null;
   /** TRANSFER only — the destination site. */

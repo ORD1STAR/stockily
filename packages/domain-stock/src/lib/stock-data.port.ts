@@ -15,6 +15,7 @@ export interface InsertMovementInput {
   type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT';
   quantity: number;
   batchId?: string | null;
+  partnerId?: string | null;
   relatedEntityType?: string | null;
   relatedEntityId?: string | null;
   performedBy?: string | null;

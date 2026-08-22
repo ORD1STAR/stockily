@@ -8,6 +8,7 @@ import { CreatePartnerDto } from './dto/create-partner.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CreateTaxRateDto } from './dto/create-tax-rate.dto';
 import { UpdateOrganizationProfileDto } from './dto/update-organization-profile.dto';
+import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { EMAIL_SENDER, EmailSenderPort } from './email/email-sender.port';
 import { InvoicePdfService } from './pdf/invoice-pdf.service';
 
@@ -49,6 +50,26 @@ export class InvoicingService {
 
   async listPartners(orgId: string) {
     return this.prisma.partner.findMany({ where: { orgId }, orderBy: { name: 'asc' } });
+  }
+
+  async updatePartner(orgId: string, id: string, dto: UpdatePartnerDto) {
+    const existing = await this.prisma.partner.findFirst({ where: { id, orgId } });
+    if (!existing) throw new NotFoundException(`Unknown partner: ${id}`);
+    return this.prisma.partner.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.isCustomer !== undefined ? { isCustomer: dto.isCustomer } : {}),
+        ...(dto.isSupplier !== undefined ? { isSupplier: dto.isSupplier } : {}),
+        ...(dto.nif !== undefined ? { nif: dto.nif } : {}),
+        ...(dto.nis !== undefined ? { nis: dto.nis } : {}),
+        ...(dto.rc !== undefined ? { rc: dto.rc } : {}),
+        ...(dto.taxArticle !== undefined ? { taxArticle: dto.taxArticle } : {}),
+        ...(dto.address !== undefined ? { address: dto.address } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+      },
+    });
   }
 
   // ---------------- Tax rates ----------------

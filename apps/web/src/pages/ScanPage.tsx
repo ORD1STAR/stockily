@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, Batch, BarcodeLabelView, ScanResolution, Site, StockRow, qualityApi, scanApi, sitesApi, stockApi } from '../lib/api';
+import {
+  ApiError,
+  Batch,
+  BarcodeLabelView,
+  Partner,
+  ScanResolution,
+  Site,
+  StockRow,
+  invoicingApi,
+  qualityApi,
+  scanApi,
+  sitesApi,
+  stockApi,
+} from '../lib/api';
 import '../lib/data-views.css';
 import './ScanPage.css';
 
@@ -37,6 +50,11 @@ export function ScanPage() {
   // Transfert field
   const [toSiteId, setToSiteId] = useState('');
 
+  // Fournisseur (entrée) / client (sortie) — optional, defaults to
+  // "non spécifié" (partnerId stays '').
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partnerId, setPartnerId] = useState('');
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraSupported, setCameraSupported] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -47,6 +65,10 @@ export function ScanPage() {
       setSites(rows);
       if (rows[0]) setSiteId(rows[0].id);
     });
+    // Same trade-off as StockPage: if Invoicing isn't entitled for this org,
+    // the fournisseur/client picker just stays empty rather than blocking
+    // the whole Scan page.
+    invoicingApi.listPartners(accessToken).then(setPartners).catch(() => setPartners([]));
   }, [accessToken]);
 
   useEffect(() => {
@@ -130,6 +152,7 @@ export function ScanPage() {
     setUnitCost('');
     setToSiteId('');
     setQuantity(1);
+    setPartnerId('');
   }
 
   async function submitIn() {
@@ -168,6 +191,7 @@ export function ScanPage() {
         quantity,
         batchId,
         unitCost: unitCost ? Number(unitCost) : undefined,
+        partnerId: partnerId || undefined,
       });
       if (resolution.product.isLotTracked && lotMode === 'new' && batchId) {
         await qualityApi.recordCheck(accessToken, { productId: resolution.product.id, batchId, result: newLotResult });
@@ -189,6 +213,7 @@ export function ScanPage() {
         type: 'OUT',
         quantity,
         batchId: resolution.suggestedBatch?.id,
+        partnerId: partnerId || undefined,
       });
       setConfirmMessage(`Sortie enregistrée — ${quantity} unité(s) de ${resolution.product.name}.`);
       setStep('confirm');
@@ -402,6 +427,19 @@ export function ScanPage() {
               <label>Coût unitaire (optionnel)</label>
               <input type="number" min="0" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
             </div>
+            <div className="field-row">
+              <label>Fournisseur (optionnel)</label>
+              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+                <option value="">— non spécifié —</option>
+                {partners
+                  .filter((p) => p.isSupplier)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
             <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
               <button className="btn-secondary" onClick={() => setStep('action')}>
                 ← Retour
@@ -448,6 +486,19 @@ export function ScanPage() {
                 {resolution.suggestedBatch.expiryDate && ` — expire le ${new Date(resolution.suggestedBatch.expiryDate).toLocaleDateString('fr-FR')}`}
               </div>
             )}
+            <div className="field-row">
+              <label>Client (optionnel)</label>
+              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+                <option value="">— non spécifié —</option>
+                {partners
+                  .filter((p) => p.isCustomer)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
             <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
               <button className="btn-secondary" onClick={() => setStep('action')}>
                 ← Retour

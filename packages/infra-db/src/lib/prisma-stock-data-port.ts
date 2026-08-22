@@ -78,6 +78,7 @@ export class PrismaStockDataPort implements StockDataPort {
         type: data.type,
         quantity: data.quantity,
         batchId: data.batchId ?? null,
+        partnerId: data.partnerId ?? null,
         relatedEntityType: data.relatedEntityType ?? null,
         relatedEntityId: data.relatedEntityId ?? null,
         performedBy: data.performedBy ?? null,

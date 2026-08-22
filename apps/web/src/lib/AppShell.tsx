@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from './auth-context';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
+import { PartnersModal } from './PartnersModal';
 import './AppShell.css';
 
 // The real sidebar, matching docs/Wireframes.html's pattern: a persistent
@@ -12,6 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { me, logout } = useAuth();
   const entitledKeys = new Set((me?.entitlements ?? []).map((e) => e.module));
   const [showSettings, setShowSettings] = useState(false);
+  const [showPartners, setShowPartners] = useState(false);
 
   return (
     <div className="shell">
@@ -44,12 +46,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             ⚙ Paramètres du Business
           </button>
         )}
+        {entitledKeys.has('invoicing') && (
+          <button className="shell-nav-item shell-settings" onClick={() => setShowPartners(true)}>
+            👥 Fournisseurs & clients
+          </button>
+        )}
         <button className="shell-nav-item shell-settings shell-logout" onClick={() => logout()}>
           Se déconnecter
         </button>
       </aside>
       <main className="shell-content">{children}</main>
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
+      {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 .shell {
   display: grid;
   grid-template-columns: 232px 1fr;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .shell-sidebar {
@@ -11,6 +11,14 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Stays put while .shell-content scrolls — previously the sidebar was
+     just a normal grid column with no height/overflow of its own, so it
+     scrolled away with the rest of the page on any view tall enough to
+     need scrolling (e.g. a long product/invoice list). If the sidebar's
+     own content ever grows past the viewport it still gets its own
+     scrollbar here rather than pushing the page down. */
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .shell-wordmark {
@@ -88,5 +96,7 @@
 
 .shell-content {
   padding: 30px 34px 40px;
+  height: 100vh;
+  overflow-y: auto;
   overflow-x: auto;
 }

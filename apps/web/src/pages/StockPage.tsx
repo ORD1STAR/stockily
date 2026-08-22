@@ -1,23 +1,36 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, Batch, ProductCategory, ProductDetail, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { ApiError, Batch, Partner, ProductCategory, ProductDetail, Site, StockRow, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { useStockRealtime } from '../lib/realtime';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<StockRow['status'], string> = { ok: 'OK', low: 'Bas', out: 'Rupture' };
 
+// Persisted across navigation — leaving Stock for another module and coming
+// back used to silently reset the site filter to "Tous les sites" (useState
+// re-initializes on every mount, there's nothing else backing it), which is
+// disruptive on a real multi-site org where you're usually working one
+// warehouse at a time. Found by actually switching pages and back.
+const SITE_FILTER_STORAGE_KEY = 'stockily.stock.siteFilter';
+
 export function StockPage() {
   const { accessToken } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState('all');
+  const [siteId, setSiteId] = useState(() => localStorage.getItem(SITE_FILTER_STORAGE_KEY) ?? 'all');
   const [rows, setRows] = useState<StockRow[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [showMovementForm, setShowMovementForm] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
+
+  function changeSite(next: string) {
+    setSiteId(next);
+    localStorage.setItem(SITE_FILTER_STORAGE_KEY, next);
+  }
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -32,6 +45,15 @@ export function StockPage() {
       setSites(siteList);
       setRows(productRows);
       setCategories(categoryList);
+      // Partners come from the Invoicing module — if it isn't entitled for
+      // this org, this simply fails silently and the movement form's
+      // fournisseur/client picker stays empty (falls back to "non
+      // spécifié"), rather than blocking the whole Stock page from loading.
+      try {
+        setPartners(await invoicingApi.listPartners(accessToken));
+      } catch {
+        setPartners([]);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
     } finally {
@@ -42,6 +64,13 @@ export function StockPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // A site id persisted from a previous session that no longer exists
+  // (deleted site, different org) falls back to "Tous les sites" instead of
+  // silently filtering on a dangling id.
+  useEffect(() => {
+    if (sites.length > 0 && siteId !== 'all' && !sites.some((s) => s.id === siteId)) changeSite('all');
+  }, [sites, siteId]);
 
   // Real-time: a movement posted elsewhere (another tab, another user)
   // refreshes this view — proves the Milestone 2 websocket seam works from
@@ -68,7 +97,7 @@ export function StockPage() {
           <h2>Gestion de Stock</h2>
           <div className="sub">
             Site :{' '}
-            <select className="site-select" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <select className="site-select" value={siteId} onChange={(e) => changeSite(e.target.value)}>
               {sites.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -174,6 +203,7 @@ export function StockPage() {
         <MovementFormModal
           sites={sites}
           rows={rows}
+          partners={partners}
           onClose={() => setShowMovementForm(false)}
           onSaved={() => {
             setShowMovementForm(false);
@@ -395,11 +425,13 @@ function ProductFormModal({
 function MovementFormModal({
   sites,
   rows,
+  partners,
   onClose,
   onSaved,
 }: {
   sites: Site[];
   rows: StockRow[];
+  partners: Partner[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -412,8 +444,20 @@ function MovementFormModal({
   const [unitCost, setUnitCost] = useState<number | ''>('');
   const [toSiteId, setToSiteId] = useState(sites[1]?.id ?? sites[0]?.id ?? '');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>('increase');
+  const [partnerId, setPartnerId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fournisseur on an entrée, client on a sortie — a transfert/ajustement
+  // moves stock between the org's own sites or corrects a count, neither has
+  // a counterparty. "Non spécifié" (partnerId left blank) stays the default
+  // either way — most receipts/sales in practice (a walk-in buyer, a lot
+  // received before the supplier record exists) genuinely have none.
+  const suppliers = partners.filter((p) => p.isSupplier);
+  const customers = partners.filter((p) => p.isCustomer);
+  useEffect(() => {
+    setPartnerId('');
+  }, [type]);
 
   // OUT/TRANSFER/a decreasing ADJUSTMENT can never take a site below what it
   // actually has — quantityOnHand already excludes quarantined stock, so
@@ -441,6 +485,7 @@ function MovementFormModal({
         ...(type === 'IN' && unitCost !== '' ? { unitCost: Number(unitCost) } : {}),
         ...(type === 'TRANSFER' ? { toSiteId } : {}),
         ...(type === 'ADJUSTMENT' ? { adjustmentDirection } : {}),
+        ...((type === 'IN' || type === 'OUT') && partnerId ? { partnerId } : {}),
       });
       onSaved();
     } catch (err) {
@@ -498,6 +543,32 @@ function MovementFormModal({
                       {s.name}
                     </option>
                   ))}
+              </select>
+            </div>
+          )}
+          {type === 'IN' && (
+            <div className="field-row">
+              <label>Fournisseur (optionnel)</label>
+              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+                <option value="">— non spécifié —</option>
+                {suppliers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {type === 'OUT' && (
+            <div className="field-row">
+              <label>Client (optionnel)</label>
+              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+                <option value="">— non spécifié —</option>
+                {customers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
               </select>
             </div>
           )}

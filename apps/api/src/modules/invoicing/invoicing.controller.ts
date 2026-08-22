@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
@@ -14,6 +14,7 @@ import { CreatePartnerDto } from './dto/create-partner.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CreateTaxRateDto } from './dto/create-tax-rate.dto';
 import { UpdateOrganizationProfileDto } from './dto/update-organization-profile.dto';
+import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { InvoicingService } from './invoicing.service';
 
 // Every route runs behind the full guard chain (docs/Action Plan.md §4):
@@ -38,6 +39,14 @@ export class InvoicingController {
   @RequiresPermission('invoicing', 'invoicing.partner.read')
   listPartners(@CurrentUser() user: AuthenticatedUser) {
     return this.invoicing.listPartners(user.orgId);
+  }
+
+  @Patch('partners/:id')
+  @RequiresPermission('invoicing', 'invoicing.partner.write')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('partner', 'invoicing.partner.updated')
+  updatePartner(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdatePartnerDto) {
+    return this.invoicing.updatePartner(user.orgId, id, dto);
   }
 
   // ---------------- Tax rates ----------------

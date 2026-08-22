@@ -19,6 +19,10 @@ export class RecordMovementDto {
   batchId?: string;
 
   @IsOptional()
+  @IsString()
+  partnerId?: string;
+
+  @IsOptional()
   @IsNumber()
   unitCost?: number;
 

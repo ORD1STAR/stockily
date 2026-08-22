@@ -174,9 +174,11 @@ export const stockApi = {
       siteId: string;
       type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT';
       quantity: number;
+      batchId?: string;
       unitCost?: number;
       toSiteId?: string;
       adjustmentDirection?: 'increase' | 'decrease';
+      partnerId?: string;
     },
   ) => authedRequest('/stock/movements', token, { method: 'POST', body: JSON.stringify(data) }),
 };
@@ -302,6 +304,8 @@ export const invoicingApi = {
   listPartners: (token: string) => authedRequest<Partner[]>('/invoicing/partners', token),
   createPartner: (token: string, data: Omit<Partner, 'id'>) =>
     authedRequest<Partner>('/invoicing/partners', token, { method: 'POST', body: JSON.stringify(data) }),
+  updatePartner: (token: string, id: string, data: Partial<Omit<Partner, 'id'>>) =>
+    authedRequest<Partner>(`/invoicing/partners/${id}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
   listTaxRates: (token: string) => authedRequest<TaxRate[]>('/invoicing/tax-rates', token),
   createTaxRate: (token: string, data: { name: string; rate: number; isDefault?: boolean }) =>
     authedRequest<TaxRate>('/invoicing/tax-rates', token, { method: 'POST', body: JSON.stringify(data) }),

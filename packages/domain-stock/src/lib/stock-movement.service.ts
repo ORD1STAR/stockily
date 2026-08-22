@@ -71,6 +71,7 @@ export class StockMovementService {
         type: input.type,
         quantity: input.quantity,
         batchId: input.batchId ?? null,
+        partnerId: input.partnerId ?? null,
         relatedEntityType: input.relatedEntityType ?? null,
         relatedEntityId: input.relatedEntityId ?? null,
         performedBy: input.performedBy ?? null,

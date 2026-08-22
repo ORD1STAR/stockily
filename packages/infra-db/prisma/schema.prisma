@@ -274,6 +274,12 @@ model StockMovement {
   type              StockMovementType
   quantity          Decimal           @db.Decimal(14, 3)
   batchId           String?
+  // The supplier an IN was received from, or the customer an OUT was sold
+  // to — nullable because most movements (transfers, adjustments, a
+  // walk-in sale) have no counterparty at all. Deliberately a real FK
+  // (not folded into relatedEntityType/relatedEntityId) so it can be
+  // joined/displayed directly, the same as batchId.
+  partnerId         String?
   relatedEntityType String? // e.g. "invoice_line", "stock_transfer", "scan", "manual"
   relatedEntityId   String?
   performedBy       String?
@@ -282,9 +288,11 @@ model StockMovement {
   organization Organization @relation(fields: [orgId], references: [id])
   site         Site         @relation(fields: [siteId], references: [id])
   batch        Batch?       @relation(fields: [batchId], references: [id])
+  partner      Partner?     @relation(fields: [partnerId], references: [id])
 
   @@index([orgId, occurredAt])
   @@index([productId])
+  @@index([partnerId])
   @@map("stock_movements")
 }
 
@@ -453,8 +461,9 @@ model Partner {
   phone      String?
   email      String?
 
-  organization Organization @relation(fields: [orgId], references: [id])
-  invoices     Invoice[]
+  organization   Organization    @relation(fields: [orgId], references: [id])
+  invoices       Invoice[]
+  stockMovements StockMovement[]
 
   @@index([orgId])
   @@map("partners")
