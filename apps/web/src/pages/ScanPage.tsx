@@ -129,6 +129,7 @@ export function ScanPage() {
     setNewExpiryDate('');
     setUnitCost('');
     setToSiteId('');
+    setQuantity(1);
   }
 
   async function submitIn() {
@@ -148,13 +149,18 @@ export function ScanPage() {
             quantityReceived: quantity,
           });
           batchId = batch.id;
-          // Quality control at receipt (Action Plan §3) — logged against
-          // the lot just created; a failed result still lets the IN
-          // movement below post (the stock physically arrived), quarantine
-          // is a separate reclassification QualityService performs itself.
-          await qualityApi.recordCheck(accessToken, { productId: resolution.product.id, batchId, result: newLotResult });
         }
       }
+      // The IN movement posts BEFORE the quality check below — quality's
+      // quarantine-target computation derives "how much of this batch is
+      // on hand" from the stock_movements ledger itself
+      // (getBatchQuantityBySite), so a non-conforme result recorded before
+      // this batch has any ledger history at all always came back with
+      // zero quarantine targets: the batch's `status` showed "Quarantaine"
+      // on the Quality page, but the actual stock stayed fully available —
+      // a real quarantine that never quarantined anything. Found by
+      // receiving a deliberately-bad lot and comparing the Stock page's
+      // quarantine column (0) against what Quality showed (quarantined).
       await stockApi.recordMovement(accessToken, {
         productId: resolution.product.id,
         siteId,
@@ -163,6 +169,9 @@ export function ScanPage() {
         batchId,
         unitCost: unitCost ? Number(unitCost) : undefined,
       });
+      if (resolution.product.isLotTracked && lotMode === 'new' && batchId) {
+        await qualityApi.recordCheck(accessToken, { productId: resolution.product.id, batchId, result: newLotResult });
+      }
       setConfirmMessage(`Entrée enregistrée — ${quantity} unité(s) de ${resolution.product.name}.`);
       setStep('confirm');
     } catch (err) {
