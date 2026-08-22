@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -13,6 +13,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { RecordMovementDto } from './dto/record-movement.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 // Every route here runs behind the full guard chain (docs/Action Plan.md §4):
 // JwtAuthGuard -> ModuleEntitlementGuard -> PermissionGuard -> SiteScopeGuard.
@@ -60,6 +61,14 @@ export class StockController {
   @RequiresPermission('stock', 'stock.product.read')
   getProduct(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.stock.getProductDetail(user.orgId, id);
+  }
+
+  @Patch('products/:id')
+  @RequiresPermission('stock', 'stock.product.write')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('product', 'stock.product.updated')
+  updateProduct(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateProductDto) {
+    return this.stock.updateProduct(user.orgId, id, dto);
   }
 
   @Post('movements')

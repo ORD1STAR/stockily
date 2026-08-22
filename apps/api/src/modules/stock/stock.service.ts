@@ -17,6 +17,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { RecordMovementDto } from './dto/record-movement.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 // Thin NestJS wrapper around @org/domain-stock's StockMovementService — this
 // class is the ONLY thing in apps/api allowed to construct that service
@@ -73,6 +74,21 @@ export class StockService {
         isLotTracked: dto.isLotTracked ?? false,
         minThreshold: dto.minThreshold ?? null,
         maxThreshold: dto.maxThreshold ?? null,
+        sellPrice: dto.sellPrice ?? null,
+      },
+    });
+  }
+
+  async updateProduct(orgId: string, productId: string, dto: UpdateProductDto) {
+    const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId } });
+    if (!existing) throw new NotFoundException(`Unknown product: ${productId}`);
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.minThreshold !== undefined ? { minThreshold: dto.minThreshold } : {}),
+        ...(dto.maxThreshold !== undefined ? { maxThreshold: dto.maxThreshold } : {}),
+        ...(dto.sellPrice !== undefined ? { sellPrice: dto.sellPrice } : {}),
       },
     });
   }
@@ -159,6 +175,7 @@ export class StockService {
       averageCost: Number(product.averageCost),
       minThreshold: product.minThreshold != null ? Number(product.minThreshold) : null,
       maxThreshold: product.maxThreshold != null ? Number(product.maxThreshold) : null,
+      sellPrice: product.sellPrice != null ? Number(product.sellPrice) : null,
       levels: product.stockLevels.map((l) => ({
         site: l.site,
         quantityOnHand: Number(l.quantityOnHand),

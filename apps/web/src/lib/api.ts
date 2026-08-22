@@ -128,6 +128,7 @@ export interface ProductDetail {
   averageCost: number;
   minThreshold: number | null;
   maxThreshold: number | null;
+  sellPrice: number | null;
   levels: { site: { id: string; name: string }; quantityOnHand: number; quantityQuarantined: number }[];
 }
 
@@ -162,8 +163,21 @@ export const stockApi = {
   getProduct: (token: string, productId: string) => authedRequest<ProductDetail>(`/stock/products/${productId}`, token),
   createProduct: (
     token: string,
-    data: { sku: string; name: string; categoryId?: string; isLotTracked?: boolean; minThreshold?: number; maxThreshold?: number },
+    data: {
+      sku: string;
+      name: string;
+      categoryId?: string;
+      isLotTracked?: boolean;
+      minThreshold?: number;
+      maxThreshold?: number;
+      sellPrice?: number;
+    },
   ) => authedRequest<ProductDetail>('/stock/products', token, { method: 'POST', body: JSON.stringify(data) }),
+  updateProduct: (
+    token: string,
+    productId: string,
+    data: { name?: string; minThreshold?: number; maxThreshold?: number; sellPrice?: number },
+  ) => authedRequest<ProductDetail>(`/stock/products/${productId}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
   listCategories: (token: string) => authedRequest<ProductCategory[]>('/stock/categories', token),
   createCategory: (token: string, data: { name: string; parentId?: string }) =>
     authedRequest<ProductCategory>('/stock/categories', token, { method: 'POST', body: JSON.stringify(data) }),
@@ -355,7 +369,7 @@ export const sitesApi = {
 };
 
 export interface ScanResolution {
-  product: { id: string; sku: string; name: string; isLotTracked: boolean };
+  product: { id: string; sku: string; name: string; isLotTracked: boolean; sellPrice: number | null };
   matchedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
   suggestedBatch: { id: string; lotNumber: string; expiryDate: string | null } | null;
   availableQuantity: number | null;

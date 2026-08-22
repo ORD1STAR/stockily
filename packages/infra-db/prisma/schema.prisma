@@ -226,6 +226,10 @@ model Product {
   minThreshold  Decimal? @db.Decimal(14, 3)
   maxThreshold  Decimal? @db.Decimal(14, 3)
   averageCost   Decimal  @default(0) @db.Decimal(14, 2) // Weighted Average Cost (§9), recalculated on each IN movement
+  // Default retail sale price — distinct from averageCost (purchase-side
+  // WAC). Nullable: existing/newly-created products have none until set,
+  // and a line can still always override it at invoice/checkout time.
+  sellPrice     Decimal? @db.Decimal(14, 2)
 
   organization Organization     @relation(fields: [orgId], references: [id])
   category     ProductCategory? @relation(fields: [categoryId], references: [id])

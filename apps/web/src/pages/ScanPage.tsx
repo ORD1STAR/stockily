@@ -9,6 +9,7 @@ import {
   ScanResolution,
   Site,
   StockRow,
+  TaxRate,
   invoicingApi,
   qualityApi,
   scanApi,
@@ -20,6 +21,15 @@ import './ScanPage.css';
 
 type Step = 'scan' | 'action' | 'in' | 'out' | 'transfer' | 'confirm';
 
+interface CartLine {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  availableQuantity: number | null;
+}
+
 // Mobile-first, deliberately not sharing the desktop Stock/Quality/Factures
 // layout — this is genuinely a separate surface (Action Plan §4/§6: "Scan
 // is an input-method concern", meant to run full-screen on a phone, no
@@ -28,7 +38,7 @@ type Step = 'scan' | 'action' | 'in' | 'out' | 'transfer' | 'confirm';
 // Capacitor-wrapped build would drop AppShell entirely for this route.
 export function ScanPage() {
   const { accessToken } = useAuth();
-  const [mode, setMode] = useState<'scan' | 'labels'>('scan');
+  const [mode, setMode] = useState<'scan' | 'labels' | 'checkout'>('scan');
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
   const [code, setCode] = useState('');
@@ -54,6 +64,18 @@ export function ScanPage() {
   // "non spécifié" (partnerId stays '').
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partnerId, setPartnerId] = useState('');
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+
+  // "Vente rapide" (checkout) — a retail till mode: each scan appends a
+  // line instead of walking through the entrée/sortie/transfert steps, a
+  // running cart accumulates across scans, and "Terminer la vente" cuts
+  // that session into one CUSTOMER invoice (finalized immediately, so
+  // stock is deducted the same way any other finalized invoice deducts
+  // it) for the chosen client — or none, the walk-in default.
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [checkoutPartnerId, setCheckoutPartnerId] = useState('');
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
+  const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraSupported, setCameraSupported] = useState(false);
@@ -69,6 +91,7 @@ export function ScanPage() {
     // the fournisseur/client picker just stays empty rather than blocking
     // the whole Scan page.
     invoicingApi.listPartners(accessToken).then(setPartners).catch(() => setPartners([]));
+    invoicingApi.listTaxRates(accessToken).then(setTaxRates).catch(() => setTaxRates([]));
   }, [accessToken]);
 
   useEffect(() => {
@@ -127,6 +150,11 @@ export function ScanPage() {
     setError(null);
     try {
       const r = await scanApi.resolveCode(accessToken, rawCode.trim(), siteId);
+      if (mode === 'checkout') {
+        addToCart(r);
+        setCode('');
+        return;
+      }
       setResolution(r);
       setCode(rawCode.trim());
       setQuantity(1);
@@ -138,6 +166,86 @@ export function ScanPage() {
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Code non reconnu.');
+    }
+  }
+
+  // Scanning the same product twice bumps its existing line's quantity
+  // (like a real till) instead of adding a duplicate row — capped at the
+  // site's available quantity, same rule Sortie already enforces one scan
+  // at a time, just applied across the whole running cart now.
+  function addToCart(r: ScanResolution) {
+    setCheckoutConfirm(null);
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => l.productId === r.product.id);
+      if (idx === -1) {
+        return [
+          ...prev,
+          {
+            productId: r.product.id,
+            sku: r.product.sku,
+            name: r.product.name,
+            quantity: 1,
+            unitPrice: r.product.sellPrice ?? 0,
+            availableQuantity: r.availableQuantity,
+          },
+        ];
+      }
+      const existing = prev[idx];
+      if (r.availableQuantity != null && existing.quantity >= r.availableQuantity) {
+        setError(`Stock insuffisant pour ${r.product.name} — ${r.availableQuantity} disponible(s).`);
+        return prev;
+      }
+      const next = [...prev];
+      next[idx] = { ...existing, quantity: existing.quantity + 1, availableQuantity: r.availableQuantity };
+      return next;
+    });
+  }
+
+  function updateCartLine(productId: string, patch: Partial<Pick<CartLine, 'quantity' | 'unitPrice'>>) {
+    setCart((prev) =>
+      prev.map((l) => {
+        if (l.productId !== productId) return l;
+        if (patch.quantity != null) {
+          const capped = l.availableQuantity != null ? Math.min(patch.quantity, l.availableQuantity) : patch.quantity;
+          return { ...l, quantity: Math.max(1, Math.round(capped) || 1) };
+        }
+        return { ...l, ...patch };
+      }),
+    );
+  }
+
+  function removeCartLine(productId: string) {
+    setCart((prev) => prev.filter((l) => l.productId !== productId));
+  }
+
+  const cartTotal = cart.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+
+  async function finalizeSale() {
+    if (!accessToken || cart.length === 0) return;
+    setCheckoutSubmitting(true);
+    setError(null);
+    try {
+      const defaultTax = taxRates.find((t) => t.isDefault);
+      const created = await invoicingApi.createInvoice(accessToken, {
+        type: 'CUSTOMER',
+        siteId,
+        partnerId: checkoutPartnerId || undefined,
+        lines: cart.map((l) => ({
+          productId: l.productId,
+          description: `${l.sku} — ${l.name}`,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          taxRateId: defaultTax?.id,
+        })),
+      });
+      const finalized = await invoicingApi.finalizeInvoice(accessToken, created.id);
+      setCheckoutConfirm({ number: finalized.number, total: finalized.totals.totalTtc });
+      setCart([]);
+      setCheckoutPartnerId('');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la vente.');
+    } finally {
+      setCheckoutSubmitting(false);
     }
   }
 
@@ -265,6 +373,9 @@ export function ScanPage() {
           <button className={`toggle-btn${mode === 'scan' ? ' on' : ''}`} onClick={() => setMode('scan')}>
             Scanner
           </button>
+          <button className={`toggle-btn${mode === 'checkout' ? ' on' : ''}`} onClick={() => setMode('checkout')}>
+            Vente rapide
+          </button>
           <button className={`toggle-btn${mode === 'labels' ? ' on' : ''}`} onClick={() => setMode('labels')}>
             Étiquettes
           </button>
@@ -273,6 +384,28 @@ export function ScanPage() {
         {error && <div className="error-banner">{error}</div>}
 
         {mode === 'labels' && <LabelsPanel />}
+
+        {mode === 'checkout' && (
+          <CheckoutPanel
+            code={code}
+            setCode={setCode}
+            onScan={resolve}
+            cart={cart}
+            cartTotal={cartTotal}
+            onUpdateLine={updateCartLine}
+            onRemoveLine={removeCartLine}
+            partners={partners}
+            checkoutPartnerId={checkoutPartnerId}
+            setCheckoutPartnerId={setCheckoutPartnerId}
+            checkoutSubmitting={checkoutSubmitting}
+            checkoutConfirm={checkoutConfirm}
+            onFinalize={finalizeSale}
+            onClearCart={() => {
+              setCart([]);
+              setCheckoutConfirm(null);
+            }}
+          />
+        )}
 
         {mode === 'scan' && step === 'scan' && (
           <div className="scan-card">
@@ -574,6 +707,155 @@ export function ScanPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+// The retail-till mode: no entrée/sortie/transfert choice per scan, just a
+// running cart. "Terminer la vente" is the "cut" — it turns everything
+// scanned so far into one finalized CUSTOMER invoice (stock deduction and
+// all, via the same createInvoice + finalizeInvoice pair the desktop
+// Invoicing page uses) and the cart resets, ready for the next customer.
+function CheckoutPanel({
+  code,
+  setCode,
+  onScan,
+  cart,
+  cartTotal,
+  onUpdateLine,
+  onRemoveLine,
+  partners,
+  checkoutPartnerId,
+  setCheckoutPartnerId,
+  checkoutSubmitting,
+  checkoutConfirm,
+  onFinalize,
+  onClearCart,
+}: {
+  code: string;
+  setCode: (v: string) => void;
+  onScan: (code: string) => void;
+  cart: CartLine[];
+  cartTotal: number;
+  onUpdateLine: (productId: string, patch: Partial<Pick<CartLine, 'quantity' | 'unitPrice'>>) => void;
+  onRemoveLine: (productId: string) => void;
+  partners: Partner[];
+  checkoutPartnerId: string;
+  setCheckoutPartnerId: (v: string) => void;
+  checkoutSubmitting: boolean;
+  checkoutConfirm: { number: string | null; total: number } | null;
+  onFinalize: () => void;
+  onClearCart: () => void;
+}) {
+  const customers = partners.filter((p) => p.isCustomer);
+
+  return (
+    <div className="scan-card">
+      <h3>Vente rapide</h3>
+      {checkoutConfirm && (
+        <div className="note-box">
+          Vente enregistrée{checkoutConfirm.number ? ` — facture ${checkoutConfirm.number}` : ''} — {checkoutConfirm.total.toFixed(2)}{' '}
+          DZD TTC.
+        </div>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onScan(code);
+        }}
+        style={{ display: 'flex', gap: 8 }}
+      >
+        <input
+          className="mono"
+          placeholder="Saisie manuelle / douchette USB"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          autoFocus
+          style={{ flex: 1, padding: '9px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
+        />
+        <button type="submit" className="btn-primary">
+          Ajouter
+        </button>
+      </form>
+
+      {cart.length > 0 && (
+        <table className="lot-mini-table">
+          <thead>
+            <tr>
+              <th>Produit</th>
+              <th className="num">Qté</th>
+              <th className="num">P.U.</th>
+              <th className="num">Sous-total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {cart.map((l) => (
+              <tr key={l.productId}>
+                <td>
+                  {l.name} <span className="mono muted">({l.sku})</span>
+                </td>
+                <td className="num">
+                  <input
+                    type="number"
+                    min={1}
+                    max={l.availableQuantity ?? undefined}
+                    className="mono"
+                    style={{ width: '5ch' }}
+                    value={l.quantity}
+                    onChange={(e) => onUpdateLine(l.productId, { quantity: Number(e.target.value) })}
+                  />
+                </td>
+                <td className="num">
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    className="mono"
+                    style={{ width: '7ch' }}
+                    value={l.unitPrice}
+                    onChange={(e) => onUpdateLine(l.productId, { unitPrice: Number(e.target.value) })}
+                  />
+                </td>
+                <td className="num mono">{(l.quantity * l.unitPrice).toFixed(2)}</td>
+                <td>
+                  <button type="button" className="btn-link" onClick={() => onRemoveLine(l.productId)}>
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {cart.length === 0 && <p className="sub">Le panier est vide — scannez un article pour commencer une vente.</p>}
+
+      {cart.length > 0 && (
+        <>
+          <div className="field-row">
+            <label>Client (optionnel)</label>
+            <select value={checkoutPartnerId} onChange={(e) => setCheckoutPartnerId(e.target.value)}>
+              <option value="">— non spécifié —</option>
+              {customers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sub" style={{ textAlign: 'right', fontWeight: 600 }}>
+            Total : {cartTotal.toFixed(2)} DZD
+          </div>
+          <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+            <button type="button" className="btn-secondary" onClick={onClearCart} disabled={checkoutSubmitting}>
+              Vider le panier
+            </button>
+            <button type="button" className="btn-primary" onClick={onFinalize} disabled={checkoutSubmitting}>
+              {checkoutSubmitting ? 'Enregistrement…' : 'Terminer la vente'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

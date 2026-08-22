@@ -90,7 +90,7 @@ export class ScanService {
 
   private async buildResolution(
     orgId: string,
-    product: { id: string; sku: string; name: string; isLotTracked: boolean },
+    product: { id: string; sku: string; name: string; isLotTracked: boolean; sellPrice: unknown },
     siteId?: string,
     matchedBatch?: { id: string; lotNumber: string; expiryDate: Date | null },
   ) {
@@ -117,7 +117,13 @@ export class ScanService {
       : null;
 
     return {
-      product: { id: product.id, sku: product.sku, name: product.name, isLotTracked: product.isLotTracked },
+      product: {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        isLotTracked: product.isLotTracked,
+        sellPrice: product.sellPrice != null ? Number(product.sellPrice) : null,
+      },
       matchedBatch: matchedBatch ? { id: matchedBatch.id, lotNumber: matchedBatch.lotNumber, expiryDate: matchedBatch.expiryDate } : null,
       suggestedBatch,
       availableQuantity,

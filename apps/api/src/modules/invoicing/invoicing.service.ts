@@ -269,6 +269,7 @@ export class InvoicingService {
             siteId: invoice.siteId,
             type: 'OUT',
             quantity: Number(line.quantity),
+            partnerId: invoice.partnerId,
             relatedEntityType: 'invoice_line',
             relatedEntityId: line.id,
           });

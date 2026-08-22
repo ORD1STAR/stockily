@@ -30,4 +30,9 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   maxThreshold?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sellPrice?: number;
 }

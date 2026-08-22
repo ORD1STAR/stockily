@@ -215,14 +215,41 @@ export function StockPage() {
   );
 }
 
-function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: () => void }) {
+function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDetail; onClose: () => void }) {
   const { accessToken } = useAuth();
+  const [detail, setDetail] = useState(initialDetail);
   const [batches, setBatches] = useState<Batch[] | null>(null);
+  // Editable here rather than only at creation — most products in this
+  // simulation were created before a sale price meant anything (Scan's
+  // "Vente rapide" needs one to auto-fill a line), so there was no way to
+  // go back and set one on an existing SKU.
+  const [sellPriceInput, setSellPriceInput] = useState(detail.sellPrice != null ? String(detail.sellPrice) : '');
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceSaved, setPriceSaved] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accessToken || !detail.isLotTracked) return;
     qualityApi.listBatches(accessToken, detail.id).then(setBatches);
   }, [accessToken, detail.id, detail.isLotTracked]);
+
+  async function saveSellPrice() {
+    if (!accessToken) return;
+    setSavingPrice(true);
+    setPriceSaved(false);
+    setPriceError(null);
+    try {
+      const updated = await stockApi.updateProduct(accessToken, detail.id, {
+        sellPrice: sellPriceInput === '' ? undefined : Number(sellPriceInput),
+      });
+      setDetail((d) => ({ ...d, sellPrice: updated.sellPrice }));
+      setPriceSaved(true);
+    } catch (err) {
+      setPriceError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+    } finally {
+      setSavingPrice(false);
+    }
+  }
 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -243,6 +270,26 @@ function SkuDetailModal({ detail, onClose }: { detail: ProductDetail; onClose: (
             <div className="num">{detail.minThreshold ?? '—'}</div>
             <div className="label">Seuil min</div>
           </div>
+        </div>
+        <div className="modal-section">
+          <div className="modal-section-label">Prix de vente</div>
+          <div className="field-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={sellPriceInput}
+              onChange={(e) => setSellPriceInput(e.target.value)}
+              placeholder="Non défini"
+              style={{ maxWidth: 160 }}
+            />
+            <button type="button" className="btn-secondary" onClick={saveSellPrice} disabled={savingPrice}>
+              {savingPrice ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+            {priceSaved && <span className="sub">Enregistré.</span>}
+          </div>
+          {priceError && <div className="error-banner">{priceError}</div>}
+          <p className="sub">Utilisé pour pré-remplir le prix d&#39;une ligne dans Scan &raquo; Vente rapide.</p>
         </div>
         <div className="modal-section">
           <div className="modal-section-label">Stock par site</div>
@@ -325,6 +372,7 @@ function ProductFormModal({
   const [isLotTracked, setIsLotTracked] = useState(false);
   const [minThreshold, setMinThreshold] = useState<number | ''>('');
   const [maxThreshold, setMaxThreshold] = useState<number | ''>('');
+  const [sellPrice, setSellPrice] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -346,6 +394,7 @@ function ProductFormModal({
         isLotTracked,
         ...(minThreshold !== '' ? { minThreshold: Number(minThreshold) } : {}),
         ...(maxThreshold !== '' ? { maxThreshold: Number(maxThreshold) } : {}),
+        ...(sellPrice !== '' ? { sellPrice: Number(sellPrice) } : {}),
       });
       onSaved();
     } catch (err) {
@@ -406,6 +455,10 @@ function ProductFormModal({
               <label>Seuil max (optionnel)</label>
               <input type="number" min={0} step="any" value={maxThreshold} onChange={(e) => setMaxThreshold(e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
+          </div>
+          <div className="field-row">
+            <label>Prix de vente (optionnel)</label>
+            <input type="number" min={0} step="any" value={sellPrice} onChange={(e) => setSellPrice(e.target.value === '' ? '' : Number(e.target.value))} />
           </div>
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
