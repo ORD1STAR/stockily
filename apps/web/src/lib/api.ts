@@ -45,11 +45,64 @@ export const authApi = {
     }),
 };
 
-export function authedRequest<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
-  return rawRequest<T>(path, {
-    ...options,
-    headers: { ...(options.headers ?? {}), Authorization: `Bearer ${accessToken}` },
-  });
+// The access token has a short TTL (15 minutes — apps/api's JWT_ACCESS_TTL)
+// and, until this, was never refreshed except on a full page reload. Any
+// request made after it expired — including one mid-way through filling out
+// a long form, like a real multi-line wholesale invoice — surfaced a raw
+// "Invalid or expired access token" and threw away whatever the user had
+// just entered, since the failed submit doesn't preserve the modal's state
+// across the resulting forced re-login. Found by actually taking the few
+// minutes a real order takes to fill in and hitting exactly that wall.
+//
+// REFRESH_TOKEN_STORAGE_KEY lives here (not auth-context.tsx) so this
+// module — which has no React dependency — can silently refresh on its own;
+// auth-context registers a callback via setSilentRefreshHandler so its own
+// in-memory accessToken stays in sync with whatever this module rotates to,
+// instead of the two drifting apart.
+export const REFRESH_TOKEN_STORAGE_KEY = 'stockily.refreshToken';
+
+let onSilentRefresh: ((tokens: TokenPair) => void) | null = null;
+export function setSilentRefreshHandler(fn: ((tokens: TokenPair) => void) | null) {
+  onSilentRefresh = fn;
+}
+
+// Several requests can hit a 401 around the same moment (e.g. a page's
+// initial Promise.all of several endpoints) — coalesced into one in-flight
+// refresh instead of each independently calling /auth/refresh with the same
+// now-stale token, which would just race each other if refresh tokens
+// rotate on use.
+let refreshInFlight: Promise<string> | null = null;
+
+function silentlyRefreshAccessToken(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const stored = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+      if (!stored) throw new ApiError(401, { message: 'No refresh token available' });
+      const tokens = await authApi.refresh(stored);
+      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refreshToken);
+      onSilentRefresh?.(tokens);
+      return tokens.accessToken;
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+export async function authedRequest<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
+  try {
+    return await rawRequest<T>(path, {
+      ...options,
+      headers: { ...(options.headers ?? {}), Authorization: `Bearer ${accessToken}` },
+    });
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 401) throw err;
+    const freshAccessToken = await silentlyRefreshAccessToken();
+    return rawRequest<T>(path, {
+      ...options,
+      headers: { ...(options.headers ?? {}), Authorization: `Bearer ${freshAccessToken}` },
+    });
+  }
 }
 
 export interface StockRow {
@@ -250,6 +303,8 @@ export const invoicingApi = {
   createPartner: (token: string, data: Omit<Partner, 'id'>) =>
     authedRequest<Partner>('/invoicing/partners', token, { method: 'POST', body: JSON.stringify(data) }),
   listTaxRates: (token: string) => authedRequest<TaxRate[]>('/invoicing/tax-rates', token),
+  createTaxRate: (token: string, data: { name: string; rate: number; isDefault?: boolean }) =>
+    authedRequest<TaxRate>('/invoicing/tax-rates', token, { method: 'POST', body: JSON.stringify(data) }),
   getOrganizationProfile: (token: string) => authedRequest<OrganizationProfile>('/invoicing/organization-profile', token),
   updateOrganizationProfile: (token: string, data: Partial<Omit<OrganizationProfile, 'id'>>) =>
     authedRequest<OrganizationProfile>('/invoicing/organization-profile', token, { method: 'POST', body: JSON.stringify(data) }),

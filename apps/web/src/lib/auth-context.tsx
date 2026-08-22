@@ -1,7 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { ApiError, authApi, authedRequest } from './api';
-
-const REFRESH_TOKEN_STORAGE_KEY = 'stockily.refreshToken';
+import { ApiError, authApi, authedRequest, REFRESH_TOKEN_STORAGE_KEY, setSilentRefreshHandler } from './api';
 
 export interface MeResponse {
   user: { id: string; email: string };
@@ -43,6 +41,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setAccessToken(null);
     setMe(null);
+  }, []);
+
+  useEffect(() => {
+    // api.ts's authedRequest silently refreshes and retries on its own
+    // whenever a request 401s (a short-TTL access token expiring mid-use) —
+    // this keeps THIS component's in-memory accessToken in sync with
+    // whatever it rotates to there, instead of the two drifting apart.
+    setSilentRefreshHandler((tokens) => setAccessToken(tokens.accessToken));
+    return () => setSilentRefreshHandler(null);
   }, []);
 
   useEffect(() => {
