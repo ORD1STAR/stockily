@@ -343,6 +343,7 @@ export const invoicingApi = {
   voidInvoice: (token: string, id: string) => authedRequest<InvoiceView>(`/invoicing/invoices/${id}/void`, token, { method: 'POST' }),
   recordPayment: (token: string, id: string, data: { amount: number; method?: string }) =>
     authedRequest(`/invoicing/invoices/${id}/payments`, token, { method: 'POST', body: JSON.stringify(data) }),
+  resetPayments: (token: string, id: string) => authedRequest(`/invoicing/invoices/${id}/payments/reset`, token, { method: 'POST' }),
   // Not JSON — fetched directly (not via authedRequest/rawRequest, which
   // always parse a JSON body) so the real PDF bytes can be opened in a new
   // tab via an object URL, giving a genuine print/download action rather
@@ -392,4 +393,11 @@ export const scanApi = {
   generateLabel: (token: string, data: { productId?: string; batchId?: string; symbology?: 'EAN13' | 'QR' }) =>
     authedRequest<BarcodeLabelView>('/scan/labels', token, { method: 'POST', body: JSON.stringify(data) }),
   recordPrint: (token: string, id: string) => authedRequest<BarcodeLabelView>(`/scan/labels/${id}/print`, token, { method: 'POST' }),
+  // Not JSON — same rationale as invoicingApi.fetchPdf: real PDF bytes,
+  // opened via an object URL rather than parsed as a JSON body.
+  fetchLabelPdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/scan/labels/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
 };

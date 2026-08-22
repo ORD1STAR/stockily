@@ -127,6 +127,14 @@ export class InvoicingController {
     return this.invoicing.recordPayment(user.orgId, id, dto);
   }
 
+  @Post('invoices/:id/payments/reset')
+  @RequiresPermission('invoicing', 'invoicing.payment.create')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('payment', 'invoicing.payment.reset')
+  resetPayments(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.invoicing.resetPayments(user.orgId, id);
+  }
+
   @Get('invoices/:id/pdf')
   @RequiresPermission('invoicing', 'invoicing.invoice.read')
   async downloadPdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {

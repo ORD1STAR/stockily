@@ -3,6 +3,7 @@ import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Batch, Partner, ProductCategory, ProductDetail, Site, StockRow, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { useStockRealtime } from '../lib/realtime';
+import { SearchableSelect } from '../lib/SearchableSelect';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<StockRow['status'], string> = { ok: 'OK', low: 'Bas', out: 'Rupture' };
@@ -558,13 +559,12 @@ function MovementFormModal({
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Produit</label>
-            <select value={productId} onChange={(e) => setProductId(e.target.value)} required>
-              {uniqueProducts.map((p) => (
-                <option key={p.productId} value={p.productId}>
-                  {p.sku} — {p.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={productId}
+              onChange={setProductId}
+              placeholder="Rechercher un produit…"
+              options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+            />
           </div>
           <div className="field-row">
             <label>Site</label>
@@ -602,27 +602,25 @@ function MovementFormModal({
           {type === 'IN' && (
             <div className="field-row">
               <label>Fournisseur (optionnel)</label>
-              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                <option value="">— non spécifié —</option>
-                {suppliers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={partnerId}
+                onChange={setPartnerId}
+                placeholder="Rechercher un fournisseur…"
+                emptyLabel="— non spécifié —"
+                options={suppliers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+              />
             </div>
           )}
           {type === 'OUT' && (
             <div className="field-row">
               <label>Client (optionnel)</label>
-              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                <option value="">— non spécifié —</option>
-                {customers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={partnerId}
+                onChange={setPartnerId}
+                placeholder="Rechercher un client…"
+                emptyLabel="— non spécifié —"
+                options={customers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+              />
             </div>
           )}
           {type === 'ADJUSTMENT' && (

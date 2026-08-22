@@ -3,6 +3,7 @@ import { TenancyModule } from '../tenancy/tenancy.module';
 import { AuditModule } from '../audit/audit.module';
 import { ScanController } from './scan.controller';
 import { ScanService } from './scan.service';
+import { LabelPdfService } from './pdf/label-pdf.service';
 
 // Real controllers/services (Action Plan §1/§7 milestone 5). No StockModule
 // or QualityModule import here — Scan's own backend surface is only label
@@ -14,6 +15,6 @@ import { ScanService } from './scan.service';
 @Module({
   imports: [TenancyModule, AuditModule],
   controllers: [ScanController],
-  providers: [ScanService],
+  providers: [ScanService, LabelPdfService],
 })
 export class ScanModule {}

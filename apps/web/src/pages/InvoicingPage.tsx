@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, InvoiceView, Partner, Site, StockRow, TaxRate, invoicingApi, sitesApi, stockApi } from '../lib/api';
+import { SearchableSelect } from '../lib/SearchableSelect';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<InvoiceView['status'], string> = {
@@ -208,6 +209,15 @@ export function InvoicingPage() {
               await refreshSelected();
             } catch (err) {
               setPdfError(err instanceof ApiError ? err.message : "Échec de l'enregistrement du paiement.");
+            }
+          }}
+          onResetPayments={async () => {
+            if (!accessToken) return;
+            try {
+              await invoicingApi.resetPayments(accessToken, selected.id);
+              await refreshSelected();
+            } catch (err) {
+              setPdfError(err instanceof ApiError ? err.message : "Échec de l'annulation des paiements.");
             }
           }}
           onOpenPdf={openPdf}
@@ -418,6 +428,7 @@ function InvoiceModal({
   onClose,
   onFinalize,
   onRecordPayment,
+  onResetPayments,
   onOpenPdf,
   pdfError,
 }: {
@@ -425,10 +436,16 @@ function InvoiceModal({
   onClose: () => void;
   onFinalize: () => void;
   onRecordPayment: (amount: number) => void;
+  onResetPayments: () => void;
   onOpenPdf: () => void;
   pdfError: string | null;
 }) {
   const [paymentAmount, setPaymentAmount] = useState('');
+  // A second click is required before actually resetting — this deletes
+  // every payment row against the invoice, so a stray click on "reset"
+  // itself shouldn't be able to wipe out a real payment as easily as the
+  // mistake it's meant to fix.
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -516,7 +533,26 @@ function InvoiceModal({
               >
                 Enregistrer paiement
               </button>
+              <button className="btn-secondary" onClick={() => onRecordPayment(invoice.balance)}>
+                Marquer payée intégralement
+              </button>
             </>
+          )}
+          {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.totalPaid > 0 && (
+            <button
+              className="btn-link"
+              onClick={() => {
+                if (confirmingReset) {
+                  onResetPayments();
+                  setConfirmingReset(false);
+                } else {
+                  setConfirmingReset(true);
+                }
+              }}
+              onBlur={() => setConfirmingReset(false)}
+            >
+              {confirmingReset ? 'Confirmer — annuler tous les paiements ?' : 'Paiement erroné ? Annuler les paiements'}
+            </button>
           )}
           {invoice.status !== 'draft' && (
             <>
@@ -627,16 +663,13 @@ function CreateInvoiceModal({
           </div>
           <div className="field-row">
             <label>Client</label>
-            <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-              <option value="">Client comptant</option>
-              {partners
-                .filter((p) => p.isCustomer)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {p.nif}
-                  </option>
-                ))}
-            </select>
+            <SearchableSelect
+              value={partnerId}
+              onChange={setPartnerId}
+              placeholder="Rechercher un client…"
+              emptyLabel="Client comptant"
+              options={partners.filter((p) => p.isCustomer).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+            />
           </div>
 
           <div className="modal-section-label">Lignes</div>
@@ -644,14 +677,13 @@ function CreateInvoiceModal({
             <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
               <div className="field-row">
                 <label>Produit (optionnel — laissez vide pour une ligne de service)</label>
-                <select value={line.productId} onChange={(e) => selectProduct(i, e.target.value)}>
-                  <option value="">— aucun (service) —</option>
-                  {uniqueProducts.map((p) => (
-                    <option key={p.productId} value={p.productId}>
-                      {p.sku} — {p.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={line.productId}
+                  onChange={(v) => selectProduct(i, v)}
+                  placeholder="Rechercher un produit…"
+                  emptyLabel="— aucun (service) —"
+                  options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                />
               </div>
               <div className="field-row">
                 <label>Désignation</label>

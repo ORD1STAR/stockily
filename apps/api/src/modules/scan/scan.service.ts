@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GenerateLabelDto } from './dto/generate-label.dto';
+import { LabelPdfService } from './pdf/label-pdf.service';
 
 // Scan is an input-method concern, not a distinct domain (Action Plan
 // §1/§3/§7 milestone 5) — it has no @org/domain-scan package. The actual
@@ -13,7 +14,10 @@ import { GenerateLabelDto } from './dto/generate-label.dto';
 // and don't belong in Stock or Quality.
 @Injectable()
 export class ScanService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly labelPdf: LabelPdfService,
+  ) {}
 
   async generateLabel(orgId: string, dto: GenerateLabelDto) {
     let codeValue: string;
@@ -53,6 +57,23 @@ export class ScanService {
     const label = await this.prisma.barcodeLabel.findFirst({ where: { id, orgId } });
     if (!label) throw new NotFoundException(`Unknown label: ${id}`);
     return this.prisma.barcodeLabel.update({ where: { id }, data: { printedCount: { increment: 1 } } });
+  }
+
+  async generateLabelPdf(orgId: string, id: string): Promise<Buffer> {
+    const label = await this.prisma.barcodeLabel.findFirst({
+      where: { id, orgId },
+      include: { product: { select: { name: true, sku: true } }, batch: { select: { lotNumber: true, expiryDate: true } } },
+    });
+    if (!label) throw new NotFoundException(`Unknown label: ${id}`);
+
+    const title = label.product?.name ?? (label.batch ? `Lot ${label.batch.lotNumber}` : label.codeValue);
+    const subtitle = label.product
+      ? `SKU ${label.product.sku}`
+      : label.batch?.expiryDate
+        ? `Péremption ${label.batch.expiryDate.toLocaleDateString('fr-FR')}`
+        : null;
+
+    return this.labelPdf.render({ codeValue: label.codeValue, symbology: label.symbology, title, subtitle });
   }
 
   /**

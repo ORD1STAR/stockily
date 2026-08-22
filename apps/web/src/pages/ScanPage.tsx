@@ -16,6 +16,7 @@ import {
   sitesApi,
   stockApi,
 } from '../lib/api';
+import { SearchableSelect } from '../lib/SearchableSelect';
 import '../lib/data-views.css';
 import './ScanPage.css';
 
@@ -74,8 +75,15 @@ export function ScanPage() {
   // it) for the chosen client — or none, the walk-in default.
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkoutPartnerId, setCheckoutPartnerId] = useState('');
+  // A retail till sale is paid at the counter, on the spot — the operator
+  // has already taken the cash/card before hitting "Terminer la vente",
+  // unlike a wholesale invoice which is routinely settled later. Paid is
+  // the default so every normal sale doesn't also need a second trip to
+  // Factures just to mark it paid; the toggle exists for the exception
+  // (a tab, a delivery invoiced now but collected later).
+  const [checkoutPaid, setCheckoutPaid] = useState(true);
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
-  const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number } | null>(null);
+  const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number; paid: boolean } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraSupported, setCameraSupported] = useState(false);
@@ -239,9 +247,13 @@ export function ScanPage() {
         })),
       });
       const finalized = await invoicingApi.finalizeInvoice(accessToken, created.id);
-      setCheckoutConfirm({ number: finalized.number, total: finalized.totals.totalTtc });
+      if (checkoutPaid) {
+        await invoicingApi.recordPayment(accessToken, finalized.id, { amount: finalized.totals.totalTtc });
+      }
+      setCheckoutConfirm({ number: finalized.number, total: finalized.totals.totalTtc, paid: checkoutPaid });
       setCart([]);
       setCheckoutPartnerId('');
+      setCheckoutPaid(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Échec de la vente.');
     } finally {
@@ -397,6 +409,8 @@ export function ScanPage() {
             partners={partners}
             checkoutPartnerId={checkoutPartnerId}
             setCheckoutPartnerId={setCheckoutPartnerId}
+            checkoutPaid={checkoutPaid}
+            setCheckoutPaid={setCheckoutPaid}
             checkoutSubmitting={checkoutSubmitting}
             checkoutConfirm={checkoutConfirm}
             onFinalize={finalizeSale}
@@ -562,16 +576,13 @@ export function ScanPage() {
             </div>
             <div className="field-row">
               <label>Fournisseur (optionnel)</label>
-              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                <option value="">— non spécifié —</option>
-                {partners
-                  .filter((p) => p.isSupplier)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
+              <SearchableSelect
+                value={partnerId}
+                onChange={setPartnerId}
+                placeholder="Rechercher un fournisseur…"
+                emptyLabel="— non spécifié —"
+                options={partners.filter((p) => p.isSupplier).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+              />
             </div>
             <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
               <button className="btn-secondary" onClick={() => setStep('action')}>
@@ -621,16 +632,13 @@ export function ScanPage() {
             )}
             <div className="field-row">
               <label>Client (optionnel)</label>
-              <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                <option value="">— non spécifié —</option>
-                {partners
-                  .filter((p) => p.isCustomer)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
+              <SearchableSelect
+                value={partnerId}
+                onChange={setPartnerId}
+                placeholder="Rechercher un client…"
+                emptyLabel="— non spécifié —"
+                options={partners.filter((p) => p.isCustomer).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+              />
             </div>
             <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
               <button className="btn-secondary" onClick={() => setStep('action')}>
@@ -726,6 +734,8 @@ function CheckoutPanel({
   partners,
   checkoutPartnerId,
   setCheckoutPartnerId,
+  checkoutPaid,
+  setCheckoutPaid,
   checkoutSubmitting,
   checkoutConfirm,
   onFinalize,
@@ -741,8 +751,10 @@ function CheckoutPanel({
   partners: Partner[];
   checkoutPartnerId: string;
   setCheckoutPartnerId: (v: string) => void;
+  checkoutPaid: boolean;
+  setCheckoutPaid: (v: boolean) => void;
   checkoutSubmitting: boolean;
-  checkoutConfirm: { number: string | null; total: number } | null;
+  checkoutConfirm: { number: string | null; total: number; paid: boolean } | null;
   onFinalize: () => void;
   onClearCart: () => void;
 }) {
@@ -753,8 +765,8 @@ function CheckoutPanel({
       <h3>Vente rapide</h3>
       {checkoutConfirm && (
         <div className="note-box">
-          Vente enregistrée{checkoutConfirm.number ? ` — facture ${checkoutConfirm.number}` : ''} — {checkoutConfirm.total.toFixed(2)}{' '}
-          DZD TTC.
+          Vente enregistrée{checkoutConfirm.number ? ` — facture ${checkoutConfirm.number}` : ''} — {checkoutConfirm.total.toFixed(2)} DZD
+          TTC — {checkoutConfirm.paid ? 'payée.' : 'non payée (à encaisser plus tard).'}
         </div>
       )}
       <form
@@ -778,72 +790,76 @@ function CheckoutPanel({
       </form>
 
       {cart.length > 0 && (
-        <table className="lot-mini-table">
-          <thead>
-            <tr>
-              <th>Produit</th>
-              <th className="num">Qté</th>
-              <th className="num">P.U.</th>
-              <th className="num">Sous-total</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {cart.map((l) => (
-              <tr key={l.productId}>
-                <td>
-                  {l.name} <span className="mono muted">({l.sku})</span>
-                </td>
-                <td className="num">
+        <div className="cart">
+          {cart.map((l) => (
+            <div className="cart-line" key={l.productId}>
+              <div className="cart-line-top">
+                <span className="cart-line-name">{l.name}</span>
+                <button type="button" className="cart-line-remove" onClick={() => onRemoveLine(l.productId)} aria-label="Retirer">
+                  ✕
+                </button>
+              </div>
+              <div className="cart-line-sku mono muted">{l.sku}</div>
+              <div className="cart-line-controls">
+                <div className="cart-qty-stepper">
+                  <button type="button" onClick={() => onUpdateLine(l.productId, { quantity: l.quantity - 1 })}>
+                    −
+                  </button>
                   <input
                     type="number"
                     min={1}
                     max={l.availableQuantity ?? undefined}
-                    className="mono"
-                    style={{ width: '5ch' }}
                     value={l.quantity}
                     onChange={(e) => onUpdateLine(l.productId, { quantity: Number(e.target.value) })}
                   />
-                </td>
-                <td className="num">
+                  <button type="button" onClick={() => onUpdateLine(l.productId, { quantity: l.quantity + 1 })}>
+                    +
+                  </button>
+                </div>
+                <div className="cart-line-price">
                   <input
                     type="number"
                     min={0}
                     step="any"
-                    className="mono"
-                    style={{ width: '7ch' }}
                     value={l.unitPrice}
                     onChange={(e) => onUpdateLine(l.productId, { unitPrice: Number(e.target.value) })}
                   />
-                </td>
-                <td className="num mono">{(l.quantity * l.unitPrice).toFixed(2)}</td>
-                <td>
-                  <button type="button" className="btn-link" onClick={() => onRemoveLine(l.productId)}>
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <span className="unit">DZD</span>
+                </div>
+                <div className="cart-line-subtotal mono">{(l.quantity * l.unitPrice).toFixed(2)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
-      {cart.length === 0 && <p className="sub">Le panier est vide — scannez un article pour commencer une vente.</p>}
+      {cart.length === 0 && <p className="cart-empty">Le panier est vide — scannez un article pour commencer une vente.</p>}
 
       {cart.length > 0 && (
         <>
           <div className="field-row">
             <label>Client (optionnel)</label>
-            <select value={checkoutPartnerId} onChange={(e) => setCheckoutPartnerId(e.target.value)}>
-              <option value="">— non spécifié —</option>
-              {customers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={checkoutPartnerId}
+              onChange={setCheckoutPartnerId}
+              placeholder="Rechercher un client…"
+              emptyLabel="— non spécifié —"
+              options={customers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
+            />
           </div>
-          <div className="sub" style={{ textAlign: 'right', fontWeight: 600 }}>
-            Total : {cartTotal.toFixed(2)} DZD
+          <div className="field-row">
+            <label>Paiement</label>
+            <div className="toggle-row">
+              <button type="button" className={`toggle-btn${checkoutPaid ? ' on' : ''}`} onClick={() => setCheckoutPaid(true)}>
+                Payée
+              </button>
+              <button type="button" className={`toggle-btn${!checkoutPaid ? ' on' : ''}`} onClick={() => setCheckoutPaid(false)}>
+                Non payée
+              </button>
+            </div>
+          </div>
+          <div className="cart-total">
+            <span>Total</span>
+            <span className="amount">{cartTotal.toFixed(2)} DZD</span>
           </div>
           <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
             <button type="button" className="btn-secondary" onClick={onClearCart} disabled={checkoutSubmitting}>
@@ -916,8 +932,16 @@ function LabelsPanel() {
 
   async function print(id: string) {
     if (!accessToken) return;
-    await scanApi.recordPrint(accessToken, id);
-    load();
+    setError(null);
+    try {
+      const blob = await scanApi.fetchLabelPdf(accessToken, id);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      await scanApi.recordPrint(accessToken, id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Échec de la génération de l'étiquette.");
+    }
   }
 
   return (

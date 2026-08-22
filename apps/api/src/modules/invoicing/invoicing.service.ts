@@ -383,6 +383,26 @@ export class InvoicingService {
     });
   }
 
+  // A payment fat-fingered onto the wrong invoice, or a "fully paid" click
+  // that shouldn't have happened, had no way back — the invoice's own
+  // compliance-numbered sequence must never be touched once finalized, but
+  // the payments recorded against it are a separate, correctable record of
+  // what was actually collected, not part of that sequence. Removing every
+  // Payment row and letting status re-derive (back to "unpaid") is the
+  // fix: it doesn't un-finalize anything, it just undoes the payment
+  // entries so they can be re-entered correctly.
+  async resetPayments(orgId: string, invoiceId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, orgId }, include: { payments: true } });
+      if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
+      if (invoice.status === 'draft' || invoice.status === 'void') {
+        throw new BadRequestException('No payments to reset on a draft or voided invoice.');
+      }
+      await tx.payment.deleteMany({ where: { invoiceId } });
+      return tx.invoice.update({ where: { id: invoiceId }, data: { status: 'unpaid' } });
+    });
+  }
+
   // ---------------- PDF ----------------
 
   async generatePdf(orgId: string, invoiceId: string): Promise<Buffer> {

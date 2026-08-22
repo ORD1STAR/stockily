@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -37,6 +38,14 @@ export class ScanController {
   @Audit('barcode_label', 'scan.label.printed')
   recordPrint(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.scan.recordPrint(user.orgId, id);
+  }
+
+  @Get('labels/:id/pdf')
+  @RequiresPermission('scan', 'scan.label.read')
+  async downloadLabelPdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.scan.generateLabelPdf(user.orgId, id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="etiquette-${id}.pdf"` });
+    res.send(pdf);
   }
 
   @Get('resolve/:code')

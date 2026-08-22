@@ -86,6 +86,7 @@
     "@nestjs/websockets": "^11.2.1",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
+    "bwip-js": "^4.11.4",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "helmet": "^8.3.0",
