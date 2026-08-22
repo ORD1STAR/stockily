@@ -364,6 +364,8 @@ export class InvoicingService {
     return this.pdf.generate({
       number: invoice.number ?? '(brouillon)',
       issuedAt: invoice.finalizedAt ?? invoice.issuedAt,
+      type: invoice.type,
+      status: invoice.status,
       seller: {
         name: invoice.organization.name,
         address: invoice.organization.address,
