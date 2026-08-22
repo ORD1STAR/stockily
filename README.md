@@ -8,9 +8,16 @@ wireframes, and pricing grid are also in `docs/`.
 Multi-Sites, Quality, Invoicing, and Scan — see `docs/MILESTONE_1.md`
 through `docs/MILESTONE_5.md` for what was implemented and every decision
 made along the way, milestone by milestone. A security-hardening pass
-(CORS, rate limiting, security headers, real email capability) is also
-done — see "Production deployment" below. **Not yet done**: Postgres
-row-level security (RLS) — deliberately deferred, see that section for why.
+(CORS, rate limiting, security headers, real email capability) is done —
+see `docs/MILESTONE_6.md` and "Production deployment" below. `docs/MILESTONE_7.md`
+covers everything since: fixes found by actually using the app as a real
+wholesaler, a fournisseurs/clients directory with a partner on every stock
+movement, Scan's "Vente rapide" retail-till mode (product sale price,
+paid/unpaid on the spot), flexible invoice payments (mark paid, undo a
+mistaken payment), searchable client/fournisseur/product pickers, real
+scannable label PDFs, an org logo (shown on invoices), and a mobile
+home/Scan experience. **Not yet done**: Postgres row-level security (RLS)
+— deliberately deferred, see that section for why.
 
 ## Quickstart
 
@@ -57,6 +64,24 @@ readiness).
   database that `apps/api`'s e2e test runs against (re-run after a schema
   change)
 - `npx nx graph` — visualize the project dependency graph
+
+**`npm run prisma:migrate` only migrates the one database in the root
+`.env`.** Three more exist and are not kept in sync by that command:
+`stockily_test` and `stockily_invoicing_test` (hardcoded connection strings at
+the top of `apps/api/src/*.e2e.spec.ts`) and `stockily_invoicing_dev`. After
+any schema change, also run:
+```bash
+for db in stockily_test stockily_invoicing_test stockily_invoicing_dev; do
+  DATABASE_URL="postgresql://stockily:stockily@localhost:5432/${db}?schema=public" \
+    npx prisma migrate deploy --schema packages/infra-db/prisma/schema.prisma
+done
+```
+Skipping this doesn't fail loudly — it surfaces later as a confusing
+`PrismaClientKnownRequestError: column ... does not exist` the next time
+`nx test api` runs. On Windows specifically: stop whatever's running
+`nx serve api` first, or `prisma migrate dev`'s own client-regeneration
+step fails with `EPERM` (the dev server holds a lock on the query engine
+binary).
 
 ## Production deployment
 
