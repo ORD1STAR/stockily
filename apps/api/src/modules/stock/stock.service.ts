@@ -73,6 +73,21 @@ export class StockService {
         ? await this.resolveAllSitesFilter(orgId, userId)
         : { id: siteId };
 
+    // A `StockLevel` row is only created on a product's first movement at a
+    // site (getOrCreateStockLevel) — a brand-new product, or an existing
+    // one that's simply never been received at a given site, has none yet.
+    // Mapping straight over `stockLevels` (as this used to) silently drops
+    // such a product from the response entirely: it never appears in the
+    // table, and "+ Nouveau mouvement" — disabled whenever this list comes
+    // back empty — can never be opened to receive its first stock. A real
+    // dead end, found by actually creating a fresh product on a fresh org
+    // and watching both the table and the button stay empty/disabled.
+    // Fetching the candidate sites explicitly and synthesizing a
+    // zero-quantity row for any (product, site) pair with no ledger
+    // history yet fixes this — it's the same "0, Rupture" state a product
+    // with an actual zero-valued StockLevel row already renders as.
+    const sites = await this.prisma.site.findMany({ where: siteFilter, select: { id: true, name: true } });
+
     const products = await this.prisma.product.findMany({
       where: { orgId },
       include: {
@@ -82,21 +97,27 @@ export class StockService {
       orderBy: { name: 'asc' },
     });
 
-    return products.flatMap((p) =>
-      p.stockLevels.map((level) => ({
-        productId: p.id,
-        sku: p.sku,
-        name: p.name,
-        category: p.category?.name ?? null,
-        isLotTracked: p.isLotTracked,
-        site: level.site,
-        quantityOnHand: Number(level.quantityOnHand),
-        quantityQuarantined: Number(level.quantityQuarantined),
-        minThreshold: p.minThreshold != null ? Number(p.minThreshold) : null,
-        averageCost: Number(p.averageCost),
-        status: computeThresholdStatus(Number(level.quantityOnHand), p.minThreshold != null ? Number(p.minThreshold) : null),
-      })),
-    );
+    return products.flatMap((p) => {
+      const levelBySiteId = new Map(p.stockLevels.map((level) => [level.site.id, level]));
+      return sites.map((site) => {
+        const level = levelBySiteId.get(site.id);
+        const quantityOnHand = level ? Number(level.quantityOnHand) : 0;
+        const quantityQuarantined = level ? Number(level.quantityQuarantined) : 0;
+        return {
+          productId: p.id,
+          sku: p.sku,
+          name: p.name,
+          category: p.category?.name ?? null,
+          isLotTracked: p.isLotTracked,
+          site,
+          quantityOnHand,
+          quantityQuarantined,
+          minThreshold: p.minThreshold != null ? Number(p.minThreshold) : null,
+          averageCost: Number(p.averageCost),
+          status: computeThresholdStatus(quantityOnHand, p.minThreshold != null ? Number(p.minThreshold) : null),
+        };
+      });
+    });
   }
 
   /** For a `siteId=all` request, narrows the query to the sites `userId` can see — an org-wide role sees every site, a site-scoped role only their own (§2 permission model; PermissionGuard/SiteScopeGuard already let the *request* itself through, this is what stops it from *returning* more rows than the caller is entitled to). */
