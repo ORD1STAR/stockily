@@ -57,10 +57,13 @@ Certbot-managed TLS) reverse-proxying `/api/*` to the `stockily-api`
 container and everything else to `stockily-web` — both are the same
 `docker-compose.yml` containers as local, just with a public front door.
 To deploy a web change here: `sg docker -c "docker compose build web"` then
-`sg docker -c "docker compose up -d web"` — the shell user isn't in the
-`docker` group in its *current* login session even though `/etc/group`
-lists it (needs `sg docker` or a fresh login to pick that up), and `sudo`
-needs a password this session doesn't have.
+`sg docker -c "docker compose up -d web"` (swap `web` for `api`, or list
+both, for a backend change — e.g. a schema/DTO change needs both a
+migration against the shared `stockily` database, see above, and an `api`
+rebuild) — the shell user isn't in the `docker` group in its *current*
+login session even though `/etc/group` lists it (needs `sg docker` or a
+fresh login to pick that up), and `sudo` needs a password this session
+doesn't have.
 
 **This deployment's database is separate from local dev's** — the
 `contact@elwafa-grossiste.dz` demo org above only exists locally; on

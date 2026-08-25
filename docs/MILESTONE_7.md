@@ -174,13 +174,107 @@ Deliberately out of scope: the other four module pages (Stock, Quality,
 Invoicing, Sites) still render through AppShell's desktop sidebar on
 mobile — only the landing screen and Scan itself were asked for.
 
+## Round 8 — Real-device mobile pass: camera scanning, product barcodes, modal system
+
+Round 7 shipped the mobile landing screen and Scan's own full-screen layout;
+this round is what actually using both on a real iPhone (via Claude in
+Chrome's remote-control bridge, not desktop devtools' viewport emulator)
+turned up, plus closing the "deliberately out of scope" gap Round 7 left
+open.
+
+- **QR/barcode scanning never worked on the phone at all** — `cameraSupported`
+  gated "Activer la caméra" on `'BarcodeDetector' in window` (Chrome's Shape
+  Detection API), which Safari has never shipped on any platform. The button
+  silently never rendered — no error, just no way to ever open the camera.
+  Replaced with `@zxing/browser`, which drives `getUserMedia` and decoding
+  itself against a plain `<video>`, so it works identically everywhere.
+  Broadened detected formats to EAN-8/13, UPC-A/E, Code128/39 alongside QR
+  (a "universal" scan was the actual ask, not QR-only).
+- **The camera dropped after every single scan** — `IScannerControls.stop()`
+  (the library's own high-level `decodeFromConstraints`/`decodeFromStream`)
+  always tears down the underlying `getUserMedia` stream, not just the
+  decode loop, so finishing an entrée/sortie/transfert and returning to the
+  scan step meant a fresh permission round-trip and a re-tap on "Activer la
+  caméra" every time. Fixed by splitting the two lifecycles: the stream is
+  acquired once per page visit and kept alive in a ref; decoding is paused/
+  resumed against that same stream via the library's lower-level `.scan()`
+  method, which — called without its optional `finalizeCallback` — stops the
+  decode loop without touching the stream. The `<video>` element is now
+  always mounted (shared between Scanner and Vente rapide, shown/hidden via
+  CSS) instead of unmounting per step, which is what made this safe. The
+  camera now only fully releases on unmount (leaving Scan, refreshing, or
+  logging out) — it stays live for the rest of the session otherwise.
+  Vente rapide's continuous scanning also got the same treatment plus a
+  1.5s same-code debounce (a still-visible barcode shouldn't re-add on
+  every frame). Scan-attempt delay tuned from the library's 500ms default
+  down to 80ms, and camera resolution capped at 1280x720 (down from
+  whatever the phone's native resolution was) — both were making scanning
+  feel sluggish independent of the above bug.
+- **Product.barcode** — a new nullable field (distinct from `sku`, and from
+  `BarcodeLabel`'s Stockily-generated codes) holding a product's own
+  real-world manufacturer barcode. `Scan.resolveCode` now checks it as a
+  fallback before SKU, so a box's existing barcode resolves immediately with
+  no label-generation step first. Editable on the product create/edit forms,
+  including a camera-scan button (same one-shot `.scan()` pattern as above)
+  so registering it doesn't mean typing a 13-digit number by hand. Enforced
+  unique per org, with a friendly conflict message instead of a raw P2002.
+- **`isLotTracked` made editable after creation** — was structurally
+  excluded from `UpdateProductDto` ("cascading implications once batches
+  exist"), but grepping domain-stock and domain-quality confirms nothing
+  actually reads it to gate any business logic — it's a display flag only.
+  The real, common case it blocked: a product created with "Suivi par lot"
+  left off by mistake, with no way to turn it back on. Now editable, guarded
+  only against *disabling* it once the product already has batches (would
+  orphan them from the UI that shows them) — enabling has no such risk and
+  is never blocked.
+- **AppShell goes fully responsive** — closes Round 7's "deliberately out of
+  scope" gap. Below 800px the persistent 232px sidebar (previously
+  unconditional — over half of a 375-430px screen) becomes an off-canvas
+  drawer: closed by default, opened via a hamburger in a sticky top bar,
+  closing again on any tap inside it. Since Paramètres du Business and
+  Fournisseurs & clients no longer make sense buried at the bottom of a
+  drawer only reachable from inside some other module, they got their own
+  tiles on the Applications launcher (under a "Gestion" group) instead, with
+  a "← Toutes les applications" link added to the drawer itself so a user
+  already inside a module can still get back to that launcher.
+- **Modal system redesign** — the bare absolutely-positioned "✕" (used
+  identically across all 17 modals in the app) is now a sticky header (title
+  + a proper circular close button) that stays visible through arbitrarily
+  long scrolled content instead of disappearing past the first screen. On
+  mobile, modals present as bottom sheets (rounded top corners, near-full
+  height) sized with `dvh` rather than `vh` — `vh` measures the *largest*
+  possible viewport (Safari's address bar fully collapsed) and doesn't
+  shrink back when the address bar re-expands, which was letting the sheet's
+  top edge (and its close button) render underneath the browser's own chrome.
+- **Horizontal overflow, app-wide** — several `flex`/`grid` rows (action-
+  button rows, the manual barcode-entry forms, the Scanner/Vente rapide/
+  Étiquettes toggle) forced content wider than the screen because a flex/
+  grid item's default `min-width` is its own unshrunk content size, not 0.
+  Fixed at each source (`min-width: 0` + `flex-wrap` where it matters) plus
+  a page-level `overflow-x: hidden` safety net. Also: mobile Safari/Chrome
+  auto-zoom the whole page when a focused input's font-size is under 16px —
+  every field here was smaller than that — fixed with a mobile-scoped
+  `font-size: 16px !important` override.
+- **Edge-swipe-back mitigation** — iOS Safari's edge-swipe "go back" gesture
+  is recognized below the page's own DOM, so there's no CSS property to turn
+  it off. Added the standard JS mitigation (watch for a touch starting near
+  the screen edge that then moves mostly horizontally, `preventDefault()` on
+  that `touchmove` early enough that WebKit's gesture recognizer defers to
+  the page) — not a guarantee, since the actual gesture recognition happens
+  outside what a page can fully control, so it needs verifying on a real
+  device rather than by reading the code.
+- **Web bundle split by route** — a `React.lazy()` per page instead of one
+  ~850KB bundle every visitor downloaded just to see the login screen. Stock
+  and Scan (the only two pages pulling in `@zxing/browser`) now isolate that
+  ~480KB dependency into its own chunk. Main entry chunk: ~857KB → ~238KB.
+
 ## New backend surface added this milestone
 
 - `PATCH /invoicing/partners/:id`, `POST /invoicing/invoices/:id/payments/reset`
-- `PATCH /stock/products/:id`
+- `PATCH /stock/products/:id` (Round 7: sellPrice; Round 8: barcode, isLotTracked)
 - `GET /scan/labels/:id/pdf`
-- `stock_movements.partnerId`, `products.sellPrice`, `organizations.logo`
-  (three migrations — see "Multi-database migrations" below)
+- `stock_movements.partnerId`, `products.sellPrice`, `organizations.logo`,
+  `products.barcode` (four migrations — see "Multi-database migrations" below)
 
 ## How to verify
 
@@ -201,6 +295,22 @@ invoice PDF, and the mobile home → apps launcher → Scan full-screen flow
 event, since this environment's browser-automation tool cannot resize the
 real OS window — the underlying `useIsMobile` hook itself needs no such
 workaround on a real device).
+
+Round 8 had that real device this time — Claude in Chrome connected to an
+actual iPhone (Safari), not devtools' viewport emulator — which is
+specifically how the BarcodeDetector/Safari gap and the address-bar/`dvh`
+issue were ever found at all; neither reproduces in a desktop viewport
+emulation. Every fix in that round was deployed to `stockily.ordi-tech.com`
+(a live HTTPS host reachable from the phone, reverse-proxied to the same
+`docker-compose.yml` containers as local dev — see CLAUDE.md for exact
+deploy commands) and re-verified there after each change, not just built.
+Two things that *can't* be verified this way, flagged rather than guessed
+at: actual scan speed/decode correctness (this environment has no real
+camera hardware attached to it — confirmed via `enumerateDevices` — so
+camera activation was verified up to `getUserMedia` being reached
+correctly, not an actual successful decode), and the edge-swipe mitigation
+(gesture recognition happens below the page, outside what remote
+automation can trigger the same way a real thumb does).
 
 ## Multi-database migrations — a recurring gotcha this milestone
 

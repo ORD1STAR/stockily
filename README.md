@@ -108,8 +108,8 @@ pointing this at real customer data:
 5. **Put a reverse proxy with TLS in front of both services** (Caddy, nginx,
    your cloud provider's load balancer, ...) — neither container terminates
    HTTPS itself. This also matters functionally, not just for security: the
-   Scan module's camera access (`getUserMedia`/`BarcodeDetector`) only works
-   in a secure context (HTTPS or `localhost`) per the browsers' own APIs.
+   Scan module's camera access (`getUserMedia`) only works in a secure
+   context (HTTPS or `localhost`) per the browsers' own APIs.
 6. **`GET /health`** (outside the `/api` prefix) is a real Postgres
    round-trip check, wired into the `api` container's own Docker
    `HEALTHCHECK` already — point your orchestrator's health/readiness probe
