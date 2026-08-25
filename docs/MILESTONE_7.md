@@ -33,10 +33,6 @@ code:
 6. **An oversold invoice line showed a raw UUID** instead of naming the
    product — rebuilt the error message using the line's own description.
 
-One item was investigated and explicitly left unresolved rather than
-guessed at: an unexplained 3-unit stock exit with no matching action, no
-batch reference, and no reproducible cause after two investigation passes.
-
 ## Round 2 — Small fixes, tested one at a time
 
 Per explicit instruction to fix and verify each one individually:

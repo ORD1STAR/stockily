@@ -766,3 +766,5 @@ function CreateInvoiceModal({
     </div>
   );
 }
+
+export default InvoicingPage;

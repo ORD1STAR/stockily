@@ -1126,3 +1126,5 @@ function LabelsPanel() {
     </div>
   );
 }
+
+export default ScanPage;
