@@ -1,7 +1,9 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Batch, Partner, ProductCategory, ProductDetail, Site, StockRow, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useStockRealtime } from '../lib/realtime';
 import { SearchableSelect } from '../lib/SearchableSelect';
 import '../lib/data-views.css';
@@ -108,7 +110,7 @@ export function StockPage() {
             </select>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowProductForm(true)}>
             + Nouveau produit
           </button>
@@ -228,11 +230,42 @@ function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDet
   const [savingPrice, setSavingPrice] = useState(false);
   const [priceSaved, setPriceSaved] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
+  // Same after-the-fact editability rationale as sellPrice above — most
+  // products in a real catalog get their manufacturer barcode added once
+  // someone's actually holding the box, not at initial product creation.
+  const [barcodeInput, setBarcodeInput] = useState(detail.barcode ?? '');
+  const [savingBarcode, setSavingBarcode] = useState(false);
+  const [barcodeSaved, setBarcodeSaved] = useState(false);
+  const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  const [savingLotTracked, setSavingLotTracked] = useState(false);
+  const [lotTrackedError, setLotTrackedError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accessToken || !detail.isLotTracked) return;
     qualityApi.listBatches(accessToken, detail.id).then(setBatches);
   }, [accessToken, detail.id, detail.isLotTracked]);
+
+  // Was structurally uneditable ("cascading implications once batches
+  // exist" per the old UpdateProductDto comment) — but nothing actually
+  // reads this flag to gate domain logic, only what the UI chooses to show
+  // (see StockService.updateProduct's own comment). The real case this
+  // exists for: a product created with the "Suivi par lot" toggle left
+  // off by mistake, with no way to turn it back on afterward. Saves
+  // immediately on tap (no separate "Enregistrer" step) — it's a binary
+  // flag, not free text worth a confirm step.
+  async function saveLotTracked(next: boolean) {
+    if (!accessToken || next === detail.isLotTracked) return;
+    setSavingLotTracked(true);
+    setLotTrackedError(null);
+    try {
+      const updated = await stockApi.updateProduct(accessToken, detail.id, { isLotTracked: next });
+      setDetail((d) => ({ ...d, isLotTracked: updated.isLotTracked }));
+    } catch (err) {
+      setLotTrackedError(err instanceof ApiError ? err.message : 'Échec de la mise à jour.');
+    } finally {
+      setSavingLotTracked(false);
+    }
+  }
 
   async function saveSellPrice() {
     if (!accessToken) return;
@@ -252,16 +285,41 @@ function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDet
     }
   }
 
+  async function saveBarcode() {
+    if (!accessToken) return;
+    setSavingBarcode(true);
+    setBarcodeSaved(false);
+    setBarcodeError(null);
+    try {
+      // Always send the (possibly empty) trimmed value, never `undefined` —
+      // this is a dedicated "save this field" button, and `undefined` would
+      // vanish from the JSON body entirely (JSON.stringify drops it),
+      // which the API reads as "leave barcode unchanged" rather than
+      // "clear it" when the field was emptied on purpose.
+      const updated = await stockApi.updateProduct(accessToken, detail.id, { barcode: barcodeInput.trim() });
+      setDetail((d) => ({ ...d, barcode: updated.barcode }));
+      setBarcodeSaved(true);
+    } catch (err) {
+      setBarcodeError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+    } finally {
+      setSavingBarcode(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>{detail.name}</h3>
-        <p className="modal-sub">
-          SKU {detail.sku} · {detail.isLotTracked ? 'suivi par lot' : 'non suivi par lot'}
-        </p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>{detail.name}</h3>
+            <p className="modal-sub">
+              SKU {detail.sku} · {detail.isLotTracked ? 'suivi par lot' : 'non suivi par lot'}
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <div className="stat-strip">
           <div className="stat-card">
             <div className="num">{detail.averageCost.toFixed(2)}</div>
@@ -273,8 +331,31 @@ function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDet
           </div>
         </div>
         <div className="modal-section">
+          <div className="modal-section-label">Suivi par lot</div>
+          <div className="toggle-row">
+            <button
+              type="button"
+              className={`toggle-btn${detail.isLotTracked ? ' on' : ''}`}
+              onClick={() => saveLotTracked(true)}
+              disabled={savingLotTracked}
+            >
+              Oui
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn${!detail.isLotTracked ? ' on' : ''}`}
+              onClick={() => saveLotTracked(false)}
+              disabled={savingLotTracked}
+            >
+              Non
+            </button>
+          </div>
+          {lotTrackedError && <div className="error-banner">{lotTrackedError}</div>}
+          <p className="sub">Active la péremption et le contrôle qualité par lot — Scan » Entrée proposera alors un numéro de lot.</p>
+        </div>
+        <div className="modal-section">
           <div className="modal-section-label">Prix de vente</div>
-          <div className="field-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <div className="inline-edit-row">
             <input
               type="number"
               min={0}
@@ -282,7 +363,6 @@ function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDet
               value={sellPriceInput}
               onChange={(e) => setSellPriceInput(e.target.value)}
               placeholder="Non défini"
-              style={{ maxWidth: 160 }}
             />
             <button type="button" className="btn-secondary" onClick={saveSellPrice} disabled={savingPrice}>
               {savingPrice ? 'Enregistrement…' : 'Enregistrer'}
@@ -291,6 +371,22 @@ function SkuDetailModal({ detail: initialDetail, onClose }: { detail: ProductDet
           </div>
           {priceError && <div className="error-banner">{priceError}</div>}
           <p className="sub">Utilisé pour pré-remplir le prix d&#39;une ligne dans Scan &raquo; Vente rapide.</p>
+        </div>
+        <div className="modal-section">
+          <div className="modal-section-label">Code-barres</div>
+          <div className="inline-edit-row">
+            <input className="mono" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} placeholder="Non défini" />
+            <BarcodeScanButton onScanned={setBarcodeInput} />
+            <button type="button" className="btn-secondary" onClick={saveBarcode} disabled={savingBarcode}>
+              {savingBarcode ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+            {barcodeSaved && <span className="sub">Enregistré.</span>}
+          </div>
+          {barcodeError && <div className="error-banner">{barcodeError}</div>}
+          <p className="sub">
+            Le code EAN/UPC imprimé sur le produit lui-même — une fois enregistré, Scan le reconnaît directement, sans passer par une
+            étiquette générée.
+          </p>
         </div>
         <div className="modal-section">
           <div className="modal-section-label">Stock par site</div>
@@ -368,6 +464,7 @@ function ProductFormModal({
   const { accessToken } = useAuth();
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
+  const [barcode, setBarcode] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isLotTracked, setIsLotTracked] = useState(false);
@@ -396,6 +493,7 @@ function ProductFormModal({
         ...(minThreshold !== '' ? { minThreshold: Number(minThreshold) } : {}),
         ...(maxThreshold !== '' ? { maxThreshold: Number(maxThreshold) } : {}),
         ...(sellPrice !== '' ? { sellPrice: Number(sellPrice) } : {}),
+        ...(barcode.trim() !== '' ? { barcode: barcode.trim() } : {}),
       });
       onSaved();
     } catch (err) {
@@ -408,10 +506,14 @@ function ProductFormModal({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau produit</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau produit</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>SKU</label>
@@ -420,6 +522,13 @@ function ProductFormModal({
           <div className="field-row">
             <label>Nom</label>
             <input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="field-row">
+            <label>Code-barres (EAN/UPC, optionnel)</label>
+            <div className="inline-edit-row" style={{ marginBottom: 0 }}>
+              <input className="mono" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Scanner ou saisir le code" />
+              <BarcodeScanButton onScanned={setBarcode} />
+            </div>
           </div>
           <div className="field-row">
             <label>Catégorie existante</label>
@@ -552,10 +661,14 @@ function MovementFormModal({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau mouvement</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau mouvement</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Produit</label>
@@ -677,6 +790,113 @@ function MovementFormModal({
         </form>
       </div>
     </div>
+  );
+}
+
+// A one-shot camera capture for the barcode field on both the product
+// creation and edit forms — reuses the same ZXing setup as Scan's own
+// "Scanner" mode (single decode → stop, not Vente rapide's continuous
+// scanning) so a manager registering a product's real-world barcode can
+// point the camera at the box instead of typing a 13-digit number by hand.
+// Renders its own nested modal — deliberately a fresh `.modal-backdrop`
+// rather than reusing whatever modal this button lives inside, since it
+// needs to sit visually above that modal too.
+function BarcodeScanButton({ onScanned }: { onScanned: (code: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // `open` (the modal is on screen) and `scanning` (the camera stream is
+  // actually running) are deliberately separate — a getUserMedia failure
+  // used to collapse both into one flag, which closed the whole modal the
+  // instant it failed, taking the error message down with it before anyone
+  // could read it. Now a failure just clears `scanning`; `open` stays true
+  // so the error banner has somewhere to render until the user closes it.
+  const [open, setOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+
+  const stopCamera = useCallback(() => {
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const close = useCallback(() => {
+    stopCamera();
+    setOpen(false);
+  }, [stopCamera]);
+
+  useEffect(() => stopCamera, [stopCamera]);
+
+  const startCameraStream = useCallback(async () => {
+    setError(null);
+    setScanning(true);
+    try {
+      if (!codeReaderRef.current) {
+        codeReaderRef.current = createBarcodeReader();
+      }
+      const controls = await codeReaderRef.current.decodeFromConstraints(
+        CAMERA_CONSTRAINTS,
+        videoRef.current ?? undefined,
+        (result) => {
+          if (!result) return;
+          close();
+          onScanned(result.getText());
+        },
+      );
+      controlsRef.current = controls;
+    } catch {
+      setScanning(false);
+      setError("Impossible d'accéder à la caméra — saisissez le code manuellement.");
+    }
+  }, [close]);
+
+  // Opening the modal (setOpen) and starting the camera used to happen in
+  // the same click handler, synchronously — but the <video> element below
+  // only exists once `open` is true AND React has actually re-rendered,
+  // which hasn't happened yet inside that same function call. videoRef.current
+  // was reliably still null on every first activation, so the stream (when
+  // it didn't outright fail) was never attached to anything visible — "the
+  // camera doesn't work." Splitting it like this lets this effect run
+  // *after* the DOM has the <video> mounted (effects always run
+  // post-commit), so videoRef.current is populated by the time the camera
+  // actually starts.
+  useEffect(() => {
+    if (open) void startCameraStream();
+  }, [open, startCameraStream]);
+
+  return (
+    <>
+      <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
+        📷 Scanner
+      </button>
+      {open && (
+        <div className="modal-backdrop open barcode-scan-backdrop" onClick={(e) => e.target === e.currentTarget && close()}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-header-titles">
+                <h3>Scanner le code-barres</h3>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={close} aria-label="Fermer">
+                ✕
+              </button>
+            </div>
+            <div className="viewfinder">
+              <video ref={videoRef} muted playsInline style={{ width: '100%', display: scanning ? 'block' : 'none' }} />
+              {!scanning && !error && <div className="vf-placeholder">Ouverture de la caméra…</div>}
+            </div>
+            {error && (
+              <>
+                <div className="error-banner">{error}</div>
+                <button type="button" className="btn-secondary" onClick={startCameraStream}>
+                  Réessayer
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

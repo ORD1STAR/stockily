@@ -35,4 +35,11 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   sellPrice?: number;
+
+  // The product's own real-world barcode (EAN-13/UPC/etc.) — see the
+  // `barcode` field's own comment on the Prisma model for why this is
+  // distinct from `sku`.
+  @IsOptional()
+  @IsString()
+  barcode?: string;
 }

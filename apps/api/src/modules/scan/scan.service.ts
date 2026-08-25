@@ -82,12 +82,17 @@ export class ScanService {
    * scanner (which just types the code into a text field), or a person
    * typing it manually — all three end up here as a plain string,
    * indistinguishable from one another (Action Plan §4's scan-scope note).
-   * Three fallbacks, in order, since a label may not have been formally
-   * "generated" yet even though the code printed on the box (a SKU or a
-   * lot number) is already meaningful:
+   * Four fallbacks, in order, since a label may not have been formally
+   * "generated" yet even though the code printed on the box (a barcode, a
+   * SKU, or a lot number) is already meaningful:
    *  1. An existing BarcodeLabel for this exact code.
-   *  2. The code IS a product's SKU.
-   *  3. The code IS a batch's lot number (resolves to that batch's product).
+   *  2. The code IS a product's own real-world barcode (set on the product
+   *     directly — see Product.barcode's own comment). Checked before SKU:
+   *     a manufacturer barcode arriving off a real product is the common
+   *     case once one's been recorded, and takes priority over the
+   *     unlikely coincidence of it also matching some other product's SKU.
+   *  3. The code IS a product's SKU.
+   *  4. The code IS a batch's lot number (resolves to that batch's product).
    */
   async resolveCode(orgId: string, code: string, siteId?: string) {
     const label = await this.prisma.barcodeLabel.findUnique({
@@ -95,6 +100,9 @@ export class ScanService {
       include: { product: true, batch: true },
     });
     if (label?.product) return this.buildResolution(orgId, label.product, siteId, label.batch ?? undefined);
+
+    const byBarcode = await this.prisma.product.findFirst({ where: { orgId, barcode: code } });
+    if (byBarcode) return this.buildResolution(orgId, byBarcode, siteId);
 
     const bySku = await this.prisma.product.findUnique({ where: { orgId_sku: { orgId, sku: code } } });
     if (bySku) return this.buildResolution(orgId, bySku, siteId);

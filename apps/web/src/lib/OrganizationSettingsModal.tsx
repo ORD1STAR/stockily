@@ -101,11 +101,15 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Paramètres du Business</h3>
-        <p className="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Paramètres du Business</h3>
+            <p className="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form className="field-form" onSubmit={submit}>
           <input
             ref={fileInputRef}

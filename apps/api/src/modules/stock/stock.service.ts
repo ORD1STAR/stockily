@@ -64,6 +64,9 @@ export class StockService {
     const existing = await this.prisma.product.findUnique({ where: { orgId_sku: { orgId, sku: dto.sku } } });
     if (existing) throw new ConflictException(`SKU already in use: ${dto.sku}`);
 
+    const barcode = dto.barcode?.trim() || null;
+    if (barcode) await this.assertBarcodeAvailable(orgId, barcode);
+
     return this.prisma.product.create({
       data: {
         orgId,
@@ -75,6 +78,7 @@ export class StockService {
         minThreshold: dto.minThreshold ?? null,
         maxThreshold: dto.maxThreshold ?? null,
         sellPrice: dto.sellPrice ?? null,
+        barcode,
       },
     });
   }
@@ -82,15 +86,51 @@ export class StockService {
   async updateProduct(orgId: string, productId: string, dto: UpdateProductDto) {
     const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId } });
     if (!existing) throw new NotFoundException(`Unknown product: ${productId}`);
+
+    const barcode = dto.barcode !== undefined ? dto.barcode.trim() || null : undefined;
+    if (barcode) await this.assertBarcodeAvailable(orgId, barcode, productId);
+
+    // Turning lot-tracking OFF once the product already has batches would
+    // orphan them from the UI that shows them (Quality's batch list, Scan's
+    // FEFO suggestion, this product's own "Lots" section) — the batches
+    // themselves would still exist, just made invisible through every path
+    // that gates on this flag. Turning it ON has no such risk: nothing
+    // reads isLotTracked to enforce anything at the domain level (grep
+    // confirms — it's a display flag, not a data-integrity constraint), so
+    // the common real case this exists for — "forgot to check the box when
+    // creating the product, want to fix that" — is never blocked.
+    if (dto.isLotTracked === false && existing.isLotTracked) {
+      const hasBatches = await this.prisma.batch.findFirst({ where: { productId }, select: { id: true } });
+      if (hasBatches) {
+        throw new ConflictException(
+          'Impossible de désactiver le suivi par lot : ce produit a déjà des lots enregistrés.',
+        );
+      }
+    }
+
     return this.prisma.product.update({
       where: { id: productId },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.isLotTracked !== undefined ? { isLotTracked: dto.isLotTracked } : {}),
         ...(dto.minThreshold !== undefined ? { minThreshold: dto.minThreshold } : {}),
         ...(dto.maxThreshold !== undefined ? { maxThreshold: dto.maxThreshold } : {}),
         ...(dto.sellPrice !== undefined ? { sellPrice: dto.sellPrice } : {}),
+        ...(barcode !== undefined ? { barcode } : {}),
       },
     });
+  }
+
+  // A friendly ConflictException instead of letting the DB's raw P2002
+  // (`@@unique([orgId, barcode])`) surface — same pattern as the sku check
+  // above. Scoped out the product being edited so re-saving a product's own
+  // unchanged barcode doesn't self-conflict.
+  private async assertBarcodeAvailable(orgId: string, barcode: string, excludingProductId?: string) {
+    const clash = await this.prisma.product.findFirst({
+      where: { orgId, barcode, ...(excludingProductId ? { id: { not: excludingProductId } } : {}) },
+      select: { id: true, name: true },
+    });
+    if (clash) throw new ConflictException(`Ce code-barres est déjà utilisé par « ${clash.name} ».`);
   }
 
   /**
@@ -139,6 +179,7 @@ export class StockService {
           productId: p.id,
           sku: p.sku,
           name: p.name,
+          barcode: p.barcode,
           category: p.category?.name ?? null,
           isLotTracked: p.isLotTracked,
           site,
@@ -170,6 +211,7 @@ export class StockService {
       id: product.id,
       sku: product.sku,
       name: product.name,
+      barcode: product.barcode,
       category: product.category?.name ?? null,
       isLotTracked: product.isLotTracked,
       averageCost: Number(product.averageCost),

@@ -40,6 +40,21 @@
   padding: 14px 10px 6px;
 }
 
+/* Mobile drawer only (AppShell.tsx gates this on isMobile) — a way back to
+   the Applications launcher without first returning to the phone's home
+   screen. Set apart from the module list below it with its own bottom
+   border/margin, same idea as .shell-logout's top border marking off the
+   account actions at the other end of the drawer. */
+.shell-back-link {
+  color: #9a8fbd;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.shell-back-link:hover {
+  color: #ede7f7;
+}
+
 .shell-nav-item {
   font-size: 0.88rem;
   padding: 9px 10px;
@@ -99,4 +114,90 @@
   height: 100vh;
   overflow-y: auto;
   overflow-x: auto;
+}
+
+/* Mobile: the sidebar becomes an off-canvas drawer instead of a permanent
+   232px column (that was over half of a 375-430px screen — see
+   AppShell.tsx's header comment). Closed by default, slides in over the
+   content on a hamburger tap. Matches useIsMobile's MOBILE_BREAKPOINT
+   (800px) via the JS-driven `.shell-mobile`/`.shell-sidebar-mobile`
+   classes rather than a separate media query, so there's exactly one
+   breakpoint definition to keep in sync. */
+.shell.shell-mobile {
+  display: block;
+  height: auto;
+  min-height: 100vh;
+}
+
+.shell-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--ink);
+  color: #ede7f7;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.shell-topbar-wordmark {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.shell-topbar-wordmark .ily {
+  color: var(--teal-bright);
+}
+
+.shell-hamburger {
+  background: none;
+  border: none;
+  padding: 8px 6px;
+  margin: -8px -6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.shell-hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 2px;
+  background: #ede7f7;
+}
+
+.shell-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 6, 20, 0.45);
+  z-index: 55;
+}
+
+.shell-sidebar-mobile {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(82vw, 280px);
+  height: 100vh;
+  transform: translateX(-100%);
+  transition: transform 0.22s ease;
+  z-index: 60;
+  box-shadow: 6px 0 24px rgba(0, 0, 0, 0.28);
+}
+.shell-sidebar-mobile.open {
+  transform: translateX(0);
+}
+/* The drawer's own wordmark is redundant once the top bar already shows
+   one — only needed as the sidebar's first line on desktop. */
+.shell-sidebar-mobile .shell-wordmark {
+  display: none;
+}
+
+.shell.shell-mobile .shell-content {
+  height: auto;
+  min-height: calc(100vh - 48px);
+  padding: 18px 16px 32px;
 }

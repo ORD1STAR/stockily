@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: stockily
       POSTGRES_PASSWORD: stockily
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - stockily_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -29,6 +29,7 @@ services:
     container_name: stockily-api
     restart: unless-stopped
     environment:
+      NODE_ENV: production
       DATABASE_URL: postgresql://stockily:stockily@postgres:5432/stockily?schema=public
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
@@ -41,7 +42,7 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@stockily.dz}
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,10 +58,12 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
     container_name: stockily-web
     restart: unless-stopped
     ports:
-      - '4200:80'
+      - '127.0.0.1:4200:80'
     depends_on:
       api:
         condition: service_healthy

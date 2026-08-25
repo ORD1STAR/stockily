@@ -109,6 +109,7 @@ export interface StockRow {
   productId: string;
   sku: string;
   name: string;
+  barcode: string | null;
   category: string | null;
   isLotTracked: boolean;
   site: { id: string; name: string };
@@ -123,6 +124,7 @@ export interface ProductDetail {
   id: string;
   sku: string;
   name: string;
+  barcode: string | null;
   category: string | null;
   isLotTracked: boolean;
   averageCost: number;
@@ -171,12 +173,13 @@ export const stockApi = {
       minThreshold?: number;
       maxThreshold?: number;
       sellPrice?: number;
+      barcode?: string;
     },
   ) => authedRequest<ProductDetail>('/stock/products', token, { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (
     token: string,
     productId: string,
-    data: { name?: string; minThreshold?: number; maxThreshold?: number; sellPrice?: number },
+    data: { name?: string; isLotTracked?: boolean; minThreshold?: number; maxThreshold?: number; sellPrice?: number; barcode?: string },
   ) => authedRequest<ProductDetail>(`/stock/products/${productId}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
   listCategories: (token: string) => authedRequest<ProductCategory[]>('/stock/categories', token),
   createCategory: (token: string, data: { name: string; parentId?: string }) =>

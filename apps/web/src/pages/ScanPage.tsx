@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
+import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
   ApiError,
@@ -20,6 +22,7 @@ import {
 } from '../lib/api';
 import { SearchableSelect } from '../lib/SearchableSelect';
 import '../lib/data-views.css';
+import './DashboardPage.css';
 import './ScanPage.css';
 
 type Step = 'scan' | 'action' | 'in' | 'out' | 'transfer' | 'confirm';
@@ -90,8 +93,39 @@ export function ScanPage() {
   const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number; paid: boolean } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [cameraSupported, setCameraSupported] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  // ZXing instead of the native BarcodeDetector (Shape Detection API) —
+  // BarcodeDetector is Chrome-only and never shipped in Safari at all (iOS
+  // or macOS), so gating "Activer la caméra" on its presence meant the
+  // button silently never rendered on any iPhone: no error, just no way to
+  // ever open the camera. ZXing decodes from a plain <video> + canvas loop
+  // it manages itself via getUserMedia, so it works the same everywhere.
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  // The camera *stream* (hardware access, the permission grant) and the
+  // *decode loop* (ZXing reading frames off it) are deliberately two
+  // separate lifecycles now. They used to be one: stopping decoding after
+  // a single-shot scan also always tore down getUserMedia's stream (that's
+  // what the library's own decodeFromConstraints/.stop() does internally —
+  // see IScannerControls.stop()), so returning to the scan step after
+  // finishing an entrée/sortie/transfert meant requesting the camera all
+  // over again — a fresh permission-grant round trip, and a re-tap on
+  // "Activer la caméra" every single time. streamRef holds the raw
+  // MediaStream, acquired once per page visit and kept alive until this
+  // component unmounts (navigating away from Scan, a refresh, or
+  // logging out — exactly the cases where the user does expect a fresh
+  // start). scanControlsRef is ZXing's *own* decode-loop handle, called via
+  // the lower-level `.scan()` (not `.decodeFromConstraints`/`.decodeFromStream`)
+  // specifically because `.scan()` without a finalizeCallback stops the
+  // decode loop on `.stop()` without touching the stream — the primitive
+  // neither of the higher-level methods expose.
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanControlsRef = useRef<IScannerControls | null>(null);
+  // Debounces continuous scanning in "Vente rapide" (checkout mode keeps
+  // decoding after a hit — see startDecoding's mode check below — so the
+  // same still-visible barcode would otherwise re-trigger on every
+  // subsequent frame and keep bumping the cart line's quantity before the
+  // operator has a chance to move the product away).
+  const lastCheckoutScanRef = useRef<{ code: string; time: number } | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -106,56 +140,111 @@ export function ScanPage() {
     invoicingApi.listTaxRates(accessToken).then(setTaxRates).catch(() => setTaxRates([]));
   }, [accessToken]);
 
-  useEffect(() => {
-    setCameraSupported(typeof window !== 'undefined' && 'BarcodeDetector' in window);
+  // Pauses the decode loop only — leaves the stream (and hardware access)
+  // alone, so resuming later this same session is instant, no permission
+  // prompt, no getUserMedia round trip.
+  const pauseDecoding = useCallback(() => {
+    scanControlsRef.current?.stop();
+    scanControlsRef.current = null;
   }, []);
 
-  const stopCamera = useCallback(() => {
-    const stream = videoRef.current?.srcObject as MediaStream | undefined;
-    stream?.getTracks().forEach((t) => t.stop());
-    if (videoRef.current) videoRef.current.srcObject = null;
+  // Fully releases the camera. Only ever called on unmount (see the effect
+  // right below) — every other "leave the scan view" path now just pauses
+  // decoding instead, per the user's own request: once activated, stay on
+  // for the rest of the session, only really turn off on a refresh or a
+  // logout/login (both of which unmount this component).
+  const releaseCamera = useCallback(() => {
+    pauseDecoding();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
     setCameraActive(false);
-  }, []);
+  }, [pauseDecoding]);
 
-  useEffect(() => stopCamera, [stopCamera]);
+  useEffect(() => releaseCamera, [releaseCamera]);
 
-  async function startCamera() {
+  // True whenever the current mode/step has a viewfinder to show at all —
+  // Scanner mode's single-decisive-scan step, or Vente rapide's continuous
+  // scanning. The <video> element itself (below, in the JSX) is always
+  // mounted regardless of this value — only CSS visibility depends on it —
+  // specifically so switching away from a scan-capable view (finishing an
+  // entrée, opening Vente rapide's cart) never unmounts the element the
+  // stream is bound to.
+  const showViewfinder = (mode === 'scan' && step === 'scan') || mode === 'checkout';
+
+  const startDecoding = useCallback(() => {
+    if (!videoRef.current || !streamRef.current) return;
+    // Always (re)start clean: a loop already running has a callback closed
+    // over whatever `mode` was current when *it* started, so switching
+    // Scanner <-> Vente rapide needs a fresh one with the right
+    // single-shot-vs-continuous behavior, not the stale loop left running.
+    // Safe to call unconditionally even when nothing was running — pausing
+    // an already-paused loop is a no-op (see pauseDecoding's own comment).
+    scanControlsRef.current?.stop();
+    if (!codeReaderRef.current) codeReaderRef.current = createBarcodeReader();
+    const continuous = mode === 'checkout';
+    // No finalizeCallback passed here — that's what makes `.stop()` on the
+    // returned controls pause decoding without disposing streamRef.current
+    // (see the comment on scanControlsRef's declaration above).
+    scanControlsRef.current = codeReaderRef.current.scan(videoRef.current, (result) => {
+      // Fires on every scanned frame, including misses (result undefined)
+      // — those aren't errors, just "nothing decoded yet".
+      if (!result) return;
+      const text = result.getText();
+      if (continuous) {
+        // Vente rapide: keep decoding so the next item can be scanned
+        // right away, but ignore an immediate repeat of the same code —
+        // the product is still sitting in front of the camera for several
+        // frames after a real scan.
+        const now = Date.now();
+        const last = lastCheckoutScanRef.current;
+        if (last && last.code === text && now - last.time < 1500) return;
+        lastCheckoutScanRef.current = { code: text, time: now };
+        void resolve(text);
+        return;
+      }
+      // Single-shot (Scanner mode): pause decoding — not the stream — and
+      // let resolve() advance to the action step.
+      pauseDecoding();
+      void resolve(text);
+    });
+  }, [mode, pauseDecoding]);
+
+  // The actual "Activer la caméra" tap — acquires the stream itself the
+  // very first time (or reuses it, if some earlier tap this session
+  // already did), then starts decoding.
+  async function activateCamera() {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (!streamRef.current) {
+        streamRef.current = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+      }
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.srcObject = streamRef.current;
         await videoRef.current.play();
       }
       setCameraActive(true);
-      // BarcodeDetector isn't in the standard TS lib yet — accessed via a
-      // narrow `any` cast at this one call site rather than widening types
-      // project-wide for an experimental browser API.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Detector = (window as any).BarcodeDetector;
-      const detector = new Detector({ formats: ['ean_13', 'code_128', 'qr_code'] });
-      const tick = async () => {
-        if (!videoRef.current || videoRef.current.readyState < 2) {
-          if (cameraActive) requestAnimationFrame(tick);
-          return;
-        }
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) {
-            stopCamera();
-            void resolve(codes[0].rawValue);
-            return;
-          }
-        } catch {
-          /* transient detection failure — keep scanning */
-        }
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      startDecoding();
     } catch {
+      setCameraActive(false);
       setError("Impossible d'accéder à la caméra — utilisez la saisie manuelle ou une douchette.");
     }
   }
+
+  // Auto-resumes decoding whenever a scan-capable view comes back into
+  // view, as long as the camera was already activated this session — this
+  // is the "stays open for the rest of the session" behavior itself: no
+  // re-tap on "Activer la caméra" needed just because the user finished an
+  // entrée/sortie/transfert and landed back on the scan step, or switched
+  // between Scanner and Vente rapide. Leaving a scan-capable view pauses
+  // decoding (not the stream) so it isn't spending CPU decoding frames
+  // nobody's looking at, e.g. while a form is on screen.
+  useEffect(() => {
+    if (showViewfinder && cameraActive && streamRef.current) {
+      startDecoding();
+    } else if (!showViewfinder) {
+      pauseDecoding();
+    }
+  }, [showViewfinder, cameraActive, startDecoding, pauseDecoding]);
 
   async function resolve(rawCode: string) {
     if (!accessToken || !rawCode.trim()) return;
@@ -399,6 +488,29 @@ export function ScanPage() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        {/* Always mounted — CSS-only visibility (`showViewfinder`) — so the
+            <video> element this is bound to never unmounts just because the
+            user finished an entrée/sortie/transfert or switched between
+            Scanner and Vente rapide. That persistence is the whole point:
+            see streamRef's own comment above for why the camera used to
+            drop every single time. */}
+        <div className="scan-card" style={{ display: showViewfinder ? 'flex' : 'none' }}>
+          <div className="viewfinder">
+            <video ref={videoRef} muted playsInline style={{ display: cameraActive ? 'block' : 'none' }} />
+            {!cameraActive && <div className="vf-placeholder">Caméra prête</div>}
+          </div>
+          {!cameraActive && (
+            <button className="btn-primary" onClick={activateCamera}>
+              Activer la caméra
+            </button>
+          )}
+          {cameraActive && mode === 'checkout' && (
+            <p className="sub" style={{ textAlign: 'center' }}>
+              Scan continu — présentez chaque article devant la caméra.
+            </p>
+          )}
+        </div>
+
         {mode === 'labels' && <LabelsPanel />}
 
         {mode === 'checkout' && (
@@ -427,25 +539,12 @@ export function ScanPage() {
 
         {mode === 'scan' && step === 'scan' && (
           <div className="scan-card">
-            <div className="viewfinder">
-              <video ref={videoRef} muted playsInline style={{ display: cameraActive ? 'block' : 'none' }} />
-              {!cameraActive && (
-                <div className="vf-placeholder">
-                  {cameraSupported ? 'Caméra prête' : 'Caméra non disponible sur ce navigateur — saisie manuelle ci-dessous'}
-                </div>
-              )}
-            </div>
-            {cameraSupported && !cameraActive && (
-              <button className="btn-primary" onClick={startCamera}>
-                Activer la caméra
-              </button>
-            )}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 resolve(code);
               }}
-              style={{ display: 'flex', gap: 8 }}
+              className="scan-entry-row"
             >
               <input
                 className="mono"
@@ -453,7 +552,6 @@ export function ScanPage() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 autoFocus
-                style={{ flex: 1, padding: '9px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
               />
               <button type="submit" className="btn-primary">
                 Rechercher
@@ -725,17 +823,24 @@ export function ScanPage() {
   // own header comment already anticipated this: "a real Capacitor-wrapped
   // build would drop AppShell entirely for this route") — a fixed 232px
   // dark column has no room on a 375px screen, and Scan is the one module
-  // meant to run genuinely full-screen. A minimal top bar takes over the
-  // sidebar's two jobs that still matter here: getting back to the mobile
-  // home screen, and logging out.
+  // meant to run genuinely full-screen. The header reuses MobileHome's own
+  // established pattern (DashboardPage.css/.tsx's `.mobile-home-header` —
+  // same "← Accueil" back-link + wordmark + "Se déconnecter" pill button
+  // AppsListPage already uses) rather than inventing a new one — this is
+  // the one mobile chrome style the app already has, not a second one.
   if (isMobile) {
     return (
-      <div className="scan-mobile-shell">
-        <div className="scan-mobile-topbar">
-          <button className="btn-link" onClick={() => navigate('/dashboard')}>
-            ← Accueil
-          </button>
-          <button className="btn-link" onClick={() => logout()}>
+      <div className="mobile-home scan-mobile-home">
+        <div className="mobile-home-header">
+          <div className="mobile-home-header-left">
+            <button className="mobile-home-back" onClick={() => navigate('/dashboard')} aria-label="Accueil">
+              ←
+            </button>
+            <div className="dashboard-wordmark">
+              Stock<span className="ily">ily</span>
+            </div>
+          </div>
+          <button className="btn-secondary" onClick={() => logout()}>
             Se déconnecter
           </button>
         </div>
@@ -803,16 +908,9 @@ function CheckoutPanel({
           e.preventDefault();
           onScan(code);
         }}
-        style={{ display: 'flex', gap: 8 }}
+        className="scan-entry-row"
       >
-        <input
-          className="mono"
-          placeholder="Saisie manuelle / douchette USB"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          autoFocus
-          style={{ flex: 1, padding: '9px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-        />
+        <input className="mono" placeholder="Saisie manuelle / douchette USB" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
         <button type="submit" className="btn-primary">
           Ajouter
         </button>

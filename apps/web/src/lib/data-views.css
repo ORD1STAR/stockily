@@ -260,7 +260,14 @@ table.data tr.clickable:hover {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 20;
+  /* Above every piece of AppShell's own chrome (mobile topbar: 40, its
+     drawer backdrop: 55, the drawer itself: 60 — see AppShell.css) — a
+     modal the user explicitly opened should always sit on top of app
+     navigation, not under it. Previously 20, below the mobile topbar's 40:
+     on a phone, the topbar's sticky bar rendered over the modal's own ✕
+     close button whenever the modal's top edge landed underneath it,
+     hiding it from view and from clicks both. */
+  z-index: 200;
 }
 .modal {
   background: var(--surface);
@@ -269,36 +276,148 @@ table.data tr.clickable:hover {
   max-width: 480px;
   max-height: 86vh;
   overflow-y: auto;
-  padding: 24px 26px;
+  padding: 0 26px 24px;
   position: relative;
   box-shadow: 0 30px 60px -20px rgba(23, 17, 31, 0.5);
 }
 .modal.wide {
   max-width: 620px;
 }
-.modal-close {
-  cursor: pointer;
-  position: absolute;
-  top: 18px;
-  right: 20px;
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  background: none;
-  border: none;
+
+/* Shared by Scan's own viewfinder and BarcodeScanButton's nested scan
+   modal (StockPage) — moved here from ScanPage.css once a second page
+   needed it. */
+.viewfinder {
+  position: relative;
+  background: var(--ink, #17111f);
+  border-radius: 10px;
+  height: 220px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.modal-close:hover {
-  color: var(--text);
+.viewfinder video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
-.modal h3 {
+.vf-placeholder {
+  color: #8a7faa;
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 0 20px;
+}
+
+/* BarcodeScanButton's own nested backdrop — needs to sit visibly above
+   whichever modal (product create/edit) it was opened from, both of which
+   already sit at 200 (see .modal-backdrop above). */
+.barcode-scan-backdrop {
+  z-index: 210;
+}
+/* The modal header — title (+ optional subtitle) and the close button as
+   one sticky bar pinned to the top of the modal's own scroll area, not the
+   bare absolutely-positioned "✕" this used to be. Two problems that fixed:
+   on a phone, a tall modal (SkuDetailModal, easily several screens of
+   content) scrolled the close button away with everything else the moment
+   you scrolled past the first section — the only way back out was
+   scrolling all the way back up, or the backdrop tap-to-close, easy to
+   miss. And a bare "✕" with no visual container just looked unfinished
+   next to how deliberate the rest of the design system is. The sticky
+   trick: negative margins matching `.modal`'s own side padding pull the
+   header flush to the scroll container's edges, then `position: sticky` +
+   its own padding hold it pinned at the top through any amount of
+   scrolling. */
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -26px 16px;
+  padding: 22px 26px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+.modal-header-titles {
+  min-width: 0;
+}
+.modal-header h3 {
   font-family: var(--f-display);
   font-size: 1.15rem;
-  margin: 0 0 4px;
-  padding-right: 20px;
+  margin: 0;
+}
+.modal-header .modal-sub {
+  margin: 4px 0 0;
+}
+.modal-close-btn {
+  all: unset;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.modal-close-btn:hover {
+  background: var(--border);
+  color: var(--text);
 }
 .modal-sub {
   font-size: 0.84rem;
   color: var(--text-muted);
   margin: 0 0 18px;
+}
+
+/* On a phone, the 24px backdrop margin plus the modal's own side padding
+   left surprisingly little usable width — every modal reads as a proper
+   full-height sheet here instead, closer to how a native app presents a
+   form: almost the whole screen, rounded only at the top where it still
+   floats free. */
+@media (max-width: 800px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+    /* `vh` measures the *largest* possible viewport (address bar fully
+       collapsed) and stays fixed at that value — it does not shrink back
+       down when Safari's address bar expands again, so a `position: fixed`
+       box sized off `100vh` can end up genuinely taller than what's
+       currently visible, with its top edge (the modal header, the close
+       button) rendering underneath where the now-expanded address bar
+       sits. `dvh` is the *dynamic* viewport height — it tracks the address
+       bar's actual current state, so the backdrop really does resize with
+       it. The plain `vh` line stays first as a fallback for the rare
+       browser that doesn't understand `dvh` yet; every real target here
+       does, so the second declaration wins. */
+    height: 100vh;
+    height: 100dvh;
+  }
+  .modal {
+    max-width: 100%;
+    /* Capped further below the backdrop's own height (not 94vh anymore) —
+       a deliberate safety margin so the sheet's top edge, and the sticky
+       header sitting right at it, never sit flush against the very top of
+       whatever the address bar's current state leaves visible. */
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
+    padding: 0 18px 20px;
+  }
+  .modal-header {
+    margin: 0 -18px 16px;
+    padding: 18px 18px 14px;
+    border-radius: 16px 16px 0 0;
+  }
 }
 .modal-section {
   margin-top: 18px;
@@ -377,6 +496,40 @@ table.data tr.clickable:hover {
   border-radius: 6px;
   background: var(--surface-alt);
   color: var(--text);
+  /* .field-grid puts two of these in a `1fr 1fr` grid — a grid/flex item's
+     default min-width is its own unshrunk content size, so without this a
+     wide value or long placeholder could hold a column wider than its
+     track and push the row past the modal's edge. */
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* An input plus one or more action buttons on one line (SkuDetailModal's
+   "Prix de vente"/"Code-barres" sections) — `flex-wrap` plus `min-width: 0`
+   on the input is what actually fixes it: a bare `<input>`'s intrinsic
+   minimum width doesn't shrink to fit a flex row by default, so on a phone
+   these used to force the whole modal (and, since the modal is a fixed
+   overlay, the whole page) wider than the viewport instead of wrapping —
+   "Enregistrer" pushed off-screen with no way to reach it except scrolling
+   the entire page sideways. */
+.inline-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.inline-edit-row input {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-family: var(--f-body);
+  font-size: 0.88rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--text);
 }
 .toggle-row {
   display: flex;
@@ -385,6 +538,13 @@ table.data tr.clickable:hover {
 .toggle-btn {
   cursor: pointer;
   flex: 1;
+  /* Without this, `flex: 1` still won't shrink a button below its label's
+     unwrapped width (a flex item's default min-width is its content size,
+     not 0) — three labels like "Vente rapide"/"Étiquettes" side by side
+     could force the row wider than a phone screen. Letting the min-width
+     go to 0 means a genuinely tight row wraps a label's own text onto a
+     second line instead of pushing its neighbors off-screen. */
+  min-width: 0;
   text-align: center;
   padding: 8px;
   border-radius: 6px;

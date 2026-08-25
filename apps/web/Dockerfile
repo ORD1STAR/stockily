@@ -12,10 +12,13 @@ COPY packages ./packages
 
 # See apps/api/Dockerfile for why this is npm install, not npm ci.
 RUN npm install
-# VITE_API_URL defaults to http://localhost:3000/api (apps/web/src/lib/api.ts)
-# — correct as-is here, since Vite env vars bake in at build time and the
-# *browser* (not the container) is what resolves this URL, against whatever
-# host port the api container is published on.
+# VITE_API_URL bakes into the built JS at build time (Vite env vars aren't
+# runtime-configurable) — the *browser* resolves this URL, not the
+# container, so it must be the public address the app is served from.
+# Defaults to http://localhost:3000/api (apps/web/src/lib/api.ts) when unset,
+# which only works when the browser and the api container are the same host.
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 RUN npx nx build web --configuration=production
 
 FROM nginx:alpine AS runtime

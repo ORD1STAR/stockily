@@ -40,13 +40,17 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Fournisseurs & clients</h3>
-        <p className="modal-sub">
-          Le répertoire des partenaires — utilisé pour les factures et pour indiquer d&#39;où vient un lot reçu en stock.
-        </p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Fournisseurs & clients</h3>
+            <p className="modal-sub">
+              Le répertoire des partenaires — utilisé pour les factures et pour indiquer d&#39;où vient un lot reçu en stock.
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-section">
           <div className="table-wrap">
@@ -179,10 +183,14 @@ function PartnerEditForm({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>{partner ? 'Modifier le partenaire' : 'Nouveau partenaire'}</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>{partner ? 'Modifier le partenaire' : 'Nouveau partenaire'}</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Nom complet / raison sociale</label>

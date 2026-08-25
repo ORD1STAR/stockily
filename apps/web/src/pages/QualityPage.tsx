@@ -272,14 +272,18 @@ function ResolveNonConformityModal({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Résoudre la non-conformité</h3>
-        <p className="modal-sub">
-          Marque cette non-conformité comme résolue. La quantité concernée reste en quarantaine — la remise en stock ou le rebut se fait
-          via un mouvement de stock séparé (le Retours/SAV du Phase 3 gérera ce flux plus finement).
-        </p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Résoudre la non-conformité</h3>
+            <p className="modal-sub">
+              Marque cette non-conformité comme résolue. La quantité concernée reste en quarantaine — la remise en stock ou le rebut se
+              fait via un mouvement de stock séparé (le Retours/SAV du Phase 3 gérera ce flux plus finement).
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Notes de résolution (optionnel)</label>
@@ -375,14 +379,18 @@ function QualityCheckModal({ products, onClose, onSaved }: { products: StockRow[
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau contrôle qualité</h3>
-        <p className="modal-sub">
-          Enregistre une inspection — à réception ou en cours de stockage. Un résultat &#34;Non conforme&#34; met automatiquement la
-          quantité concernée en quarantaine.
-        </p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau contrôle qualité</h3>
+            <p className="modal-sub">
+              Enregistre une inspection — à réception ou en cours de stockage. Un résultat &#34;Non conforme&#34; met automatiquement la
+              quantité concernée en quarantaine.
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Produit</label>

@@ -47,6 +47,26 @@ wireframe-matching data, a separate thing): `contact@elwafa-grossiste.dz` /
 stock/quality/invoicing history built up live during Milestone 7's
 walkthrough.
 
+**Live HTTPS deployment for phone/mobile testing**: https://stockily.ordi-tech.com/
+— reachable from a real phone (unlike `localhost:4200`), and already on
+HTTPS so `getUserMedia`/camera APIs work (they require a secure context).
+Use this instead of guessing a LAN IP when testing mobile-only behavior
+(camera scanning, responsive layout, touch interactions). It's served by
+a system-level nginx (root-owned, `/etc/nginx/sites-enabled/stockily.conf`,
+Certbot-managed TLS) reverse-proxying `/api/*` to the `stockily-api`
+container and everything else to `stockily-web` — both are the same
+`docker-compose.yml` containers as local, just with a public front door.
+To deploy a web change here: `sg docker -c "docker compose build web"` then
+`sg docker -c "docker compose up -d web"` — the shell user isn't in the
+`docker` group in its *current* login session even though `/etc/group`
+lists it (needs `sg docker` or a fresh login to pick that up), and `sudo`
+needs a password this session doesn't have.
+
+**This deployment's database is separate from local dev's** — the
+`contact@elwafa-grossiste.dz` demo org above only exists locally; on
+`stockily.ordi-tech.com` the working login is `demo@stockily.dz` /
+`Demo1234!` (org: Épicerie El Baraka).
+
 **Verify before shipping**: `npx nx run-many -t lint typecheck build test
 --projects=web,api,domain-stock,infra-db` should be fully green except
 `@org/api:typecheck`'s four known e2e-spec errors (see MILESTONE_7 Round 6

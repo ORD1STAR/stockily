@@ -52,7 +52,7 @@ export function SitesPage() {
           <h2>Transferts Multi-Sites</h2>
           <div className="sub">Vue consolidée — {sites.length} site(s) actif(s)</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowSiteForm(true)}>
             + Nouveau site
           </button>
@@ -164,10 +164,14 @@ function SiteFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau site</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau site</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Nom</label>
@@ -240,10 +244,14 @@ function TransferFormModal({
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau transfert</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau transfert</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Produit</label>
@@ -326,13 +334,17 @@ function TransferDetailModal({ transfer, onClose, onSaved }: { transfer: Transfe
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Transfert inter-site</h3>
-        <p className="modal-sub">
-          {transfer.fromSite.name} → {transfer.toSite.name}
-        </p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Transfert inter-site</h3>
+            <p className="modal-sub">
+              {transfer.fromSite.name} → {transfer.toSite.name}
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <div className="field-row">
           <label>Statut</label>
           <select value={status} onChange={(e) => setStatus(e.target.value as Transfer['status'])}>

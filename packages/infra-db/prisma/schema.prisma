@@ -236,6 +236,14 @@ model Product {
   // WAC). Nullable: existing/newly-created products have none until set,
   // and a line can still always override it at invoice/checkout time.
   sellPrice     Decimal? @db.Decimal(14, 2)
+  // The product's own real-world barcode (EAN-13/UPC/etc., printed by the
+  // manufacturer) — distinct from `sku` (this org's internal reference) and
+  // from BarcodeLabel (a Stockily-generated code that must be printed and
+  // stuck on before it scans to anything). Setting this lets Scan resolve
+  // the box's existing barcode immediately, no label generation step first.
+  // Nullable + a nullable-safe compound unique (Postgres allows any number
+  // of NULLs in a unique index) since most products won't have one set.
+  barcode       String?
 
   organization Organization     @relation(fields: [orgId], references: [id])
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -247,6 +255,7 @@ model Product {
   nonConformities NonConformity[]
 
   @@unique([orgId, sku])
+  @@unique([orgId, barcode])
   @@index([orgId])
   @@map("products")
 }

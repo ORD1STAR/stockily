@@ -38,6 +38,13 @@ body {
   color: var(--text);
   font-family: var(--f-body);
   line-height: 1.5;
+  /* Safety net, not a fix for any specific layout — a wide table or an ad
+     hoc flex row that doesn't wrap on a narrow phone should scroll inside
+     its own container (`.table-wrap` etc. already do), never push the
+     whole page sideways. Deliberately just `overflow-x`, not `max-width`:
+     this catches accidental overflow without silently clipping content
+     that's supposed to be wide. */
+  overflow-x: hidden;
 }
 
 h1,
@@ -50,4 +57,33 @@ h3 {
 button,
 input {
   font-family: inherit;
+}
+
+/* A form control's intrinsic minimum width doesn't automatically respect
+   its container — an `<input>`/`<select>` with a long placeholder/option
+   can be wider than the flex row (or modal, or phone screen) it's sitting
+   in even when marked `flex: 1`, because a flex item's default
+   `min-width: auto` still won't shrink it below that intrinsic size. Global
+   floor: no form control alone can force something wider than its parent. */
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+
+/* Mobile Safari/Chrome auto-zoom the page when a focused form field's
+   effective font-size is under 16px — every field in this app renders
+   smaller than that (0.82-0.88rem elsewhere), so focusing any input on a
+   phone used to zoom the whole viewport in. 16px sidesteps the browser
+   heuristic entirely; scoped to mobile widths (matches useIsMobile's
+   breakpoint) so desktop keeps its smaller, denser field text. `!important`
+   is deliberate here — this overrides per-component font-sizes across the
+   whole app on purpose, not fighting an unrelated style. */
+@media (max-width: 800px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

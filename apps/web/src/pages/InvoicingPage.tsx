@@ -111,7 +111,7 @@ export function InvoicingPage() {
           <h2>Gestion des Factures</h2>
           <div className="sub">Numérotation séquentielle unique — organisation entière</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowTaxRateForm(true)}>
             + Taux de TVA
           </button>
@@ -292,10 +292,14 @@ function TaxRateFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau taux de TVA</h3>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau taux de TVA</h3>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Nom</label>
@@ -366,11 +370,15 @@ function PartnerFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouveau client</h3>
-        <p className="modal-sub">Le NIF est requis pour pouvoir finaliser une facture à ce client (Décret 05-468).</p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouveau client</h3>
+            <p className="modal-sub">Le NIF est requis pour pouvoir finaliser une facture à ce client (Décret 05-468).</p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Nom</label>
@@ -450,13 +458,18 @@ function InvoiceModal({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>
-          Facture {invoice.number ?? '(brouillon)'} <span className={`pill ${STATUS_PILL[invoice.status]}`}>{STATUS_LABEL[invoice.status]}</span>
-        </h3>
-        <p className="modal-sub">{invoice.partner?.name ?? 'Client comptant'}</p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>
+              Facture {invoice.number ?? '(brouillon)'}{' '}
+              <span className={`pill ${STATUS_PILL[invoice.status]}`}>{STATUS_LABEL[invoice.status]}</span>
+            </h3>
+            <p className="modal-sub">{invoice.partner?.name ?? 'Client comptant'}</p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
 
         <div className="modal-section">
           <div className="modal-section-label">Lignes</div>
@@ -645,11 +658,15 @@ function CreateInvoiceModal({
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 640 }}>
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Nouvelle facture</h3>
-        <p className="modal-sub">Client (facultatif — laissez vide pour une vente comptoir).</p>
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Nouvelle facture</h3>
+            <p className="modal-sub">Client (facultatif — laissez vide pour une vente comptoir).</p>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
         <form className="field-form" onSubmit={submit}>
           <div className="field-row">
             <label>Site</label>
