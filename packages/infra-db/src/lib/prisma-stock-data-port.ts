@@ -6,6 +6,8 @@ import type {
   StockDataPort,
   StockLevelSnapshot,
 } from '@org/domain-stock';
+import { getCurrentTenantId } from './tenant-context.js';
+import { setTenantOnTransaction } from './rls-extension.js';
 
 type PrismaLike = PrismaClient | Prisma.TransactionClient;
 
@@ -91,10 +93,28 @@ export class PrismaStockDataPort implements StockDataPort {
     // Already inside a transaction (this.prisma is a Prisma.TransactionClient,
     // which has no $transaction of its own) — Prisma doesn't support nested
     // interactive transactions, so just reuse it rather than trying to open
-    // a second one.
+    // a second one. Whoever opened THAT outer transaction is responsible for
+    // its own `setTenantOnTransaction` call (see e.g. invoicing.service.ts's
+    // finalize) — nothing to do here in that case.
     if (!('$transaction' in this.prisma)) {
       return fn(this);
     }
-    return (this.prisma as PrismaClient).$transaction(async (tx) => fn(new PrismaStockDataPort(tx)));
+    const orgId = getCurrentTenantId();
+    return (this.prisma as PrismaClient).$transaction(async (tx) => {
+      // Milestone 8 (RLS) — this opens a brand-new interactive transaction,
+      // which the RLS extension deliberately never auto-wraps (see
+      // rls-extension.ts's doc) — has to be set explicitly, once, as this
+      // transaction's own first statement. `getCurrentTenantId()` (not an
+      // explicit parameter) because this is the domain layer's own
+      // "ordinary single call" path (StockService.recordMovement, not the
+      // ...InTransaction variant) — it has no caller-supplied orgId to
+      // thread through, only whatever the request's tenant context already
+      // is. Skipped when unset (a script/seed run outside the request
+      // pipeline, or a root-level PrismaService with no ALS context) —
+      // matches how every other query already behaves with no tenant
+      // context, not a new failure mode introduced here.
+      if (orgId) await setTenantOnTransaction(tx, orgId);
+      return fn(new PrismaStockDataPort(tx));
+    });
   }
 }

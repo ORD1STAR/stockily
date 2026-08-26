@@ -9,7 +9,8 @@
     "db:up": "docker compose up -d",
     "db:seed": "prisma db seed --schema packages/infra-db/prisma/schema.prisma",
     "db:seed:demo": "tsx packages/infra-db/prisma/dev-seed.ts",
-    "test:e2e:db:setup": "node scripts/setup-test-db.mjs"
+    "test:e2e:db:setup": "node scripts/setup-test-db.mjs",
+    "db:migrate:all": "node scripts/migrate-all-dbs.mjs"
   },
   "prisma": {
     "seed": "tsx packages/infra-db/prisma/seed.ts"

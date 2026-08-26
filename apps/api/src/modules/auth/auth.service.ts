@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
+import { setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -53,7 +54,24 @@ export class AuthService {
     const trialEndsAt = addDays(new Date(), TRIAL_DAYS);
 
     const { organization, user } = await this.prisma.$transaction(async (tx) => {
-      const organization = await tx.organization.create({ data: { name: dto.organizationName, plan: 'trial' } });
+      // Milestone 8 (RLS) — the org's id is generated here, in app code,
+      // specifically so tenant context can be set *before* the row exists
+      // rather than after: `organizations`' own SELECT policy scopes to
+      // `id = current_setting('app.tenant_id')`, and Prisma's `.create()`
+      // always does `INSERT ... RETURNING` under the hood — which Postgres
+      // evaluates against that SAME SELECT policy for the just-inserted
+      // row (verified empirically — an `INSERT ... RETURNING` with no
+      // tenant context set yet was rejected even though the INSERT policy
+      // itself is unconditional). Every following statement in this
+      // transaction inserts rows scoped to this org, so the tenant context
+      // has to be set explicitly regardless — the RLS extension only
+      // auto-wraps *root-level* calls, never ones already inside an
+      // interactive transaction (see rls-extension.ts's doc for why).
+      const organizationId = randomUUID();
+      await setTenantOnTransaction(tx, organizationId);
+      const organization = await tx.organization.create({
+        data: { id: organizationId, name: dto.organizationName, plan: 'trial' },
+      });
       const user = await tx.user.create({ data: { orgId: organization.id, email: dto.email, passwordHash } });
       // Org-wide (siteId: null) — the first user is always Super Admin for
       // their own organization (docs/Action Plan.md §2).

@@ -9,6 +9,8 @@ import type {
   QualityCheckRecord,
   QualityDataPort,
 } from '@org/domain-quality';
+import { getCurrentTenantId } from './tenant-context.js';
+import { setTenantOnTransaction } from './rls-extension.js';
 
 type PrismaLike = PrismaClient | Prisma.TransactionClient;
 
@@ -239,6 +241,11 @@ export class PrismaQualityDataPort implements QualityDataPort {
     if (!('$transaction' in this.prisma)) {
       return fn(this);
     }
-    return (this.prisma as PrismaClient).$transaction(async (tx) => fn(new PrismaQualityDataPort(tx)));
+    // See PrismaStockDataPort.withTransaction's comment — same reasoning.
+    const orgId = getCurrentTenantId();
+    return (this.prisma as PrismaClient).$transaction(async (tx) => {
+      if (orgId) await setTenantOnTransaction(tx, orgId);
+      return fn(new PrismaQualityDataPort(tx));
+    });
   }
 }

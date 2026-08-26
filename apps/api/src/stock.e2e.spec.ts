@@ -7,8 +7,13 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { runWithTenant } from '@org/infra-db';
 
 process.env.DATABASE_URL = 'postgresql://stockily:stockily@localhost:5432/stockily_test?schema=public';
+// Milestone 8 (RLS) — the running app must connect as the restricted,
+// non-superuser role for RLS to mean anything (a superuser/BYPASSRLS role
+// unconditionally bypasses it — see the migration's own header comment).
+process.env.APP_DATABASE_URL = 'postgresql://stockily_app:stockily_app@localhost:5432/stockily_test?schema=public';
 
 describe('Stock + Sites e2e', () => {
   let app: INestApplication;
@@ -174,7 +179,12 @@ describe('Stock + Sites e2e', () => {
       const scopedUser = await prisma.user.create({ data: { orgId, email: scopedEmail, passwordHash } });
 
       const opRole = await prisma.role.findFirstOrThrow({ where: { name: 'Opérateur Entrepôt', isSystem: true } });
-      await prisma.userRole.create({ data: { userId: scopedUser.id, roleId: opRole.id, siteId: siteAId } });
+      // Milestone 8 (RLS) — user_roles has no "unset context" carve-out
+      // (unlike users/refresh_tokens, it's only ever touched behind
+      // JwtAuthGuard in the real app, so it doesn't need one) — this direct
+      // test-setup write, called outside any HTTP request/middleware, has
+      // to state its own tenant context explicitly instead.
+      await runWithTenant(orgId, () => prisma.userRole.create({ data: { userId: scopedUser.id, roleId: opRole.id, siteId: siteAId } }));
 
       const login = await request(app.getHttpServer()).post('/api/auth/login').send({ email: scopedEmail, password }).expect(200);
       scopedAccessToken = login.body.accessToken;

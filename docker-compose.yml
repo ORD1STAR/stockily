@@ -31,6 +31,14 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://stockily:stockily@postgres:5432/stockily?schema=public
+      # Milestone 8 (RLS) — the running API must connect as this restricted,
+      # non-superuser role for Postgres Row-Level Security to actually take
+      # effect (a superuser/BYPASSRLS role — which DATABASE_URL's `stockily`
+      # is, needed for migrations/seed — unconditionally bypasses RLS,
+      # regardless of policies). Created by the
+      # 20260826090000_enable_row_level_security migration; DATABASE_URL
+      # stays what `prisma migrate`/`db:seed` use.
+      APP_DATABASE_URL: postgresql://stockily_app:stockily_app@postgres:5432/stockily?schema=public
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}

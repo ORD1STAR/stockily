@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Invoice, InvoiceLine, Prisma, TaxRate } from '@prisma/client';
 import { amountToArabicWords, amountToFrenchWords, computeInvoiceTotals, deriveInvoiceStatus, InvoiceLineInput } from '@org/domain-invoicing';
+import { setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { CreateInvoiceDto, CreateInvoiceLineDto } from './dto/create-invoice.dto';
@@ -265,6 +266,13 @@ export class InvoicingService {
     const collectedEvents: { kind: string }[] = [];
 
     const finalized = await this.prisma.$transaction(async (tx) => {
+      // Milestone 8 (RLS) — must be the very first statement in this
+      // transaction; see rls-extension.ts's doc for why the extension can't
+      // do this automatically for calls already inside an interactive
+      // transaction (it would silently break this transaction's own
+      // atomicity, the exact thing this call composes stock deduction +
+      // number assignment to protect).
+      await setTenantOnTransaction(tx, orgId);
       // Stock deduction per stock-linked line — all-or-nothing with the
       // number assignment below (Action Plan directive: "if a line's
       // quantity would oversell, the whole finalization must fail
@@ -365,6 +373,7 @@ export class InvoicingService {
 
   async recordPayment(orgId: string, invoiceId: string, dto: CreatePaymentDto) {
     return this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId, orgId },
         include: { lines: { include: { taxRate: true } }, payments: true },
@@ -404,6 +413,7 @@ export class InvoicingService {
   // entries so they can be re-entered correctly.
   async resetPayments(orgId: string, invoiceId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, orgId }, include: { payments: true } });
       if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
       if (invoice.status === 'draft' || invoice.status === 'void') {

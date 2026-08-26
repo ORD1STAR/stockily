@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -19,6 +19,7 @@ import { SitesModule } from '../modules/sites/sites.module';
 import { ScanModule } from '../modules/scan/scan.module';
 import { AuditModule } from '../modules/audit/audit.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
+import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-context.middleware';
 
 @Module({
   imports: [
@@ -48,4 +49,12 @@ import { RealtimeModule } from '../modules/realtime/realtime.module';
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Must run before every guard — including ModuleEntitlementGuard/
+  // PermissionGuard, which query the DB themselves — so this is registered
+  // as Express middleware (Milestone 8, RLS), not a Nest interceptor
+  // (interceptors run after guards).
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(TenantContextMiddleware).forRoutes('*');
+  }
+}

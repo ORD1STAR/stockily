@@ -11,6 +11,10 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 process.env.DATABASE_URL = 'postgresql://stockily:stockily@localhost:5432/stockily_invoicing_test?schema=public';
+// Milestone 8 (RLS) — the running app must connect as the restricted,
+// non-superuser role for RLS to mean anything (a superuser/BYPASSRLS role
+// unconditionally bypasses it — see the migration's own header comment).
+process.env.APP_DATABASE_URL = 'postgresql://stockily_app:stockily_app@localhost:5432/stockily_invoicing_test?schema=public';
 
 describe('Invoicing e2e', () => {
   let app: INestApplication;

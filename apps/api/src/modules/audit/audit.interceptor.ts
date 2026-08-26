@@ -2,6 +2,7 @@ import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } fr
 import { Reflector } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { Observable, tap } from 'rxjs';
+import { runWithTenant } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AUDIT_KEY, AuditMeta } from './audit.decorator';
 
@@ -72,8 +73,15 @@ export class AuditInterceptor implements NestInterceptor {
           return;
         }
 
-        this.prisma.auditLog
-          .create({
+        // Milestone 8 (RLS) — explicit even though `req.authUser?.orgId`
+        // usually already matches whatever TenantContextMiddleware set:
+        // signup's fallback path (no authUser yet) means there's often no
+        // ALS context active at all for this specific call, and
+        // `audit_log`'s policy (unlike users/refresh_tokens) has no "unset
+        // context" carve-out — it doesn't need one everywhere else, since
+        // every other @Audit(...) use runs behind JwtAuthGuard.
+        runWithTenant(orgId, () =>
+          this.prisma.auditLog.create({
             data: {
               orgId,
               actorId: actorId ?? null,
@@ -82,7 +90,8 @@ export class AuditInterceptor implements NestInterceptor {
               action: meta.action,
               diff: sanitize(req.body) as Prisma.InputJsonValue,
             },
-          })
+          }),
+        )
           // Audit-write failure must not take down the primary request —
           // it has already succeeded and responded by the time this runs.
           // Logged loudly so a silent gap in the trail is at least visible

@@ -16,8 +16,13 @@ movement, Scan's "Vente rapide" retail-till mode (product sale price,
 paid/unpaid on the spot), flexible invoice payments (mark paid, undo a
 mistaken payment), searchable client/fournisseur/product pickers, real
 scannable label PDFs, an org logo (shown on invoices), and a mobile
-home/Scan experience. **Not yet done**: Postgres row-level security (RLS)
-— deliberately deferred, see that section for why.
+home/Scan experience.
+
+**Phase 2 is underway.** `docs/MILESTONE_8.md` closes the one Phase 1 gap
+that had been deliberately deferred — Postgres Row-Level Security is now
+enforced (see that file for why it needed a second, restricted DB role and
+two real bugs it took the live app, not just tests, to find). Next up:
+Achats (Purchasing), the first Phase 2 product module.
 
 ## Quickstart
 
@@ -69,13 +74,9 @@ readiness).
 `.env`.** Three more exist and are not kept in sync by that command:
 `stockily_test` and `stockily_invoicing_test` (hardcoded connection strings at
 the top of `apps/api/src/*.e2e.spec.ts`) and `stockily_invoicing_dev`. After
-any schema change, also run:
-```bash
-for db in stockily_test stockily_invoicing_test stockily_invoicing_dev; do
-  DATABASE_URL="postgresql://stockily:stockily@localhost:5432/${db}?schema=public" \
-    npx prisma migrate deploy --schema packages/infra-db/prisma/schema.prisma
-done
-```
+any schema change, also run `npm run db:migrate:all` (Milestone 8 — fans the
+same migrations out to all three; a real fix for what used to be a manual
+loop documented here).
 Skipping this doesn't fail loudly — it surfaces later as a confusing
 `PrismaClientKnownRequestError: column ... does not exist` the next time
 `nx test api` runs. On Windows specifically: stop whatever's running
@@ -92,7 +93,8 @@ pointing this at real customer data:
 1. **Set real secrets** — `JWT_SECRET` (generate with `openssl rand -hex 32`;
    `JwtConfigModule` refuses to boot without one once `NODE_ENV=production`),
    and real Postgres credentials (the compose file's `stockily`/`stockily`
-   are dev-only defaults).
+   and `stockily_app`/`stockily_app` are dev-only defaults — see Milestone 8
+   for what the second role is for).
 2. **Set `CORS_ORIGIN`** to your actual web origin(s) (comma-separated for
    more than one) — it defaults to `http://localhost:4200`, which is correct
    for local dev but wrong for any real deployment.
@@ -118,22 +120,25 @@ pointing this at real customer data:
 **What's already hardened**: CORS allowlist (not wide-open), `helmet()`
 security headers, rate limiting (5/min on signup/login/refresh, 300/min
 elsewhere), a global exception filter (unexpected errors are logged
-server-side and never leak raw internals to the client), and — verified by
-reading every single query in every service file, not assumed — every
-database read, update, and delete across the entire backend is correctly
-scoped by `orgId`, either directly or via a preceding ownership check.
+server-side and never leak raw internals to the client), every database
+read/update/delete correctly scoped by `orgId` (verified by reading every
+query in every service file), and — since Milestone 8 — Postgres
+**Row-Level Security** as a DB-enforced backstop on top of that app-level
+scoping: the running API connects as a restricted, non-superuser role
+(`APP_DATABASE_URL` — a Postgres superuser/`BYPASSRLS` role, which
+`DATABASE_URL`'s migration/seed role is, unconditionally bypasses RLS
+regardless of policy) so that even a future missing-`orgId` bug in
+application code would be caught at the database layer, not just by code
+review. See `docs/MILESTONE_8.md` for the two real bugs this took the
+actual running app — not just the SQL or the test suite — to find, and
+exactly what it takes to safely compose with this codebase's existing
+`$transaction` call sites without breaking their atomicity.
 
-**What's flagged, not done — Postgres RLS**: the Action Plan flagged this
-since Milestone 1 as needing a dedicated technical spike (Prisma's
-`SET LOCAL`/transaction-pooling interaction is a known tricky area), not a
-quick bolt-on. Implementing it carelessly under time pressure — getting the
-transaction composition wrong around the app's existing `$transaction`
-call sites (invoice finalization, payment recording) — risks silently
-breaking either tenant isolation or transactional atomicity, which is worse
-than the current state. The recommended path for whoever picks this up:
-an `AsyncLocalStorage`-based request-scoped tenant context populated right
-after `JwtAuthGuard`, a Prisma Client Extension that wraps each tenant-
-scoped query in `$transaction` to issue `SET LOCAL app.tenant_id` before
-it runs, and — critically — thorough testing against every existing
-`$transaction` call site to confirm nested transaction semantics behave as
-expected, not just against simple single-query reads.
+**Before pointing a *new* deployment at real customer data**: run the RLS
+migration + `db:migrate:all`, and set `APP_DATABASE_URL` for that
+deployment's `api` container/`nx serve api` — `docker-compose.yml`/
+`.env.example` already have the pattern, but a database that predates
+Milestone 8 needs the migration applied and the role created there too
+before a rebuild actually enforces anything (see `docs/MILESTONE_8.md`'s
+"Operational notes" — `stockily.ordi-tech.com` specifically has **not**
+been redeployed with this yet).
