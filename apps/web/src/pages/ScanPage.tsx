@@ -10,11 +10,13 @@ import {
   Batch,
   BarcodeLabelView,
   Partner,
+  PurchaseReceiptView,
   ScanResolution,
   Site,
   StockRow,
   TaxRate,
   invoicingApi,
+  purchasingApi,
   qualityApi,
   scanApi,
   sitesApi,
@@ -36,6 +38,14 @@ interface CartLine {
   availableQuantity: number | null;
 }
 
+interface ReceiveCartLine {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitCost: number;
+}
+
 // Mobile-first, deliberately not sharing the desktop Stock/Quality/Factures
 // layout — this is genuinely a separate surface (Action Plan §4/§6: "Scan
 // is an input-method concern", meant to run full-screen on a phone, no
@@ -46,7 +56,7 @@ export function ScanPage() {
   const { accessToken, logout } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [mode, setMode] = useState<'scan' | 'labels' | 'checkout'>('scan');
+  const [mode, setMode] = useState<'scan' | 'labels' | 'checkout' | 'receiving'>('scan');
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
   const [code, setCode] = useState('');
@@ -91,6 +101,21 @@ export function ScanPage() {
   const [checkoutPaid, setCheckoutPaid] = useState(true);
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
   const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number; paid: boolean } | null>(null);
+
+  // "Réception rapide" (receiving) — the Achats-side mirror of Vente
+  // rapide: same running-cart UX, but each scan adds a line to a
+  // free-form (no purchaseOrderId) purchase receipt instead of an
+  // invoice, and "Confirmer la réception" is the composed
+  // POST /purchasing/receipts call — the exact same endpoint
+  // PurchasingPage's own "Réception libre" modal already uses, this is
+  // just a faster mobile entry point onto it. No supplier field: a
+  // réception libre never had one either (see
+  // CreatePurchaseReceiptDto — no partnerId), so nothing new to resolve
+  // here that the desktop flow doesn't already skip.
+  const [receivingCart, setReceivingCart] = useState<ReceiveCartLine[]>([]);
+  const [receivingLandedCost, setReceivingLandedCost] = useState('');
+  const [receivingSubmitting, setReceivingSubmitting] = useState(false);
+  const [receivingConfirm, setReceivingConfirm] = useState<PurchaseReceiptView | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -169,7 +194,7 @@ export function ScanPage() {
   // specifically so switching away from a scan-capable view (finishing an
   // entrée, opening Vente rapide's cart) never unmounts the element the
   // stream is bound to.
-  const showViewfinder = (mode === 'scan' && step === 'scan') || mode === 'checkout';
+  const showViewfinder = (mode === 'scan' && step === 'scan') || mode === 'checkout' || mode === 'receiving';
 
   const startDecoding = useCallback(() => {
     if (!videoRef.current || !streamRef.current) return;
@@ -181,7 +206,7 @@ export function ScanPage() {
     // an already-paused loop is a no-op (see pauseDecoding's own comment).
     scanControlsRef.current?.stop();
     if (!codeReaderRef.current) codeReaderRef.current = createBarcodeReader();
-    const continuous = mode === 'checkout';
+    const continuous = mode === 'checkout' || mode === 'receiving';
     // No finalizeCallback passed here — that's what makes `.stop()` on the
     // returned controls pause decoding without disposing streamRef.current
     // (see the comment on scanControlsRef's declaration above).
@@ -256,6 +281,11 @@ export function ScanPage() {
         setCode('');
         return;
       }
+      if (mode === 'receiving') {
+        addToReceivingCart(r);
+        setCode('');
+        return;
+      }
       setResolution(r);
       setCode(rawCode.trim());
       setQuantity(1);
@@ -321,6 +351,55 @@ export function ScanPage() {
 
   const cartTotal = cart.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
 
+  // Receiving has no "available quantity" ceiling to respect — the whole
+  // point is adding to what's on hand, unlike Vente rapide's OUT-side cap.
+  function addToReceivingCart(r: ScanResolution) {
+    setReceivingConfirm(null);
+    setReceivingCart((prev) => {
+      const idx = prev.findIndex((l) => l.productId === r.product.id);
+      if (idx === -1) {
+        return [...prev, { productId: r.product.id, sku: r.product.sku, name: r.product.name, quantity: 1, unitCost: 0 }];
+      }
+      const next = [...prev];
+      next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+      return next;
+    });
+  }
+
+  function updateReceivingCartLine(productId: string, patch: Partial<Pick<ReceiveCartLine, 'quantity' | 'unitCost'>>) {
+    setReceivingCart((prev) =>
+      prev.map((l) => {
+        if (l.productId !== productId) return l;
+        if (patch.quantity != null) return { ...l, quantity: Math.max(1, Math.round(patch.quantity) || 1) };
+        return { ...l, ...patch };
+      }),
+    );
+  }
+
+  function removeReceivingCartLine(productId: string) {
+    setReceivingCart((prev) => prev.filter((l) => l.productId !== productId));
+  }
+
+  async function finalizeReceiving() {
+    if (!accessToken || receivingCart.length === 0) return;
+    setReceivingSubmitting(true);
+    setError(null);
+    try {
+      const receipt = await purchasingApi.receiveGoods(accessToken, {
+        siteId,
+        landedCostAmount: receivingLandedCost ? Number(receivingLandedCost) : undefined,
+        lines: receivingCart.map((l) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost })),
+      });
+      setReceivingConfirm(receipt);
+      setReceivingCart([]);
+      setReceivingLandedCost('');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de la réception.');
+    } finally {
+      setReceivingSubmitting(false);
+    }
+  }
+
   async function finalizeSale() {
     if (!accessToken || cart.length === 0) return;
     setCheckoutSubmitting(true);
@@ -339,7 +418,18 @@ export function ScanPage() {
           taxRateId: defaultTax?.id,
         })),
       });
-      const finalized = await invoicingApi.finalizeInvoice(accessToken, created.id);
+      let finalized;
+      try {
+        finalized = await invoicingApi.finalizeInvoice(accessToken, created.id);
+      } catch (finalizeErr) {
+        // Vente rapide is a single click standing in for two API calls — a
+        // reservation-caused shortage (or any other finalize failure) must
+        // not leave an invisible draft invoice behind that the cashier
+        // never intended to create. Best-effort: the sale itself already
+        // failed, so a void failure here isn't worth surfacing over it.
+        await invoicingApi.voidInvoice(accessToken, created.id).catch(() => undefined);
+        throw finalizeErr;
+      }
       if (checkoutPaid) {
         await invoicingApi.recordPayment(accessToken, finalized.id, { amount: finalized.totals.totalTtc });
       }
@@ -481,6 +571,9 @@ export function ScanPage() {
           <button className={`toggle-btn${mode === 'checkout' ? ' on' : ''}`} onClick={() => setMode('checkout')}>
             Vente rapide
           </button>
+          <button className={`toggle-btn${mode === 'receiving' ? ' on' : ''}`} onClick={() => setMode('receiving')}>
+            Réception rapide
+          </button>
           <button className={`toggle-btn${mode === 'labels' ? ' on' : ''}`} onClick={() => setMode('labels')}>
             Étiquettes
           </button>
@@ -504,7 +597,7 @@ export function ScanPage() {
               Activer la caméra
             </button>
           )}
-          {cameraActive && mode === 'checkout' && (
+          {cameraActive && (mode === 'checkout' || mode === 'receiving') && (
             <p className="sub" style={{ textAlign: 'center' }}>
               Scan continu — présentez chaque article devant la caméra.
             </p>
@@ -533,6 +626,26 @@ export function ScanPage() {
             onClearCart={() => {
               setCart([]);
               setCheckoutConfirm(null);
+            }}
+          />
+        )}
+
+        {mode === 'receiving' && (
+          <ReceivingPanel
+            code={code}
+            setCode={setCode}
+            onScan={resolve}
+            cart={receivingCart}
+            onUpdateLine={updateReceivingCartLine}
+            onRemoveLine={removeReceivingCartLine}
+            landedCost={receivingLandedCost}
+            setLandedCost={setReceivingLandedCost}
+            submitting={receivingSubmitting}
+            confirm={receivingConfirm}
+            onFinalize={finalizeReceiving}
+            onClearCart={() => {
+              setReceivingCart([]);
+              setReceivingConfirm(null);
             }}
           />
         )}
@@ -994,6 +1107,129 @@ function CheckoutPanel({
             </button>
             <button type="button" className="btn-primary" onClick={onFinalize} disabled={checkoutSubmitting}>
               {checkoutSubmitting ? 'Enregistrement…' : 'Terminer la vente'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The Achats-side mirror of CheckoutPanel above — same running-cart shape,
+// but "Confirmer la réception" composes POST /purchasing/receipts (no
+// purchaseOrderId: a free "réception libre", same as PurchasingPage's own
+// desktop modal for an unplanned/informal delivery) instead of an invoice.
+function ReceivingPanel({
+  code,
+  setCode,
+  onScan,
+  cart,
+  onUpdateLine,
+  onRemoveLine,
+  landedCost,
+  setLandedCost,
+  submitting,
+  confirm,
+  onFinalize,
+  onClearCart,
+}: {
+  code: string;
+  setCode: (v: string) => void;
+  onScan: (code: string) => void;
+  cart: ReceiveCartLine[];
+  onUpdateLine: (productId: string, patch: Partial<Pick<ReceiveCartLine, 'quantity' | 'unitCost'>>) => void;
+  onRemoveLine: (productId: string) => void;
+  landedCost: string;
+  setLandedCost: (v: string) => void;
+  submitting: boolean;
+  confirm: PurchaseReceiptView | null;
+  onFinalize: () => void;
+  onClearCart: () => void;
+}) {
+  const cartValue = cart.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+
+  return (
+    <div className="scan-card">
+      <h3>Réception rapide</h3>
+      {confirm && (
+        <div className="note-box">
+          Réception enregistrée — {confirm.lines.length} ligne(s), {confirm.lines.reduce((s, l) => s + l.quantityReceived, 0)} unité(s) au
+          total.
+        </div>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onScan(code);
+        }}
+        className="scan-entry-row"
+      >
+        <input className="mono" placeholder="Saisie manuelle / douchette USB" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
+        <button type="submit" className="btn-primary">
+          Ajouter
+        </button>
+      </form>
+
+      {cart.length > 0 && (
+        <div className="cart">
+          {cart.map((l) => (
+            <div className="cart-line" key={l.productId}>
+              <div className="cart-line-top">
+                <span className="cart-line-name">{l.name}</span>
+                <button type="button" className="cart-line-remove" onClick={() => onRemoveLine(l.productId)} aria-label="Retirer">
+                  ✕
+                </button>
+              </div>
+              <div className="cart-line-sku mono muted">{l.sku}</div>
+              <div className="cart-line-controls">
+                <div className="cart-qty-stepper">
+                  <button type="button" onClick={() => onUpdateLine(l.productId, { quantity: l.quantity - 1 })}>
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    value={l.quantity}
+                    onChange={(e) => onUpdateLine(l.productId, { quantity: Number(e.target.value) })}
+                  />
+                  <button type="button" onClick={() => onUpdateLine(l.productId, { quantity: l.quantity + 1 })}>
+                    +
+                  </button>
+                </div>
+                <div className="cart-line-price">
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={l.unitCost}
+                    onChange={(e) => onUpdateLine(l.productId, { unitCost: Number(e.target.value) })}
+                  />
+                  <span className="unit">DZD</span>
+                </div>
+                <div className="cart-line-subtotal mono">{(l.quantity * l.unitCost).toFixed(2)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {cart.length === 0 && <p className="cart-empty">Le panier est vide — scannez un article pour commencer une réception.</p>}
+
+      {cart.length > 0 && (
+        <>
+          <div className="field-row">
+            <label>Frais annexes (transport/douane/assurance) — montant global (optionnel)</label>
+            <input type="number" min={0} step="any" value={landedCost} onChange={(e) => setLandedCost(e.target.value)} placeholder="0.00" />
+          </div>
+          <div className="cart-total">
+            <span>Valeur</span>
+            <span className="amount">{cartValue.toFixed(2)} DZD</span>
+          </div>
+          <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+            <button type="button" className="btn-secondary" onClick={onClearCart} disabled={submitting}>
+              Vider le panier
+            </button>
+            <button type="button" className="btn-primary" onClick={onFinalize} disabled={submitting}>
+              {submitting ? 'Enregistrement…' : 'Confirmer la réception'}
             </button>
           </div>
         </>

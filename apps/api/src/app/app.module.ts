@@ -18,6 +18,7 @@ import { InvoicingModule } from '../modules/invoicing/invoicing.module';
 import { SitesModule } from '../modules/sites/sites.module';
 import { ScanModule } from '../modules/scan/scan.module';
 import { PurchasingModule } from '../modules/purchasing/purchasing.module';
+import { SalesModule } from '../modules/sales/sales.module';
 import { AuditModule } from '../modules/audit/audit.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
 import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-context.middleware';
@@ -46,8 +47,9 @@ import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-co
     InvoicingModule,
     SitesModule,
     ScanModule,
-    // Phase 2, Milestone 9 — the first Phase 2 product module.
+    // Phase 2, Milestone 9/10 — Achats & Ventes.
     PurchasingModule,
+    SalesModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

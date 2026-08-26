@@ -59,6 +59,43 @@ export interface QuarantineResult {
   events: StockDomainEvent[];
 }
 
+export interface ReserveInput {
+  orgId: string;
+  productId: string;
+  siteId: string;
+  quantity: number;
+  /**
+   * Default false (strict): reserving beyond `quantityOnHand - quantityReserved`
+   * throws `InsufficientReservableStockError`. When true, the caller has
+   * already gotten the user's explicit acknowledgement of the shortage
+   * (Ventes' preview-then-confirm flow) — the full quantity is reserved
+   * regardless, and `backorderedQuantity` on the result says by how much
+   * it exceeded what was actually available at the time.
+   */
+  allowBackorder?: boolean;
+  performedBy?: string | null;
+}
+
+export interface ReserveResult {
+  stockLevel: StockLevelSnapshot;
+  /** > 0 only when `allowBackorder: true` and the reservation exceeded available stock. */
+  backorderedQuantity: number;
+  events: StockDomainEvent[];
+}
+
+export interface ReleaseInput {
+  orgId: string;
+  productId: string;
+  siteId: string;
+  quantity: number;
+  performedBy?: string | null;
+}
+
+export interface ReleaseResult {
+  stockLevel: StockLevelSnapshot;
+  events: StockDomainEvent[];
+}
+
 /**
  * Stable wire shape for cross-module/websocket consumption (§4/§5) — Phase
  * 2/3 modules and the realtime gateway subscribe to these, so changing a
@@ -91,6 +128,23 @@ export type StockDomainEvent =
       productId: string;
       quantityOnHand: number;
       minThreshold: number;
+      occurredAt: string;
+    }
+  | {
+      kind: 'StockReserved';
+      orgId: string;
+      siteId: string;
+      productId: string;
+      quantity: number;
+      backorderedQuantity: number;
+      occurredAt: string;
+    }
+  | {
+      kind: 'StockReleased';
+      orgId: string;
+      siteId: string;
+      productId: string;
+      quantity: number;
       occurredAt: string;
     };
 
@@ -126,5 +180,20 @@ export class InsufficientQuarantineSourceError extends Error {
       `Cannot quarantine ${requested} of product ${productId} at site ${siteId}: only ${available} on hand.`,
     );
     this.name = 'InsufficientQuarantineSourceError';
+  }
+}
+
+/** Strict-path reservation failure (`allowBackorder` not set/false) — the Ventes preview-then-confirm flow's signal to show the shortage before the caller decides whether to re-request with `allowBackorder: true`. */
+export class InsufficientReservableStockError extends Error {
+  constructor(
+    public readonly productId: string,
+    public readonly siteId: string,
+    public readonly requested: number,
+    public readonly available: number,
+  ) {
+    super(
+      `Cannot reserve ${requested} of product ${productId} at site ${siteId}: only ${available} available (on hand minus already reserved).`,
+    );
+    this.name = 'InsufficientReservableStockError';
   }
 }

@@ -72,6 +72,9 @@ model Organization {
   purchaseOrders PurchaseOrder[]
   purchaseReceipts PurchaseReceipt[]
   purchaseOrderCounters PurchaseOrderCounter[]
+  salesOrders SalesOrder[]
+  salesOrderCounters SalesOrderCounter[]
+  partnerProductPrices PartnerProductPrice[]
 
   @@map("organizations")
 }
@@ -126,6 +129,7 @@ model Site {
   invoices        Invoice[]
   purchaseOrders  PurchaseOrder[]
   purchaseReceipts PurchaseReceipt[]
+  salesOrders     SalesOrder[]
 
   @@index([orgId])
   @@map("sites")
@@ -260,6 +264,8 @@ model Product {
   nonConformities NonConformity[]
   purchaseOrderLines PurchaseOrderLine[]
   purchaseReceiptLines PurchaseReceiptLine[]
+  salesOrderLines SalesOrderLine[]
+  partnerProductPrices PartnerProductPrice[]
 
   @@unique([orgId, sku])
   @@unique([orgId, barcode])
@@ -466,8 +472,9 @@ model TaxRate {
   rate      Decimal @db.Decimal(5, 2)
   isDefault Boolean @default(false)
 
-  organization Organization  @relation(fields: [orgId], references: [id])
-  invoiceLines InvoiceLine[]
+  organization    Organization     @relation(fields: [orgId], references: [id])
+  invoiceLines    InvoiceLine[]
+  salesOrderLines SalesOrderLine[]
 
   @@index([orgId])
   @@map("tax_rates")
@@ -488,11 +495,22 @@ model Partner {
   address    String?
   phone      String?
   email      String?
+  // Milestone 10 (Gestion Achats/Ventes) — default payment terms, days
+  // between an invoice's finalization and its due date. Nullable: most
+  // existing partners have none on file; Invoice.dueDate is simply left
+  // unset when absent, same "optional, not silently assumed" pattern as
+  // averageCost's unitCost handling. Applies to either side (a SUPPLIER
+  // partner's terms drive their own invoices to us; kept on the same
+  // unified table per the "Partner stays unified" decision rather than
+  // splitting Customer/Supplier).
+  paymentTermsNetDays Int?
 
   organization   Organization    @relation(fields: [orgId], references: [id])
   invoices       Invoice[]
   stockMovements StockMovement[]
   purchaseOrders PurchaseOrder[]
+  salesOrders    SalesOrder[]
+  productPrices  PartnerProductPrice[]
 
   @@index([orgId])
   @@map("partners")
@@ -532,11 +550,25 @@ model Invoice {
   // order it's settling, for reconciliation only. Nothing is conditioned on
   // it (no blocking if absent) — purely additive, per Action Plan §5.
   purchaseOrderId String?
+  // Milestone 10 — optional link from a CUSTOMER invoice to the commande
+  // (SalesOrder) it (partially) fulfills, symmetric to purchaseOrderId
+  // above. A commande can generate more than one invoice over time
+  // (partial invoicing), so this is invoice-level "which commande" for
+  // easy querying; InvoiceLine.salesOrderLineId below is the line-level
+  // detail actually used to release the matching stock reservation.
+  salesOrderId String?
+  // Milestone 10 — computed once at creation from partner.paymentTermsNetDays
+  // (see InvoicingService.createInvoice) when the partner has terms on file;
+  // null otherwise (no due-date tracking for that partner). Replaces the
+  // fixed 30-day REMINDER_AFTER_DAYS approximation with a real per-partner
+  // figure where available.
+  dueDate DateTime?
 
   organization Organization  @relation(fields: [orgId], references: [id])
   site         Site          @relation(fields: [siteId], references: [id])
   partner      Partner?      @relation(fields: [partnerId], references: [id])
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  salesOrder   SalesOrder?   @relation(fields: [salesOrderId], references: [id])
   lines        InvoiceLine[]
   payments     Payment[]
   reminders    InvoiceReminder[]
@@ -577,10 +609,18 @@ model InvoiceLine {
   discountPercent Decimal? @db.Decimal(5, 2)
   discountAmount  Decimal? @db.Decimal(14, 2)
   taxRateId       String?
+  // Milestone 10 — set only when this line was generated from a Ventes
+  // commande line (SalesService.invoiceSalesOrder); null for every other
+  // invoice line (manual Invoicing entry, Vente rapide, SUPPLIER lines).
+  // finalizeInvoice reads it to release the matching reservation and
+  // increment SalesOrderLine.quantityInvoiced — purely additive, no
+  // existing invoice line has this set.
+  salesOrderLineId String?
 
-  invoice Invoice  @relation(fields: [invoiceId], references: [id])
-  product Product? @relation(fields: [productId], references: [id])
-  taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
+  invoice        Invoice         @relation(fields: [invoiceId], references: [id])
+  product        Product?        @relation(fields: [productId], references: [id])
+  taxRate        TaxRate?        @relation(fields: [taxRateId], references: [id])
+  salesOrderLine SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id])
 
   @@map("invoice_lines")
 }
@@ -624,11 +664,17 @@ model PurchaseOrder {
   siteId       String    // destination site for the goods
   supplierId   String    // Partner with isSupplier = true
   number       String?   // human-readable reference (e.g. "BC-2026-000001") — no legal gapless requirement like Invoice, but reuses the same atomic counter pattern for consistency; null until assigned
-  status       String    @default("draft") // draft | confirmed | partially_received | received | cancelled
+  status       String    @default("draft") // draft | confirmed | partially_received | received | cancelled | rfq | rfq_rejected
   expectedDate DateTime?
   notes        String?
   createdBy    String?
   createdAt    DateTime  @default(now())
+  // Milestone 10 (RFQ / price comparison) — correlates the N candidate
+  // PurchaseOrder rows (one per invited supplier, status "rfq") created
+  // together for one comparison round; null for a normal PO. Awarding one
+  // flips it to "confirmed" (assigns a real number); the rest flip to
+  // "rfq_rejected", kept for audit history rather than deleted.
+  comparisonGroupId String?
 
   organization Organization        @relation(fields: [orgId], references: [id])
   site         Site                @relation(fields: [siteId], references: [id])
@@ -639,6 +685,7 @@ model PurchaseOrder {
 
   @@unique([orgId, number])
   @@index([orgId])
+  @@index([comparisonGroupId])
   @@map("purchase_orders")
 }
 
@@ -683,6 +730,14 @@ model PurchaseReceipt {
   receivedBy      String?
   receivedAt      DateTime @default(now())
   notes           String?
+  // Milestone 10 (coût de revient / landed cost) — one lump sum for this
+  // receipt's transport/douane/assurance, pro-rated across lines by value
+  // (see PurchasingService.receiveGoods) into each line's landedCostShare
+  // below. Absent/zero means zero behavior change from Milestone 9 — the
+  // receipt's raw unitCost per line is what feeds the WAC, exactly as
+  // before.
+  landedCostAmount Decimal? @db.Decimal(14, 2)
+  landedCostNotes  String?
 
   organization  Organization          @relation(fields: [orgId], references: [id])
   purchaseOrder PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
@@ -703,9 +758,14 @@ model PurchaseReceiptLine {
   purchaseOrderLineId String?
   productId           String
   quantityReceived    Decimal @db.Decimal(14, 3)
-  unitCost            Decimal @db.Decimal(14, 2) // feeds StockService.recordMovement's Weighted Average Cost
+  unitCost            Decimal @db.Decimal(14, 2) // raw supplier-negotiated cost — kept as-is for last-price-paid history, separate from the landed cost basis actually fed to the WAC
   batchId             String?
   qualityCheckId      String?
+  // Milestone 10 — this line's allocated share of the receipt's
+  // landedCostAmount, persisted for audit/traceability rather than
+  // recomputed on read. landedUnitCost (what StockService.recordMovement
+  // actually receives) = unitCost + landedCostShare / quantityReceived.
+  landedCostShare     Decimal? @db.Decimal(14, 2)
 
   receipt           PurchaseReceipt   @relation(fields: [receiptId], references: [id])
   purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
@@ -714,6 +774,106 @@ model PurchaseReceiptLine {
   qualityCheck      QualityCheck?     @relation(fields: [qualityCheckId], references: [id])
 
   @@map("purchase_receipt_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Ventes / Gestion des Ventes (Milestone 10, Phase 2) — the customer-side
+// mirror of Purchasing. One model for devis (quote) and commande (order) —
+// `kind` distinguishes them, `status` uses a kind-dependent vocabulary
+// (see PLAN.md for the full reasoning). A commande reserves stock
+// (StockLevel.quantityReserved, finally wired up here) and can generate one
+// or more partial invoices over time; a devis reserves nothing. Devis,
+// commande, and facture are independent entry points — none is a mandatory
+// gate for the next, exactly like Achats' BC/réception/facture fournisseur.
+// ---------------------------------------------------------------------------
+
+model SalesOrder {
+  id                      String    @id @default(uuid())
+  orgId                   String
+  siteId                  String    // fulfillment site — reservation is per (product, site), same role as PurchaseOrder.siteId
+  customerId              String    // Partner with isCustomer = true
+  kind                    String    @default("quote") // quote | order — devis vs commande; promotion flips this in place on the same row
+  number                  String?   // DEV-YYYY-NNNNNN (quote) or CMD-YYYY-NNNNNN (order); null until assigned
+  // Set once, at promotion, to the DEV-... number this commande started
+  // life as (a promoted quote gets a FRESH CMD-... number rather than
+  // keeping its devis number — this is where the original is preserved).
+  promotedFromQuoteNumber String?
+  status                  String    @default("draft")
+  // kind=quote:  draft | sent | accepted | expired | cancelled
+  // kind=order:  confirmed | partially_invoiced | invoiced | cancelled
+  expectedDate            DateTime?
+  notes                   String?
+  createdBy               String?
+  createdAt               DateTime  @default(now())
+
+  organization Organization     @relation(fields: [orgId], references: [id])
+  site         Site             @relation(fields: [siteId], references: [id])
+  customer     Partner          @relation(fields: [customerId], references: [id])
+  lines        SalesOrderLine[]
+  invoices     Invoice[]
+
+  @@unique([orgId, number])
+  @@index([orgId])
+  @@map("sales_orders")
+}
+
+// Mirrors PurchaseOrderCounter but keyed additionally by docType ("quote" |
+// "order") since devis and commandes each have their own numbering
+// sequence/prefix (DEV-/CMD-) rather than sharing one counter.
+model SalesOrderCounter {
+  orgId      String
+  year       Int
+  docType    String // "quote" | "order"
+  lastNumber Int    @default(0)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@id([orgId, year, docType])
+  @@map("sales_order_counters")
+}
+
+model SalesOrderLine {
+  id               String   @id @default(uuid())
+  salesOrderId     String
+  productId        String?  // nullable — a services-only line, mirrors InvoiceLine.productId; no reservation applies since there's no stock to reserve
+  description      String   // needed when productId is null, same as InvoiceLine
+  quantityOrdered  Decimal  @db.Decimal(14, 3)
+  quantityInvoiced Decimal  @default(0) @db.Decimal(14, 3) // cumulative, mirrors PurchaseOrderLine.quantityReceived — the still-reserved amount is always (quantityOrdered - quantityInvoiced), not stored separately
+  unitPrice        Decimal  @db.Decimal(14, 2) // resolved from PartnerProductPrice or Product.sellPrice at line-build time, freely overridable
+  discountPercent  Decimal? @db.Decimal(5, 2)
+  taxRateId        String?
+
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+  product       Product?      @relation(fields: [productId], references: [id])
+  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id])
+  invoiceLines  InvoiceLine[]
+
+  @@map("sales_order_lines")
+}
+
+// Negotiated per-customer pricing (Ventes decision: "tarifs spécifiques
+// par client nécessaires") — looked up when building a devis/commande
+// line, falling back to Product.sellPrice when no entry exists for that
+// (partner, product) pair. Exactly one of unitPrice/discountPercent is
+// expected to be set, not both — a fixed negotiated price, or a
+// negotiated discount off the product's own sellPrice.
+model PartnerProductPrice {
+  id              String    @id @default(uuid())
+  orgId           String
+  partnerId       String
+  productId       String
+  unitPrice       Decimal?  @db.Decimal(14, 2)
+  discountPercent Decimal?  @db.Decimal(5, 2)
+  validFrom       DateTime?
+  validTo         DateTime?
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  partner      Partner      @relation(fields: [partnerId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, partnerId, productId])
+  @@index([orgId])
+  @@map("partner_product_prices")
 }
 
 // ---------------------------------------------------------------------------

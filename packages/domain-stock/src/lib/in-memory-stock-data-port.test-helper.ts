@@ -43,14 +43,14 @@ export class InMemoryStockDataPort implements StockDataPort {
   async applyStockLevelDelta(
     productId: string,
     siteId: string,
-    delta: { onHand?: number; quarantined?: number },
+    delta: { onHand?: number; quarantined?: number; reserved?: number },
   ): Promise<StockLevelSnapshot> {
     const key = this.levelKey(productId, siteId);
     const current = this.levels.get(key) ?? { quantityOnHand: 0, quantityQuarantined: 0, quantityReserved: 0 };
     const updated: StockLevelSnapshot = {
       quantityOnHand: current.quantityOnHand + (delta.onHand ?? 0),
       quantityQuarantined: current.quantityQuarantined + (delta.quarantined ?? 0),
-      quantityReserved: current.quantityReserved,
+      quantityReserved: current.quantityReserved + (delta.reserved ?? 0),
     };
     this.levels.set(key, updated);
     return { ...updated };

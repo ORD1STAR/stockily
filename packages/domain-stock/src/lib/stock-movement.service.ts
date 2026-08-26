@@ -2,11 +2,16 @@ import type { StockDataPort } from './stock-data.port.js';
 import { computeThresholdStatus } from './threshold.js';
 import {
   InsufficientQuarantineSourceError,
+  InsufficientReservableStockError,
   NegativeStockError,
   QuarantineInput,
   QuarantineResult,
   RecordMovementInput,
   RecordMovementResult,
+  ReleaseInput,
+  ReleaseResult,
+  ReserveInput,
+  ReserveResult,
   StockDomainEvent,
   UnknownProductError,
 } from './types.js';
@@ -44,8 +49,17 @@ export class StockMovementService {
 
       const before = await tx.getOrCreateStockLevel(input.productId, input.siteId);
 
-      if (decreasesOnHand && input.quantity > before.quantityOnHand) {
-        throw new NegativeStockError(input.productId, input.siteId, input.quantity, before.quantityOnHand);
+      // Reservations (Gestion Ventes' commande stock-hold) only constrain
+      // real consumption/movement of goods — OUT and TRANSFER. ADJUSTMENT
+      // corrects the ledger to physical reality (a recount), which must
+      // stay bounded only by true physical on-hand, not by what's
+      // earmarked for someone else — an adjustment that "eats into" a
+      // reservation is exactly the case an adjustment exists to surface,
+      // not something it should be blocked from recording.
+      const reservationAware = input.type === 'OUT' || input.type === 'TRANSFER';
+      const cap = reservationAware ? before.quantityOnHand - before.quantityReserved : before.quantityOnHand;
+      if (decreasesOnHand && input.quantity > cap) {
+        throw new NegativeStockError(input.productId, input.siteId, input.quantity, cap);
       }
 
       const delta = increasesOnHand ? input.quantity : decreasesOnHand ? -input.quantity : 0;
@@ -178,6 +192,83 @@ export class StockMovementService {
             productId: input.productId,
             quantity: input.quantity,
             reason: input.reason,
+            occurredAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+  }
+
+  /**
+   * Earmarks already-on-hand quantity against a future OUT/TRANSFER
+   * (Gestion Ventes' commande) — `quantityReserved`, stubbed since
+   * Milestone 1, finally wired up here. Same shape as `quarantine`:
+   * reclassifies existing stock, never creates a `StockMovement` row
+   * (nothing has moved yet). Strict by default — `allowBackorder: true`
+   * lets the caller (already holding the user's explicit acknowledgement
+   * of a shortage) reserve past what's actually available.
+   */
+  async reserve(input: ReserveInput): Promise<ReserveResult> {
+    if (input.quantity <= 0) {
+      throw new RangeError(`quantity must be positive, got ${input.quantity}`);
+    }
+
+    return this.data.withTransaction(async (tx) => {
+      const product = await tx.getProduct(input.orgId, input.productId);
+      if (!product) throw new UnknownProductError(input.productId);
+
+      const before = await tx.getOrCreateStockLevel(input.productId, input.siteId);
+      const available = before.quantityOnHand - before.quantityReserved;
+      const backorderedQuantity = Math.max(0, input.quantity - available);
+
+      if (backorderedQuantity > 0 && !input.allowBackorder) {
+        throw new InsufficientReservableStockError(input.productId, input.siteId, input.quantity, available);
+      }
+
+      const stockLevel = await tx.applyStockLevelDelta(input.productId, input.siteId, { reserved: input.quantity });
+
+      return {
+        stockLevel,
+        backorderedQuantity,
+        events: [
+          {
+            kind: 'StockReserved',
+            orgId: input.orgId,
+            siteId: input.siteId,
+            productId: input.productId,
+            quantity: input.quantity,
+            backorderedQuantity,
+            occurredAt: new Date().toISOString(),
+          },
+        ],
+      };
+    });
+  }
+
+  /** Releases a previously-reserved quantity — a commande being (partially) invoiced or cancelled. Floored at 0 defensively; the caller is expected to only ever release `quantityOrdered - quantityInvoiced`, but this primitive doesn't trust that blindly. */
+  async release(input: ReleaseInput): Promise<ReleaseResult> {
+    if (input.quantity <= 0) {
+      throw new RangeError(`quantity must be positive, got ${input.quantity}`);
+    }
+
+    return this.data.withTransaction(async (tx) => {
+      const product = await tx.getProduct(input.orgId, input.productId);
+      if (!product) throw new UnknownProductError(input.productId);
+
+      const before = await tx.getOrCreateStockLevel(input.productId, input.siteId);
+      const releaseQuantity = Math.min(input.quantity, before.quantityReserved);
+
+      const stockLevel = await tx.applyStockLevelDelta(input.productId, input.siteId, { reserved: -releaseQuantity });
+
+      return {
+        stockLevel,
+        events: [
+          {
+            kind: 'StockReleased',
+            orgId: input.orgId,
+            siteId: input.siteId,
+            productId: input.productId,
+            quantity: releaseQuantity,
             occurredAt: new Date().toISOString(),
           },
         ],

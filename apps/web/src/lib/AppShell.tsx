@@ -66,14 +66,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             ← Toutes les applications
           </NavLink>
         )}
-        <div className="shell-group-label">Phase 1</div>
+        <div className="shell-group-label">Modules</div>
         {PRODUCT_MODULES.map((m) => (
           <NavItem key={m.key} to={m.to} label={m.label} enabled={entitledKeys.has(m.key)} />
         ))}
+        {/* Milestone 10 — Achats/Ventes moved out of this hardcoded stub
+            list into PRODUCT_MODULES above (they're real, built modules
+            now, gated per-org by GET /me's entitlements like every other
+            module) — only genuinely unbuilt Phase 2/3 modules stay here. */}
         <div className="shell-group-label">Verrouillés</div>
-        <div className="shell-nav-item shell-locked">
-          Achats <span className="shell-tag">Phase 2</span>
-        </div>
         <div className="shell-nav-item shell-locked">
           CRM <span className="shell-tag">Phase 2</span>
         </div>

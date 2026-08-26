@@ -358,6 +358,7 @@ function PartnerFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
         address: address || null,
         phone: phone || null,
         email: email || null,
+        paymentTermsNetDays: null,
       });
       onSaved();
     } catch (err) {

@@ -17,4 +17,5 @@ export const PRODUCT_MODULES: ModuleNavEntry[] = [
   { key: 'sites', to: '/sites', label: 'Transferts Multi-Sites', hint: 'Entrepôts et transferts' },
   { key: 'scan', to: '/scan', label: 'Scan / QR', hint: 'Scanner, vente rapide, étiquettes' },
   { key: 'purchasing', to: '/purchasing', label: 'Achats', hint: 'Bons de commande, réceptions fournisseurs' },
+  { key: 'sales', to: '/sales', label: 'Ventes', hint: 'Devis, commandes, facturation client' },
 ];

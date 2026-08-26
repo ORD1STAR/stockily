@@ -43,6 +43,14 @@ export class CreateInvoiceLineDto {
   @IsOptional()
   @IsString()
   taxRateId?: string;
+
+  // Milestone 10 — set only by SalesService.invoiceSalesOrder, never by a
+  // manual/direct invoice creation (Invoicing's own page, Vente rapide).
+  // Read by finalizeInvoice to release the matching stock reservation and
+  // advance SalesOrderLine.quantityInvoiced — purely additive.
+  @IsOptional()
+  @IsString()
+  salesOrderLineId?: string;
 }
 
 export class CreateInvoiceDto {
@@ -63,6 +71,21 @@ export class CreateInvoiceDto {
   @IsString()
   @MinLength(1)
   number?: string;
+
+  // Milestone 9 field, never actually wired into this DTO until now —
+  // optional traceability link from a SUPPLIER invoice to the purchase
+  // order it's settling (Achats' "créer facture fournisseur" action sets
+  // this). Purely additive, nothing conditioned on it.
+  @IsOptional()
+  @IsString()
+  purchaseOrderId?: string;
+
+  // Milestone 10 — optional traceability link from a CUSTOMER invoice to
+  // the commande (SalesOrder) it (partially) fulfills. Set by
+  // SalesService.invoiceSalesOrder, never by a manual/direct invoice.
+  @IsOptional()
+  @IsString()
+  salesOrderId?: string;
 
   @IsArray()
   @ArrayMinSize(1)

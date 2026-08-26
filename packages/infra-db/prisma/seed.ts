@@ -9,10 +9,14 @@
 //     explicitly for Quality, but Scan's own design (§3: "a scan just calls
 //     the existing POST /stock-movements") makes it equally meaningless
 //     without Stock, so the same rule is applied by extension.
-//   - Phase 2/3 module dependencies (purchasing->stock, orders->stock,
-//     delivery->orders, returns->stock+invoicing, accounting->invoicing)
+//   - Phase 2/3 module dependencies for the still-unbuilt ones
+//     (delivery->sales, returns->stock+invoicing, accounting->invoicing)
 //     are provisional stubs for a registry that needs *some* value, not
-//     binding designs — those modules are not built yet.
+//     binding designs — those modules are not built yet. purchasing/sales
+//     themselves are real, built dependencies (Milestone 9/10) — both
+//     require invoicing (the facture step), purchasing additionally
+//     requires stock (it deducts nothing without it), sales does not (a
+//     services-only line has no product to reserve).
 //   - Super Admin and Gestionnaire end up with an identical
 //     RolePermission set on the 5 Phase 1 modules. What actually
 //     distinguishes them (subscription/module-activation/user management)
@@ -34,9 +38,16 @@ const MODULES = [
   { key: 'sites', name: 'Multi-Entrepôts / Multi-Sites', phase: 1, dependencies: [] },
   { key: 'scan', name: 'Codes-barres / QR / Scan mobile', phase: 1, dependencies: ['stock'] },
 
-  { key: 'purchasing', name: 'Achats & Fournisseurs', phase: 2, dependencies: ['stock'] },
-  { key: 'orders', name: 'Commandes Clients', phase: 2, dependencies: ['stock'] },
-  { key: 'delivery', name: 'Livraisons & Transport', phase: 2, dependencies: ['orders'] },
+  // Milestone 10 — purchasing now also needs invoicing (facture
+  // fournisseur orchestration, see PurchasingService.createSupplierInvoice).
+  { key: 'purchasing', name: 'Gestion Achats', phase: 2, dependencies: ['stock', 'invoicing'] },
+  // Milestone 10 — repurposes the 'orders' stub (never built, unreferenced
+  // anywhere): Gestion Ventes is broader than just "Commandes Clients"
+  // (devis + commande + facture client), doesn't require Stock (a
+  // services-only line has no product to reserve), but does require
+  // Invoicing for the facture step — symmetric to purchasing above.
+  { key: 'sales', name: 'Gestion Ventes', phase: 2, dependencies: ['invoicing'] },
+  { key: 'delivery', name: 'Livraisons & Transport', phase: 2, dependencies: ['sales'] },
   { key: 'crm', name: 'CRM / Gestion des Clients', phase: 2, dependencies: [] },
   { key: 'notifications', name: 'Notifications & Alertes', phase: 2, dependencies: [] },
 
@@ -94,6 +105,24 @@ const ACTIONS: Record<string, string[]> = {
     'purchasing.order.cancel',
     'purchasing.receipt.create',
     'purchasing.receipt.read',
+    // Milestone 10
+    'purchasing.rfq.create',
+    'purchasing.rfq.award',
+    'purchasing.invoice.create',
+    'purchasing.dashboard.read',
+  ],
+  // Milestone 10 (Gestion Ventes) — the customer-side mirror of purchasing.
+  // sales.order.* covers both devis and commande (kind is a DTO field, not
+  // a separate permission) — see CreateSalesOrderDto's own doc.
+  sales: [
+    'sales.order.create',
+    'sales.order.read',
+    'sales.order.update',
+    'sales.order.cancel',
+    'sales.invoice.create',
+    'sales.pricing.read',
+    'sales.pricing.write',
+    'sales.dashboard.read',
   ],
 };
 
@@ -116,12 +145,23 @@ const ROLES: { name: string; actions: string[] }[] = [
       ...ACTIONS.scan,
       ...READ_ONLY(['purchasing']),
       'purchasing.receipt.create',
+      // Milestone 10 — sees what's been commandé (picking visibility),
+      // doesn't create/manage sales orders themselves.
+      ...READ_ONLY(['sales']),
     ],
   },
-  { name: 'Commercial', actions: READ_ONLY(['stock', 'invoicing']) },
+  {
+    name: 'Commercial',
+    // Milestone 10 — this is squarely the sales-rep role: full sales.*,
+    // plus the existing read-only visibility into stock/invoicing.
+    actions: [...ACTIONS.sales, ...READ_ONLY(['stock', 'invoicing'])],
+  },
   {
     name: 'Comptable / Finance',
-    actions: [...ACTIONS.invoicing, ...READ_ONLY(['stock', 'quality', 'purchasing'])],
+    // Milestone 10 — finance visibility on both sides of the ledger now
+    // that purchasing/sales exist, in addition to the existing full
+    // invoicing set.
+    actions: [...ACTIONS.invoicing, ...READ_ONLY(['stock', 'quality', 'purchasing', 'sales'])],
   },
 ];
 
@@ -134,6 +174,13 @@ async function main() {
       create: m,
     });
   }
+
+  // Milestone 10 — 'orders' was renamed to 'sales' above (upsert-by-key
+  // creates a new row rather than renaming in place); the old row is
+  // confirmed unreferenced anywhere (no OrganizationModuleEntitlement, no
+  // RolePermission — Milestone 9's exploration pass grepped the whole
+  // codebase for it) so it's safe to remove rather than leave orphaned.
+  await prisma.module.deleteMany({ where: { key: 'orders' } });
 
   console.log('Seeding system roles + permissions...');
   for (const r of ROLES) {

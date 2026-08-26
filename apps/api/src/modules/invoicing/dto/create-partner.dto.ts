@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class CreatePartnerDto {
   @IsString()
@@ -44,4 +44,12 @@ export class CreatePartnerDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  // Milestone 10 — default payment terms in days (30/60/90...), used to
+  // compute Invoice.dueDate. Nullable/optional: most partners have none on
+  // file, no due-date tracking for them.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  paymentTermsNetDays?: number;
 }

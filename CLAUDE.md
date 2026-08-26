@@ -27,7 +27,7 @@
 Modular stock/quality/invoicing platform (Algeria-targeted: Décret 05-468
 invoice compliance, DZD-only). Full architecture and decision log:
 `README.md` (quickstart, common commands) and `docs/Action Plan.md` (the
-original technical plan). `docs/MILESTONE_1.md` through `docs/MILESTONE_7.md`
+original technical plan). `docs/MILESTONE_1.md` through `docs/MILESTONE_10.md`
 are the actual build log, one file per unit of work, each ending with a
 "how to verify" section and every non-obvious decision explained — read the
 latest one first for current state, not just this file.

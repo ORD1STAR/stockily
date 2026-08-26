@@ -24,5 +24,13 @@ import { InvoicingService } from './invoicing.service';
       useFactory: () => (process.env.SMTP_HOST ? new SmtpEmailSender() : new NoOpEmailSender()),
     },
   ],
+  // Exported for Milestone 10's PurchasingModule (facture fournisseur from
+  // a BC) and SalesModule (facture client from a commande) — both call
+  // createInvoice directly, same reasoning as StockModule/QualityModule
+  // exporting their own services (see those modules' own comments). This
+  // is a one-directional dependency only: InvoicingModule itself must
+  // never import Purchasing/SalesModule back, or Nest's DI graph would
+  // have a cycle.
+  exports: [InvoicingService],
 })
 export class InvoicingModule {}

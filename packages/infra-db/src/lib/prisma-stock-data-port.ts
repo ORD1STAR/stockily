@@ -55,13 +55,14 @@ export class PrismaStockDataPort implements StockDataPort {
   async applyStockLevelDelta(
     productId: string,
     siteId: string,
-    delta: { onHand?: number; quarantined?: number },
+    delta: { onHand?: number; quarantined?: number; reserved?: number },
   ): Promise<StockLevelSnapshot> {
     const level = await this.prisma.stockLevel.update({
       where: { productId_siteId: { productId, siteId } },
       data: {
         ...(delta.onHand ? { quantityOnHand: { increment: delta.onHand } } : {}),
         ...(delta.quarantined ? { quantityQuarantined: { increment: delta.quarantined } } : {}),
+        ...(delta.reserved ? { quantityReserved: { increment: delta.reserved } } : {}),
       },
     });
     return toSnapshot(level);

@@ -37,11 +37,11 @@ export interface StockDataPort {
 
   getOrCreateStockLevel(productId: string, siteId: string): Promise<StockLevelSnapshot>;
 
-  /** Applies a signed delta to onHand and/or quarantined; returns the resulting snapshot. Never lets the caller apply a delta that isn't already validated — this is a dumb writer, not a policy enforcer. */
+  /** Applies a signed delta to onHand/quarantined/reserved; returns the resulting snapshot. Never lets the caller apply a delta that isn't already validated — this is a dumb writer, not a policy enforcer. */
   applyStockLevelDelta(
     productId: string,
     siteId: string,
-    delta: { onHand?: number; quarantined?: number },
+    delta: { onHand?: number; quarantined?: number; reserved?: number },
   ): Promise<StockLevelSnapshot>;
 
   updateAverageCost(productId: string, newAverageCost: number): Promise<void>;

@@ -267,6 +267,7 @@ export interface Partner {
   address: string | null;
   phone: string | null;
   email: string | null;
+  paymentTermsNetDays: number | null;
 }
 
 export interface TaxRate {
@@ -310,8 +311,11 @@ export interface InvoiceView {
   site?: { name: string };
   partnerId: string | null;
   partner: { name: string; nif: string } | null;
+  purchaseOrderId: string | null;
+  salesOrderId: string | null;
   issuedAt: string;
   finalizedAt: string | null;
+  dueDate: string | null;
   lines: InvoiceLineView[];
   totals: { totalHt: number; totalTax: number; totalTtc: number; totalInWordsFr: string; totalInWordsAr: string };
   totalPaid: number;
@@ -340,7 +344,9 @@ export const invoicingApi = {
       siteId: string;
       partnerId?: string;
       number?: string;
-      lines: { productId?: string; description: string; quantity: number; unitPrice: number; taxRateId?: string }[];
+      purchaseOrderId?: string;
+      salesOrderId?: string;
+      lines: { productId?: string; description: string; quantity: number; unitPrice: number; taxRateId?: string; salesOrderLineId?: string }[];
     },
   ) => authedRequest<InvoiceView>('/invoicing/invoices', token, { method: 'POST', body: JSON.stringify(data) }),
   finalizeInvoice: (token: string, id: string) => authedRequest<InvoiceView>(`/invoicing/invoices/${id}/finalize`, token, { method: 'POST' }),
@@ -401,7 +407,7 @@ export interface PurchaseOrderLineView {
 export interface PurchaseOrderView {
   id: string;
   number: string | null;
-  status: 'draft' | 'confirmed' | 'partially_received' | 'received' | 'cancelled';
+  status: 'draft' | 'confirmed' | 'partially_received' | 'received' | 'cancelled' | 'rfq' | 'rfq_rejected';
   siteId: string;
   site: { name: string };
   supplierId: string;
@@ -409,6 +415,7 @@ export interface PurchaseOrderView {
   expectedDate: string | null;
   notes: string | null;
   createdAt: string;
+  comparisonGroupId: string | null;
   lines: PurchaseOrderLineView[];
 }
 
@@ -419,6 +426,7 @@ export interface PurchaseReceiptLineView {
   product?: { sku: string; name: string };
   quantityReceived: number;
   unitCost: number;
+  landedCostShare: number | null;
   batchId: string | null;
   qualityCheckId: string | null;
 }
@@ -428,6 +436,8 @@ export interface PurchaseReceiptView {
   purchaseOrderId: string | null;
   siteId: string;
   site: { name: string };
+  landedCostAmount: number | null;
+  landedCostNotes: string | null;
   receivedAt: string;
   notes: string | null;
   lines: PurchaseReceiptLineView[];
@@ -457,6 +467,8 @@ export const purchasingApi = {
       purchaseOrderId?: string;
       siteId: string;
       notes?: string;
+      landedCostAmount?: number;
+      landedCostNotes?: string;
       lines: {
         purchaseOrderLineId?: string;
         productId: string;
@@ -469,6 +481,118 @@ export const purchasingApi = {
       }[];
     },
   ) => authedRequest<PurchaseReceiptView>('/purchasing/receipts', token, { method: 'POST', body: JSON.stringify(data) }),
+  createSupplierInvoice: (
+    token: string,
+    purchaseOrderId: string,
+    data: { number: string; lines: { productId?: string; description: string; quantity: number; unitPrice: number; taxRateId?: string }[] },
+  ) => authedRequest<InvoiceView>(`/purchasing/orders/${purchaseOrderId}/invoice`, token, { method: 'POST', body: JSON.stringify(data) }),
+  createRfq: (token: string, data: { siteId: string; supplierIds: string[]; productLines: { productId: string; quantity: number }[] }) =>
+    authedRequest<{ comparisonGroupId: string; candidates: PurchaseOrderView[] }>('/purchasing/rfq', token, { method: 'POST', body: JSON.stringify(data) }),
+  getRfqGroup: (token: string, groupId: string) => authedRequest<PurchaseOrderView[]>(`/purchasing/rfq/${groupId}`, token),
+  awardRfq: (token: string, groupId: string, purchaseOrderId: string) =>
+    authedRequest<PurchaseOrderView>(`/purchasing/rfq/${groupId}/award/${purchaseOrderId}`, token, { method: 'POST' }),
+  updateRfqPrices: (token: string, purchaseOrderId: string, data: { lines: { lineId: string; unitCost: number }[] }) =>
+    authedRequest<PurchaseOrderView>(`/purchasing/rfq/orders/${purchaseOrderId}/prices`, token, { method: 'PATCH', body: JSON.stringify(data) }),
+  getLastPricePaid: (token: string, productId: string, supplierId?: string) =>
+    authedRequest<{ unitCost: number; receivedAt: string; supplier: { id: string; name: string } | null } | null>(
+      `/purchasing/products/${productId}/last-price${supplierId ? `?supplierId=${encodeURIComponent(supplierId)}` : ''}`,
+      token,
+    ),
+  getDashboard: (token: string) =>
+    authedRequest<{
+      openOrdersCount: number;
+      openOrdersValue: number;
+      overdueCount: number;
+      overdueOrders: { id: string; number: string | null; supplier: string; expectedDate: string | null }[];
+      expectedSoonCount: number;
+    }>('/purchasing/dashboard', token),
+};
+
+export interface SalesOrderLineView {
+  id: string;
+  productId: string | null;
+  product?: { sku: string; name: string } | null;
+  description: string;
+  quantityOrdered: number;
+  quantityInvoiced: number;
+  unitPrice: number;
+  discountPercent: number | null;
+  taxRateId: string | null;
+}
+
+export interface SalesOrderView {
+  id: string;
+  kind: 'quote' | 'order';
+  number: string | null;
+  promotedFromQuoteNumber: string | null;
+  // quote: draft | sent | accepted | expired | cancelled
+  // order: confirmed | partially_invoiced | invoiced | cancelled
+  status: string;
+  siteId: string;
+  site: { name: string };
+  customerId: string;
+  customer: { name: string };
+  expectedDate: string | null;
+  notes: string | null;
+  createdAt: string;
+  lines: SalesOrderLineView[];
+  invoices?: { id: string; number: string | null; status: string }[];
+}
+
+export interface PartnerProductPriceView {
+  id: string;
+  partnerId: string;
+  partner?: { name: string };
+  productId: string;
+  product?: { sku: string; name: string };
+  unitPrice: number | null;
+  discountPercent: number | null;
+}
+
+export const salesApi = {
+  listOrders: (token: string, filters?: { kind?: 'quote' | 'order'; siteId?: string; customerId?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.kind) params.set('kind', filters.kind);
+    if (filters?.siteId) params.set('siteId', filters.siteId);
+    if (filters?.customerId) params.set('customerId', filters.customerId);
+    const qs = params.toString();
+    return authedRequest<SalesOrderView[]>(`/sales/orders${qs ? `?${qs}` : ''}`, token);
+  },
+  getOrder: (token: string, id: string) => authedRequest<SalesOrderView>(`/sales/orders/${id}`, token),
+  createOrder: (
+    token: string,
+    data: {
+      kind: 'quote' | 'order';
+      siteId: string;
+      customerId: string;
+      expectedDate?: string;
+      notes?: string;
+      acknowledgeShortage?: boolean;
+      lines: { productId?: string; description?: string; quantity: number; unitPrice?: number; discountPercent?: number; taxRateId?: string }[];
+    },
+  ) => authedRequest<SalesOrderView>('/sales/orders', token, { method: 'POST', body: JSON.stringify(data) }),
+  cancelOrder: (token: string, id: string) =>
+    authedRequest<SalesOrderView>(`/sales/orders/${id}/status`, token, { method: 'PATCH', body: JSON.stringify({ action: 'cancelled' }) }),
+  promoteOrder: (token: string, id: string, acknowledgeShortage?: boolean) =>
+    authedRequest<SalesOrderView>(`/sales/orders/${id}/status`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'promote', acknowledgeShortage }),
+    }),
+  invoiceOrder: (token: string, id: string, data: { lines: { salesOrderLineId: string; quantity: number }[] }) =>
+    authedRequest<InvoiceView>(`/sales/orders/${id}/invoice`, token, { method: 'POST', body: JSON.stringify(data) }),
+  listPricing: (token: string, partnerId?: string) =>
+    authedRequest<PartnerProductPriceView[]>(`/sales/pricing${partnerId ? `?partnerId=${encodeURIComponent(partnerId)}` : ''}`, token),
+  upsertPricing: (token: string, data: { partnerId: string; productId: string; unitPrice?: number; discountPercent?: number }) =>
+    authedRequest<PartnerProductPriceView>('/sales/pricing', token, { method: 'POST', body: JSON.stringify(data) }),
+  deletePricing: (token: string, id: string) => authedRequest<void>(`/sales/pricing/${id}`, token, { method: 'DELETE' }),
+  getDashboard: (token: string) =>
+    authedRequest<{
+      openQuotesCount: number;
+      openOrdersCount: number;
+      openOrdersValue: number;
+      overdueCount: number;
+      overdueOrders: { id: string; number: string | null; customer: string; expectedDate: string | null }[];
+    }>('/sales/dashboard', token),
 };
 
 export const scanApi = {

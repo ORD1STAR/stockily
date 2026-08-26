@@ -1,6 +1,11 @@
 import { InMemoryStockDataPort } from './in-memory-stock-data-port.test-helper.js';
 import { StockMovementService } from './stock-movement.service.js';
-import { InsufficientQuarantineSourceError, NegativeStockError, UnknownProductError } from './types.js';
+import {
+  InsufficientQuarantineSourceError,
+  InsufficientReservableStockError,
+  NegativeStockError,
+  UnknownProductError,
+} from './types.js';
 
 const ORG = 'org-1';
 const SITE_A = 'site-a';
@@ -130,6 +135,47 @@ describe('StockMovementService.recordMovement', () => {
     ).rejects.toBeInstanceOf(NegativeStockError);
   });
 
+  it('OUT is blocked from consuming reserved stock, even though quantityOnHand alone would cover it (Gestion Ventes reservation)', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 10, quantityQuarantined: 0, quantityReserved: 6 });
+
+    // 10 on hand, 6 reserved -> only 4 truly available; asking for 5 must fail.
+    await expect(
+      service.recordMovement({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, type: 'OUT', quantity: 5 }),
+    ).rejects.toBeInstanceOf(NegativeStockError);
+
+    // But exactly the available (unreserved) amount goes through fine.
+    const result = await service.recordMovement({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, type: 'OUT', quantity: 4 });
+    expect(result.fromStockLevel.quantityOnHand).toBe(6);
+  });
+
+  it('TRANSFER out-leg is also blocked from consuming reserved stock', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 10, quantityQuarantined: 0, quantityReserved: 6 });
+
+    await expect(
+      service.recordMovement({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, toSiteId: SITE_B, type: 'TRANSFER', quantity: 5 }),
+    ).rejects.toBeInstanceOf(NegativeStockError);
+  });
+
+  it('ADJUSTMENT decrease is NOT blocked by reservations — a physical recount reflects reality regardless of what is earmarked', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 10, quantityQuarantined: 0, quantityReserved: 6 });
+
+    // Only 4 is "available" (10 - 6 reserved), but a recount correction of
+    // 8 units down is still only bounded by physical on-hand (10), not by
+    // the reservation.
+    const result = await service.recordMovement({
+      orgId: ORG,
+      productId: PRODUCT,
+      siteId: SITE_A,
+      type: 'ADJUSTMENT',
+      adjustmentDirection: 'decrease',
+      quantity: 8,
+    });
+    expect(result.fromStockLevel.quantityOnHand).toBe(2);
+  });
+
   it('emits StockLevelLow exactly on the ok -> low/out crossing, not on every subsequent movement', async () => {
     const { port, service } = makeService(); // minThreshold = 10
     port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 15, quantityQuarantined: 0, quantityReserved: 0 });
@@ -179,5 +225,54 @@ describe('StockMovementService.quarantine', () => {
     await expect(
       service.quarantine({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 4, reason: 'expired' }),
     ).rejects.toBeInstanceOf(InsufficientQuarantineSourceError);
+  });
+});
+
+describe('StockMovementService.reserve / release', () => {
+  it('reserves against available (onHand - already reserved) stock', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 20, quantityQuarantined: 0, quantityReserved: 5 });
+
+    const result = await service.reserve({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 10 });
+
+    expect(result.stockLevel.quantityReserved).toBe(15);
+    expect(result.stockLevel.quantityOnHand).toBe(20); // reservation never touches onHand
+    expect(result.backorderedQuantity).toBe(0);
+    expect(result.events).toEqual([expect.objectContaining({ kind: 'StockReserved', quantity: 10, backorderedQuantity: 0 })]);
+  });
+
+  it('strict mode (default) rejects a reservation beyond what is available', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 10, quantityQuarantined: 0, quantityReserved: 8 });
+
+    await expect(
+      service.reserve({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 5 }),
+    ).rejects.toBeInstanceOf(InsufficientReservableStockError);
+
+    // Rejected reservation must not have partially applied.
+    expect((await port.getOrCreateStockLevel(PRODUCT, SITE_A)).quantityReserved).toBe(8);
+  });
+
+  it('allowBackorder: true reserves the full amount anyway and reports the shortage', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 10, quantityQuarantined: 0, quantityReserved: 8 });
+
+    // Only 2 available, asking for 5 -> 3 backordered.
+    const result = await service.reserve({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 5, allowBackorder: true });
+
+    expect(result.stockLevel.quantityReserved).toBe(13);
+    expect(result.backorderedQuantity).toBe(3);
+  });
+
+  it('release decrements quantityReserved, floored at 0', async () => {
+    const { port, service } = makeService();
+    port.seedStockLevel(PRODUCT, SITE_A, { quantityOnHand: 20, quantityQuarantined: 0, quantityReserved: 6 });
+
+    const result = await service.release({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 4 });
+    expect(result.stockLevel.quantityReserved).toBe(2);
+
+    // Releasing more than is actually reserved doesn't go negative.
+    const overRelease = await service.release({ orgId: ORG, productId: PRODUCT, siteId: SITE_A, quantity: 999 });
+    expect(overRelease.stockLevel.quantityReserved).toBe(0);
   });
 });

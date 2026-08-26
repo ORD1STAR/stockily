@@ -26,7 +26,13 @@ adds Achats (Purchasing) — bons de commande, réceptions (with or without a
 prior PO), and receiving reusing Stock's ledger + Quality's batch/check
 flow exactly like Scan's own Entrée already does — the first Phase 2
 product module, and two more real bugs the live app caught that the test
-suite didn't.
+suite didn't. `docs/MILESTONE_10.md` splits that single module into two
+symmetric, independently-priced ones — **Gestion Achats** (RFQ/comparaison
+fournisseurs, coût de revient, facture fournisseur) and the brand-new
+**Gestion Ventes** (devis → commande → facture client) — and finally wires
+up stock reservations (`quantityReserved`, stubbed since Milestone 1) with
+a transversal fix so every OUT/TRANSFER movement, including Vente rapide,
+respects them.
 
 ## Quickstart
 

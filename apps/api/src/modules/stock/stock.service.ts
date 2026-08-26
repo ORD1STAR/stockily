@@ -4,9 +4,12 @@ import { Prisma } from '@prisma/client';
 import {
   computeThresholdStatus,
   InsufficientQuarantineSourceError,
+  InsufficientReservableStockError,
   NegativeStockError,
   QuarantineInput,
   RecordMovementInput,
+  ReleaseInput,
+  ReserveInput,
   StockMovementService,
   UnknownProductError,
 } from '@org/domain-stock';
@@ -280,6 +283,71 @@ export class StockService {
     } catch (err) {
       throw this.translateQuarantineError(err);
     }
+  }
+
+  /**
+   * The one entry point Gestion Ventes uses to earmark stock against a
+   * commande (Milestone 10) — same rule as quarantine/recordMovement
+   * above, StockService is the only thing in apps/api allowed to
+   * construct StockMovementService. Strict-path failures
+   * (`InsufficientReservableStockError`) become a 409, not a 400 — Ventes'
+   * preview-then-confirm flow uses the distinct status to mean "needs a
+   * decision", not "malformed/invalid request".
+   */
+  async reserve(input: ReserveInput) {
+    try {
+      const result = await this.movementService().reserve(input);
+      this.publish(result.events);
+      return result;
+    } catch (err) {
+      throw this.translateReserveError(err);
+    }
+  }
+
+  async release(input: ReleaseInput) {
+    try {
+      const result = await this.movementService().release(input);
+      this.publish(result.events);
+      return result;
+    } catch (err) {
+      throw this.translateDomainError(err);
+    }
+  }
+
+  /** Same transaction-composition rationale as recordMovementInTransaction — finalizeInvoice releases a commande's reservation atomically alongside its own number assignment + OUT movement. */
+  async releaseInTransaction(tx: Prisma.TransactionClient, input: ReleaseInput) {
+    try {
+      return await new StockMovementService(new PrismaStockDataPort(tx)).release(input);
+    } catch (err) {
+      throw this.translateDomainError(err);
+    }
+  }
+
+  /** Same transaction-composition rationale — SalesService.createSalesOrder reserves every product line atomically alongside the SalesOrder/lines it just created: a shortage on any one line (allowBackorder false) rolls back the whole order, nothing partially reserved. */
+  async reserveInTransaction(tx: Prisma.TransactionClient, input: ReserveInput) {
+    try {
+      return await new StockMovementService(new PrismaStockDataPort(tx)).reserve(input);
+    } catch (err) {
+      throw this.translateReserveError(err);
+    }
+  }
+
+  private translateReserveError(err: unknown): Error {
+    if (err instanceof InsufficientReservableStockError) {
+      return new ConflictException({
+        statusCode: 409,
+        error: 'insufficient_reservable_stock',
+        message: err.message,
+        productId: err.productId,
+        siteId: err.siteId,
+        requested: err.requested,
+        available: err.available,
+      });
+    }
+    if (err instanceof UnknownProductError) {
+      return new NotFoundException(err.message);
+    }
+    return err as Error;
   }
 
   private translateQuarantineError(err: unknown): Error {

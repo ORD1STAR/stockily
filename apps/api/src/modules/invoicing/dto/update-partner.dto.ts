@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 // Mirrors CreatePartnerDto but every field is optional — a partial update
 // (e.g. fixing a phone number) shouldn't have to resend the whole record.
@@ -44,4 +44,9 @@ export class UpdatePartnerDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  paymentTermsNetDays?: number;
 }

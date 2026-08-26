@@ -146,6 +146,7 @@ function PartnerEditForm({
   const [address, setAddress] = useState(partner?.address ?? '');
   const [phone, setPhone] = useState(partner?.phone ?? '');
   const [email, setEmail] = useState(partner?.email ?? '');
+  const [paymentTermsNetDays, setPaymentTermsNetDays] = useState(partner?.paymentTermsNetDays?.toString() ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,6 +166,7 @@ function PartnerEditForm({
       address: address || null,
       phone: phone || null,
       email: email || null,
+      paymentTermsNetDays: paymentTermsNetDays ? Number(paymentTermsNetDays) : null,
     };
     try {
       if (partner) {
@@ -238,6 +240,16 @@ function PartnerEditForm({
               <label>Email</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
+          </div>
+          <div className="field-row">
+            <label>Conditions de paiement (jours)</label>
+            <input
+              type="number"
+              min={0}
+              value={paymentTermsNetDays}
+              onChange={(e) => setPaymentTermsNetDays(e.target.value)}
+              placeholder="ex: 30"
+            />
           </div>
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">

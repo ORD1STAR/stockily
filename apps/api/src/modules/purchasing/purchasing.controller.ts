@@ -11,6 +11,9 @@ import { AuditInterceptor } from '../audit/audit.interceptor';
 import { PurchasingService } from './purchasing.service';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
+import { CreateRfqDto } from './dto/create-rfq.dto';
+import { CreateSupplierInvoiceDto } from './dto/create-supplier-invoice.dto';
+import { UpdateRfqPricesDto } from './dto/update-rfq-prices.dto';
 
 // Guard chain identical to every other product module (docs/Action Plan.md
 // §4) — Purchasing requires Stock (seeded in packages/infra-db/prisma/seed.ts,
@@ -76,5 +79,67 @@ export class PurchasingController {
   @RequiresPermission('purchasing', 'purchasing.receipt.read')
   getReceipt(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.purchasing.getReceipt(user.orgId, id);
+  }
+
+  // ---------------- Facture fournisseur ----------------
+
+  @Post('orders/:id/invoice')
+  @RequiresPermission('purchasing', 'purchasing.invoice.create')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order', 'purchasing.order.invoiced')
+  createSupplierInvoice(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CreateSupplierInvoiceDto) {
+    return this.purchasing.createSupplierInvoice(user.orgId, id, dto);
+  }
+
+  // ---------------- RFQ / comparaison de prix ----------------
+
+  @Post('rfq')
+  @RequiresPermission('purchasing', 'purchasing.rfq.create')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order', 'purchasing.rfq.created')
+  createRfq(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateRfqDto) {
+    return this.purchasing.createRfq(user.orgId, user.userId, dto);
+  }
+
+  @Get('rfq/:groupId')
+  @RequiresPermission('purchasing', 'purchasing.rfq.create')
+  getRfqGroup(@CurrentUser() user: AuthenticatedUser, @Param('groupId') groupId: string) {
+    return this.purchasing.getRfqGroup(user.orgId, groupId);
+  }
+
+  @Post('rfq/:groupId/award/:purchaseOrderId')
+  @RequiresPermission('purchasing', 'purchasing.rfq.award')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order', 'purchasing.rfq.awarded')
+  awardRfq(@CurrentUser() user: AuthenticatedUser, @Param('groupId') groupId: string, @Param('purchaseOrderId') purchaseOrderId: string) {
+    return this.purchasing.awardRfq(user.orgId, groupId, purchaseOrderId);
+  }
+
+  // Records the price one supplier actually quoted for a candidate created
+  // via createRfq (which starts every line at unitCost 0) — same
+  // rfq.create permission as creating the comparison itself, not a
+  // separate action.
+  @Patch('rfq/orders/:purchaseOrderId/prices')
+  @RequiresPermission('purchasing', 'purchasing.rfq.create')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order', 'purchasing.rfq.prices_updated')
+  updateRfqPrices(@CurrentUser() user: AuthenticatedUser, @Param('purchaseOrderId') purchaseOrderId: string, @Body() dto: UpdateRfqPricesDto) {
+    return this.purchasing.updateRfqLinePrices(user.orgId, purchaseOrderId, dto);
+  }
+
+  // ---------------- Historique de prix ----------------
+
+  @Get('products/:productId/last-price')
+  @RequiresPermission('purchasing', 'purchasing.order.read')
+  getLastPricePaid(@CurrentUser() user: AuthenticatedUser, @Param('productId') productId: string, @Query('supplierId') supplierId?: string) {
+    return this.purchasing.getLastPricePaid(user.orgId, productId, supplierId);
+  }
+
+  // ---------------- Dashboard ----------------
+
+  @Get('dashboard')
+  @RequiresPermission('purchasing', 'purchasing.dashboard.read')
+  getDashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.purchasing.getDashboard(user.orgId);
   }
 }

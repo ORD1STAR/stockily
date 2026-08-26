@@ -45,6 +45,7 @@ export class InvoicingService {
         address: dto.address ?? null,
         phone: dto.phone ?? null,
         email: dto.email ?? null,
+        paymentTermsNetDays: dto.paymentTermsNetDays ?? null,
       },
     });
   }
@@ -69,6 +70,7 @@ export class InvoicingService {
         ...(dto.address !== undefined ? { address: dto.address } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.paymentTermsNetDays !== undefined ? { paymentTermsNetDays: dto.paymentTermsNetDays } : {}),
       },
     });
   }
@@ -113,19 +115,31 @@ export class InvoicingService {
   // ---------------- Invoices ----------------
 
   async createInvoice(orgId: string, dto: CreateInvoiceDto) {
+    let partner: { paymentTermsNetDays: number | null } | null = null;
     if (dto.partnerId) {
-      const partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId } });
+      partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId } });
       if (!partner) throw new NotFoundException(`Unknown partner: ${dto.partnerId}`);
     }
     const site = await this.prisma.site.findFirst({ where: { id: dto.siteId, orgId } });
     if (!site) throw new NotFoundException(`Unknown site: ${dto.siteId}`);
+    if (dto.purchaseOrderId) {
+      const po = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.purchaseOrderId, orgId } });
+      if (!po) throw new NotFoundException(`Unknown purchase order: ${dto.purchaseOrderId}`);
+    }
+    if (dto.salesOrderId) {
+      const so = await this.prisma.salesOrder.findFirst({ where: { id: dto.salesOrderId, orgId } });
+      if (!so) throw new NotFoundException(`Unknown sales order: ${dto.salesOrderId}`);
+    }
 
     const linesData = dto.lines.map((l) => this.toLineCreateData(l));
 
     if (dto.type === 'SUPPLIER') {
       // No draft/finalize dance, no compliance numbering (this is the
       // SUPPLIER's own reference, supplied directly), no stock movement —
-      // receiving/Purchasing is Phase 2, out of scope (docs/MILESTONE_4.md).
+      // receiving goes through Purchasing (Milestone 9) instead. finalizedAt
+      // is set immediately here, which is also when Milestone 10's dueDate
+      // becomes computable (see computeDueDate).
+      const finalizedAt = new Date();
       return this.prisma.invoice.create({
         data: {
           orgId,
@@ -133,8 +147,10 @@ export class InvoicingService {
           type: 'SUPPLIER',
           number: dto.number,
           partnerId: dto.partnerId ?? null,
+          purchaseOrderId: dto.purchaseOrderId ?? null,
           status: 'unpaid',
-          finalizedAt: new Date(),
+          finalizedAt,
+          dueDate: this.computeDueDate(finalizedAt, partner?.paymentTermsNetDays ?? null),
           lines: { create: linesData },
         },
         include: { lines: true },
@@ -148,11 +164,20 @@ export class InvoicingService {
         type: 'CUSTOMER',
         number: null,
         partnerId: dto.partnerId ?? null,
+        salesOrderId: dto.salesOrderId ?? null,
         status: 'draft',
         lines: { create: linesData },
+        // dueDate stays null until finalize — a draft has no finalizedAt
+        // yet to compute it from (see finalizeInvoice).
       },
       include: { lines: true },
     });
+  }
+
+  /** Milestone 10 — null when the partner has no payment-terms figure on file (most partners today), not a silent default. */
+  private computeDueDate(finalizedAt: Date, paymentTermsNetDays: number | null): Date | null {
+    if (paymentTermsNetDays == null) return null;
+    return new Date(finalizedAt.getTime() + paymentTermsNetDays * 24 * 60 * 60 * 1000);
   }
 
   private toLineCreateData(l: CreateInvoiceLineDto) {
@@ -164,6 +189,7 @@ export class InvoicingService {
       discountPercent: l.discountPercent ?? null,
       discountAmount: l.discountAmount ?? null,
       taxRateId: l.taxRateId ?? null,
+      salesOrderLineId: l.salesOrderLineId ?? null,
     };
   }
 
@@ -280,6 +306,8 @@ export class InvoicingService {
       // recordMovement, specifically so this participates in the SAME
       // transaction (see that method's own comment on why the ordinary
       // one can't be used here).
+      const touchedSalesOrderIds = new Set<string>();
+
       for (const line of invoice.lines) {
         if (!line.productId) continue;
         try {
@@ -316,6 +344,39 @@ export class InvoicingService {
           }
           throw err;
         }
+
+        // Milestone 10 — additive, only for a line built by
+        // SalesService.invoiceSalesOrder (every other line, including
+        // every pre-Milestone-10 invoice and Vente rapide, has
+        // salesOrderLineId null and never enters this branch). Releases
+        // the matching commande reservation and advances
+        // quantityInvoiced atomically alongside the OUT movement and
+        // number assignment above — not a separate call, so a failure
+        // anywhere in finalize still rolls back the whole thing including
+        // this. Deliberately raw Prisma calls on Sales' own tables rather
+        // than injecting SalesService here: InvoicingModule must not
+        // depend on SalesModule, which itself depends on InvoicingModule
+        // (SalesService.invoiceSalesOrder calls createInvoice) — a real
+        // circular-module-dependency risk, avoided by keeping this small,
+        // self-contained bookkeeping inline instead.
+        if (line.productId && line.salesOrderLineId) {
+          const soLine = await tx.salesOrderLine.findUniqueOrThrow({ where: { id: line.salesOrderLineId } });
+          await this.stock.releaseInTransaction(tx, {
+            orgId,
+            productId: line.productId,
+            siteId: invoice.siteId,
+            quantity: Number(line.quantity),
+          });
+          await tx.salesOrderLine.update({
+            where: { id: line.salesOrderLineId },
+            data: { quantityInvoiced: { increment: Number(line.quantity) } },
+          });
+          touchedSalesOrderIds.add(soLine.salesOrderId);
+        }
+      }
+
+      for (const salesOrderId of touchedSalesOrderIds) {
+        await this.recomputeSalesOrderStatusInTransaction(tx, salesOrderId);
       }
 
       // Gapless, per-org, per-calendar-year sequential number (Décret
@@ -338,10 +399,16 @@ export class InvoicingService {
       `;
       const seq = rows[0].lastNumber;
       const number = `FA-${year}-${String(seq).padStart(6, '0')}`;
+      const finalizedAt = new Date();
 
       return tx.invoice.update({
         where: { id: invoiceId },
-        data: { number, status: 'unpaid', finalizedAt: new Date() },
+        data: {
+          number,
+          status: 'unpaid',
+          finalizedAt,
+          dueDate: this.computeDueDate(finalizedAt, invoice.partner?.paymentTermsNetDays ?? null),
+        },
         include: { lines: { include: { taxRate: true } }, payments: true },
       });
     });
@@ -351,6 +418,15 @@ export class InvoicingService {
     this.stock.publishEvents(collectedEvents);
 
     return this.assembleView(finalized);
+  }
+
+  /** Derives a SalesOrder (kind='order')'s status from its lines' cumulative quantityInvoiced — same shape as PurchasingService's own updatePurchaseOrderStatus, kept here (not in a shared helper) since it only ever runs from inside finalizeInvoice's own transaction. */
+  private async recomputeSalesOrderStatusInTransaction(tx: Prisma.TransactionClient, salesOrderId: string): Promise<void> {
+    const lines = await tx.salesOrderLine.findMany({ where: { salesOrderId } });
+    const fullyInvoiced = lines.every((l) => Number(l.quantityInvoiced) >= Number(l.quantityOrdered));
+    const anyInvoiced = lines.some((l) => Number(l.quantityInvoiced) > 0);
+    const status = fullyInvoiced ? 'invoiced' : anyInvoiced ? 'partially_invoiced' : 'confirmed';
+    await tx.salesOrder.update({ where: { id: salesOrderId }, data: { status } });
   }
 
   async voidInvoice(orgId: string, invoiceId: string) {

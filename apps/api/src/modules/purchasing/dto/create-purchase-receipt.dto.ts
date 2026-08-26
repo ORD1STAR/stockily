@@ -66,6 +66,19 @@ export class CreatePurchaseReceiptDto {
   @IsString()
   notes?: string;
 
+  // Milestone 10 (coût de revient) — one lump sum for this receipt's
+  // transport/douane/assurance, pro-rated across lines by value (see
+  // PurchasingService.receiveGoods). Absent/zero = identical behavior to
+  // before this milestone.
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  landedCostAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  landedCostNotes?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
