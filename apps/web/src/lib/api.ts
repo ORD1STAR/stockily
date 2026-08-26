@@ -389,6 +389,88 @@ export interface BarcodeLabelView {
   batch: { lotNumber: string } | null;
 }
 
+export interface PurchaseOrderLineView {
+  id: string;
+  productId: string;
+  product?: { sku: string; name: string };
+  quantityOrdered: number;
+  quantityReceived: number;
+  unitCost: number;
+}
+
+export interface PurchaseOrderView {
+  id: string;
+  number: string | null;
+  status: 'draft' | 'confirmed' | 'partially_received' | 'received' | 'cancelled';
+  siteId: string;
+  site: { name: string };
+  supplierId: string;
+  supplier: { name: string };
+  expectedDate: string | null;
+  notes: string | null;
+  createdAt: string;
+  lines: PurchaseOrderLineView[];
+}
+
+export interface PurchaseReceiptLineView {
+  id: string;
+  purchaseOrderLineId: string | null;
+  productId: string;
+  product?: { sku: string; name: string };
+  quantityReceived: number;
+  unitCost: number;
+  batchId: string | null;
+  qualityCheckId: string | null;
+}
+
+export interface PurchaseReceiptView {
+  id: string;
+  purchaseOrderId: string | null;
+  siteId: string;
+  site: { name: string };
+  receivedAt: string;
+  notes: string | null;
+  lines: PurchaseReceiptLineView[];
+}
+
+export const purchasingApi = {
+  listOrders: (token: string, siteId?: string) =>
+    authedRequest<PurchaseOrderView[]>(`/purchasing/orders${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`, token),
+  getOrder: (token: string, id: string) => authedRequest<PurchaseOrderView>(`/purchasing/orders/${id}`, token),
+  createOrder: (
+    token: string,
+    data: {
+      siteId: string;
+      supplierId: string;
+      expectedDate?: string;
+      notes?: string;
+      lines: { productId: string; quantityOrdered: number; unitCost: number }[];
+    },
+  ) => authedRequest<PurchaseOrderView>('/purchasing/orders', token, { method: 'POST', body: JSON.stringify(data) }),
+  cancelOrder: (token: string, id: string) =>
+    authedRequest<PurchaseOrderView>(`/purchasing/orders/${id}`, token, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }),
+  listReceipts: (token: string, purchaseOrderId?: string) =>
+    authedRequest<PurchaseReceiptView[]>(`/purchasing/receipts${purchaseOrderId ? `?purchaseOrderId=${encodeURIComponent(purchaseOrderId)}` : ''}`, token),
+  receiveGoods: (
+    token: string,
+    data: {
+      purchaseOrderId?: string;
+      siteId: string;
+      notes?: string;
+      lines: {
+        purchaseOrderLineId?: string;
+        productId: string;
+        quantity: number;
+        unitCost: number;
+        newLot?: { lotNumber: string; expiryDate?: string };
+        existingBatchId?: string;
+        qualityResult?: 'conforme' | 'non_conforme';
+        qualityNotes?: string;
+      }[];
+    },
+  ) => authedRequest<PurchaseReceiptView>('/purchasing/receipts', token, { method: 'POST', body: JSON.stringify(data) }),
+};
+
 export const scanApi = {
   resolveCode: (token: string, code: string, siteId?: string) =>
     authedRequest<ScanResolution>(`/scan/resolve/${encodeURIComponent(code)}${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`, token),

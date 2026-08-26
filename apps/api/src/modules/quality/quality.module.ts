@@ -19,5 +19,10 @@ import { ExpirySweepScheduler } from './expiry-sweep.scheduler';
   imports: [TenancyModule, AuditModule, StockModule, ScheduleModule.forRoot()],
   controllers: [QualityController],
   providers: [QualityService, ExpirySweepScheduler],
+  // Exported for Milestone 9's PurchasingModule, which reuses
+  // recordQualityCheck/createBatch for its receiving flow exactly like
+  // Scan already does at the HTTP layer — same reasoning as StockModule
+  // exporting StockService (see that module's own comment).
+  exports: [QualityService],
 })
 export class QualityModule {}

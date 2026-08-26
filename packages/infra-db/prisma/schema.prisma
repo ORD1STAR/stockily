@@ -69,6 +69,9 @@ model Organization {
   partners      Partner[]
   auditLogs     AuditLog[]
   barcodeLabels BarcodeLabel[]
+  purchaseOrders PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
+  purchaseOrderCounters PurchaseOrderCounter[]
 
   @@map("organizations")
 }
@@ -121,6 +124,8 @@ model Site {
   transfersFrom   StockTransfer[]   @relation("transferFromSite")
   transfersTo     StockTransfer[]   @relation("transferToSite")
   invoices        Invoice[]
+  purchaseOrders  PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@index([orgId])
   @@map("sites")
@@ -253,6 +258,8 @@ model Product {
   invoiceLines InvoiceLine[]
   qualityChecks QualityCheck[]
   nonConformities NonConformity[]
+  purchaseOrderLines PurchaseOrderLine[]
+  purchaseReceiptLines PurchaseReceiptLine[]
 
   @@unique([orgId, sku])
   @@unique([orgId, barcode])
@@ -388,6 +395,7 @@ model Batch {
   nonConformities NonConformity[]
   expiryAlerts  ExpiryAlert[]
   barcodeLabels BarcodeLabel[]
+  purchaseReceiptLines PurchaseReceiptLine[]
 
   @@index([orgId])
   @@index([productId])
@@ -407,6 +415,7 @@ model QualityCheck {
   organization Organization @relation(fields: [orgId], references: [id])
   product      Product      @relation(fields: [productId], references: [id])
   batch        Batch?       @relation(fields: [batchId], references: [id])
+  purchaseReceiptLines PurchaseReceiptLine[]
 
   @@index([orgId])
   @@map("quality_checks")
@@ -483,6 +492,7 @@ model Partner {
   organization   Organization    @relation(fields: [orgId], references: [id])
   invoices       Invoice[]
   stockMovements StockMovement[]
+  purchaseOrders PurchaseOrder[]
 
   @@index([orgId])
   @@map("partners")
@@ -501,8 +511,11 @@ enum InvoiceType {
 //     partially_paid -> paid. Only a draft may be voided.
 //   SUPPLIER (a bill THIS org received): created already carrying the
 //     SUPPLIER's own reference as `number` (never auto-assigned, never
-//     compliance-numbered by us, no stock movement — Purchasing/receiving
-//     is Phase 2, out of scope) -> unpaid -> partially_paid -> paid.
+//     compliance-numbered by us, no stock movement of its own — receiving
+//     goes through Purchasing (Milestone 9) instead, which is what actually
+//     posts the stock IN movement; `purchaseOrderId` below is a purely
+//     optional traceability link between the two) -> unpaid ->
+//     partially_paid -> paid.
 model Invoice {
   id            String      @id @default(uuid())
   orgId         String
@@ -515,10 +528,15 @@ model Invoice {
   issuedAt      DateTime    @default(now())
   finalizedAt   DateTime?   // set when a CUSTOMER invoice's number is assigned; set at creation time for SUPPLIER invoices
   transmissionStatus String? // placeholder for Algeria's DGI e-invoicing/CTC platform — no active integration yet (§8/§9)
+  // Milestone 9 — optional link from a SUPPLIER invoice to the purchase
+  // order it's settling, for reconciliation only. Nothing is conditioned on
+  // it (no blocking if absent) — purely additive, per Action Plan §5.
+  purchaseOrderId String?
 
   organization Organization  @relation(fields: [orgId], references: [id])
   site         Site          @relation(fields: [siteId], references: [id])
   partner      Partner?      @relation(fields: [partnerId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
   lines        InvoiceLine[]
   payments     Payment[]
   reminders    InvoiceReminder[]
@@ -590,6 +608,112 @@ model InvoiceReminder {
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
   @@map("invoice_reminders")
+}
+
+// ---------------------------------------------------------------------------
+// Purchasing / Achats (Milestone 9, Phase 2) — the supplier-side receiving
+// cycle. Header+lines, same proven pattern as Invoice/InvoiceLine. Receiving
+// posts real stock IN movements through StockService (Action Plan §5:
+// "Achats receipt -> additive IN stock_movement + reuse of the
+// already-modeled quality_check") — no separate ledger of its own.
+// ---------------------------------------------------------------------------
+
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  orgId        String
+  siteId       String    // destination site for the goods
+  supplierId   String    // Partner with isSupplier = true
+  number       String?   // human-readable reference (e.g. "BC-2026-000001") — no legal gapless requirement like Invoice, but reuses the same atomic counter pattern for consistency; null until assigned
+  status       String    @default("draft") // draft | confirmed | partially_received | received | cancelled
+  expectedDate DateTime?
+  notes        String?
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+
+  organization Organization        @relation(fields: [orgId], references: [id])
+  site         Site                @relation(fields: [siteId], references: [id])
+  supplier     Partner             @relation(fields: [supplierId], references: [id])
+  lines        PurchaseOrderLine[]
+  receipts     PurchaseReceipt[]
+  invoices     Invoice[]
+
+  @@unique([orgId, number])
+  @@index([orgId])
+  @@map("purchase_orders")
+}
+
+// Mirrors InvoiceCounter's mechanism exactly (same atomic
+// `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` statement) purely for
+// pattern consistency — no Décret 05-468-style legal gapless requirement
+// applies to a purchase order reference.
+model PurchaseOrderCounter {
+  orgId      String
+  year       Int
+  lastNumber Int @default(0)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@id([orgId, year])
+  @@map("purchase_order_counters")
+}
+
+model PurchaseOrderLine {
+  id               String  @id @default(uuid())
+  purchaseOrderId  String
+  productId        String
+  quantityOrdered  Decimal @db.Decimal(14, 3)
+  quantityReceived Decimal @default(0) @db.Decimal(14, 3) // cumulative, updated on each receipt
+  unitCost         Decimal @db.Decimal(14, 2) // planning/expected cost — the receipt line's own unitCost is what actually feeds the WAC
+
+  purchaseOrder PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
+  product       Product               @relation(fields: [productId], references: [id])
+  receiptLines  PurchaseReceiptLine[]
+
+  @@map("purchase_order_lines")
+}
+
+// purchaseOrderId is nullable — "réception libre": receiving goods with no
+// prior purchase order, for the smaller/informal-supplier case (same
+// reasoning as Quality's product-direct check having no batch to attach to).
+model PurchaseReceipt {
+  id              String   @id @default(uuid())
+  orgId           String
+  purchaseOrderId String?
+  siteId          String
+  receivedBy      String?
+  receivedAt      DateTime @default(now())
+  notes           String?
+
+  organization  Organization          @relation(fields: [orgId], references: [id])
+  purchaseOrder PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
+  site          Site                  @relation(fields: [siteId], references: [id])
+  lines         PurchaseReceiptLine[]
+
+  @@index([orgId])
+  @@map("purchase_receipts")
+}
+
+// purchaseOrderLineId nullable for the same "réception libre" reason as
+// PurchaseReceipt.purchaseOrderId. batchId/qualityCheckId are set only when
+// the receiving flow actually created a lot / ran a quality check for this
+// line (Product.isLotTracked-gated, same as everywhere else in this schema).
+model PurchaseReceiptLine {
+  id                  String  @id @default(uuid())
+  receiptId           String
+  purchaseOrderLineId String?
+  productId           String
+  quantityReceived    Decimal @db.Decimal(14, 3)
+  unitCost            Decimal @db.Decimal(14, 2) // feeds StockService.recordMovement's Weighted Average Cost
+  batchId             String?
+  qualityCheckId      String?
+
+  receipt           PurchaseReceipt   @relation(fields: [receiptId], references: [id])
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+  product           Product           @relation(fields: [productId], references: [id])
+  batch             Batch?            @relation(fields: [batchId], references: [id])
+  qualityCheck      QualityCheck?     @relation(fields: [qualityCheckId], references: [id])
+
+  @@map("purchase_receipt_lines")
 }
 
 // ---------------------------------------------------------------------------

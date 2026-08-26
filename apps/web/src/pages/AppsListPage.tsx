@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
-import { PHASE1_MODULES } from '../lib/modules';
+import { PRODUCT_MODULES } from '../lib/modules';
 import { OrganizationSettingsModal } from '../lib/OrganizationSettingsModal';
 import { PartnersModal } from '../lib/PartnersModal';
 import './DashboardPage.css';
@@ -52,7 +52,7 @@ export function AppsListPage() {
         </button>
       </div>
       <div className="apps-list">
-        {PHASE1_MODULES.map((m) =>
+        {PRODUCT_MODULES.map((m) =>
           entitledKeys.has(m.key) ? (
             <button key={m.key} className="apps-list-item" onClick={() => navigate(m.to)}>
               <span className="apps-list-item-label">{m.label}</span>

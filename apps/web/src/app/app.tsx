@@ -17,6 +17,7 @@ const SitesPage = lazy(() => import('../pages/SitesPage'));
 const QualityPage = lazy(() => import('../pages/QualityPage'));
 const InvoicingPage = lazy(() => import('../pages/InvoicingPage'));
 const ScanPage = lazy(() => import('../pages/ScanPage'));
+const PurchasingPage = lazy(() => import('../pages/PurchasingPage'));
 
 // A blank instant during a chunk fetch reads as broken more than a plain
 // "Chargement…" would — on a fast connection this never even paints.
@@ -89,6 +90,14 @@ export function App() {
               element={
                 <ProtectedRoute>
                   <ScanPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/purchasing"
+              element={
+                <ProtectedRoute>
+                  <PurchasingPage />
                 </ProtectedRoute>
               }
             />

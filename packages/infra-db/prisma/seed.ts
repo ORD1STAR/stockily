@@ -82,23 +82,46 @@ const ACTIONS: Record<string, string[]> = {
   ],
   sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create', 'sites.transfer.read', 'sites.transfer.update'],
   scan: ['scan.label.generate', 'scan.label.print', 'scan.label.read', 'scan.resolve.read'],
+  // Milestone 9 (Achats/Purchasing) — the first Phase 2 module built. Kept
+  // in the same ACTIONS map as the 5 Phase 1 ones (the seeding loop below
+  // iterates Object.keys(ACTIONS) generically, no special-casing needed);
+  // `purchasing` was already seeded into MODULES above since Milestone 1,
+  // this is what actually grants a role permission to use it.
+  purchasing: [
+    'purchasing.order.create',
+    'purchasing.order.read',
+    'purchasing.order.update',
+    'purchasing.order.cancel',
+    'purchasing.receipt.create',
+    'purchasing.receipt.read',
+  ],
 };
 
-const ALL_PHASE1_ACTIONS = Object.values(ACTIONS).flat();
+// Every action across every module this seed script grants permissions
+// for — not just Phase 1 anymore since Milestone 9 added `purchasing` above
+// (Super Admin/Gestionnaire get every built module's actions regardless of
+// phase, same as they always have for Phase 1).
+const ALL_BUILT_MODULE_ACTIONS = Object.values(ACTIONS).flat();
 const READ_ONLY = (keys: string[]) =>
   keys.flatMap((k) => ACTIONS[k].filter((a) => a.endsWith('.read')));
 
 const ROLES: { name: string; actions: string[] }[] = [
-  { name: 'Super Admin', actions: ALL_PHASE1_ACTIONS },
-  { name: 'Gestionnaire', actions: ALL_PHASE1_ACTIONS },
+  { name: 'Super Admin', actions: ALL_BUILT_MODULE_ACTIONS },
+  { name: 'Gestionnaire', actions: ALL_BUILT_MODULE_ACTIONS },
   {
     name: 'Opérateur Entrepôt',
-    actions: [...ACTIONS.stock, ...ACTIONS.quality, ...ACTIONS.scan],
+    actions: [
+      ...ACTIONS.stock,
+      ...ACTIONS.quality,
+      ...ACTIONS.scan,
+      ...READ_ONLY(['purchasing']),
+      'purchasing.receipt.create',
+    ],
   },
   { name: 'Commercial', actions: READ_ONLY(['stock', 'invoicing']) },
   {
     name: 'Comptable / Finance',
-    actions: [...ACTIONS.invoicing, ...READ_ONLY(['stock', 'quality'])],
+    actions: [...ACTIONS.invoicing, ...READ_ONLY(['stock', 'quality', 'purchasing'])],
   },
 ];
 

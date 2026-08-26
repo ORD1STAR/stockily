@@ -21,8 +21,12 @@ home/Scan experience.
 **Phase 2 is underway.** `docs/MILESTONE_8.md` closes the one Phase 1 gap
 that had been deliberately deferred — Postgres Row-Level Security is now
 enforced (see that file for why it needed a second, restricted DB role and
-two real bugs it took the live app, not just tests, to find). Next up:
-Achats (Purchasing), the first Phase 2 product module.
+two real bugs it took the live app, not just tests, to find). `docs/MILESTONE_9.md`
+adds Achats (Purchasing) — bons de commande, réceptions (with or without a
+prior PO), and receiving reusing Stock's ledger + Quality's batch/check
+flow exactly like Scan's own Entrée already does — the first Phase 2
+product module, and two more real bugs the live app caught that the test
+suite didn't.
 
 ## Quickstart
 

@@ -1,7 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from './auth-context';
-import { PHASE1_MODULES } from './modules';
+import { PRODUCT_MODULES } from './modules';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
 import { PartnersModal } from './PartnersModal';
 import { useIsMobile } from './useIsMobile';
@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
         )}
         <div className="shell-group-label">Phase 1</div>
-        {PHASE1_MODULES.map((m) => (
+        {PRODUCT_MODULES.map((m) => (
           <NavItem key={m.key} to={m.to} label={m.label} enabled={entitledKeys.has(m.key)} />
         ))}
         <div className="shell-group-label">Verrouillés</div>
