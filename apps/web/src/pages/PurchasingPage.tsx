@@ -469,7 +469,7 @@ function OrderDetailModal({
 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{order.number ?? 'Bon de commande'}</h3>
@@ -517,28 +517,32 @@ function OrderDetailModal({
           </div>
         )}
         {error && <div className="error-banner">{error}</div>}
-        <div className="modal-footer">
-          {canCancel && (
-            <button type="button" className="btn-secondary" onClick={handleCancel} disabled={cancelling}>
-              {cancelling ? 'Annulation…' : 'Annuler le bon'}
+        <div className="modal-footer modal-footer-split">
+          <div className="modal-footer-group">
+            <button type="button" className="btn-link" onClick={printOrder} disabled={printing !== null}>
+              {printing === 'order' ? 'Génération…' : 'Imprimer le BC'}
             </button>
-          )}
-          <button type="button" className="btn-secondary" onClick={printOrder} disabled={printing !== null}>
-            {printing === 'order' ? 'Génération…' : 'Imprimer le BC'}
-          </button>
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Fermer
-          </button>
-          {canInvoice && (
-            <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
-              Facture fournisseur
+          </div>
+          <div className="modal-footer-group">
+            {canCancel && (
+              <button type="button" className="btn-secondary" onClick={handleCancel} disabled={cancelling}>
+                {cancelling ? 'Annulation…' : 'Annuler le bon'}
+              </button>
+            )}
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Fermer
             </button>
-          )}
-          {canReceive && (
-            <button type="button" className="btn-primary" onClick={onReceive}>
-              Réceptionner
-            </button>
-          )}
+            {canInvoice && (
+              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
+                Facture fournisseur
+              </button>
+            )}
+            {canReceive && (
+              <button type="button" className="btn-primary" onClick={onReceive}>
+                Réceptionner
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {showInvoice && <SupplierInvoiceModal order={order} onClose={() => setShowInvoice(false)} onInvoiced={() => setShowInvoice(false)} />}

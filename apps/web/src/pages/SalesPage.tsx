@@ -539,7 +539,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
 
   return (
     <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{order.number ?? (order.kind === 'quote' ? 'Devis' : 'Commande')}</h3>
@@ -592,33 +592,37 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
           </div>
         )}
         {error && <div className="error-banner">{error}</div>}
-        <div className="modal-footer">
-          {canCancel && (
-            <button type="button" className="btn-secondary" onClick={handleCancel} disabled={busy}>
-              {busy ? 'Annulation…' : 'Annuler'}
+        <div className="modal-footer modal-footer-split">
+          <div className="modal-footer-group">
+            <button type="button" className="btn-link" onClick={printOrder} disabled={printing !== null}>
+              {printing === 'order' ? 'Génération…' : order.kind === 'quote' ? 'Imprimer le devis' : 'Imprimer le BC'}
             </button>
-          )}
-          <button type="button" className="btn-secondary" onClick={printOrder} disabled={printing !== null}>
-            {printing === 'order' ? 'Génération…' : order.kind === 'quote' ? 'Imprimer le devis' : 'Imprimer le BC'}
-          </button>
-          {order.kind === 'order' && (
-            <button type="button" className="btn-secondary" onClick={printDeliveryNote} disabled={printing !== null}>
-              {printing === 'delivery' ? 'Génération…' : 'Imprimer le BL'}
+            {order.kind === 'order' && (
+              <button type="button" className="btn-link" onClick={printDeliveryNote} disabled={printing !== null}>
+                {printing === 'delivery' ? 'Génération…' : 'Imprimer le BL'}
+              </button>
+            )}
+          </div>
+          <div className="modal-footer-group">
+            {canCancel && (
+              <button type="button" className="btn-secondary" onClick={handleCancel} disabled={busy}>
+                {busy ? 'Annulation…' : 'Annuler'}
+              </button>
+            )}
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Fermer
             </button>
-          )}
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Fermer
-          </button>
-          {canPromote && (
-            <button type="button" className="btn-primary" onClick={() => handlePromote(false)} disabled={busy}>
-              {busy ? 'Promotion…' : 'Promouvoir en commande'}
-            </button>
-          )}
-          {canInvoice && (
-            <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
-              Facturer
-            </button>
-          )}
+            {canPromote && (
+              <button type="button" className="btn-primary" onClick={() => handlePromote(false)} disabled={busy}>
+                {busy ? 'Promotion…' : 'Promouvoir en commande'}
+              </button>
+            )}
+            {canInvoice && (
+              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
+                Facturer
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {showInvoice && (

@@ -71,6 +71,15 @@
   padding: 5px 8px;
   margin: -5px -8px;
   border-radius: 6px;
+  /* As a flex item nested inside another flex row (e.g. a modal footer's
+     two button groups), a multi-word label could otherwise wrap mid-
+     phrase once the ancestor's own auto-sizing pass settles on a basis
+     narrower than the label's own max-content width — found live:
+     "Imprimer le BC" split across two lines with plenty of free space in
+     the modal. A button's label should wrap as a whole unit onto a new
+     line (flex-wrap on the row it's in already handles that), never split
+     inside itself. */
+  white-space: nowrap;
   transition: background 0.12s ease, color 0.12s ease;
 }
 .btn-link:hover {
@@ -479,9 +488,33 @@ table.data tr.clickable:hover {
 }
 .modal-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
+}
+/* A footer split into a de-emphasized left group (print/utility actions)
+   and the primary workflow actions on the right — `space-between` on the
+   footer itself, each side its own flex group so both wrap independently
+   on a narrow modal instead of the whole row overflowing past the modal's
+   edge (found live: 5 same-weight buttons in one un-wrapped row pushed the
+   last one outside the modal box entirely). */
+.modal-footer-split {
+  justify-content: space-between;
+}
+.modal-footer-group {
+  display: flex;
+  flex-wrap: wrap;
+  /* Neither the group nor any one button inside it shrinks — if the two
+     groups don't fit side by side, `.modal-footer`'s own `flex-wrap: wrap`
+     drops the whole group to a new line instead of the flexbox default
+     (shrink every button first), which is what caused "Imprimer le BC" to
+     squeeze down to a width that split the phrase itself across two lines. */
+  flex-shrink: 0;
+  gap: 10px;
+}
+.modal-footer-group > * {
+  flex-shrink: 0;
 }
 
 .lot-mini-table {
