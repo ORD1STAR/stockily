@@ -417,6 +417,7 @@ export interface PurchaseOrderView {
   createdAt: string;
   comparisonGroupId: string | null;
   lines: PurchaseOrderLineView[];
+  receipts?: { id: string; receivedAt: string }[];
 }
 
 export interface PurchaseReceiptLineView {
@@ -506,6 +507,18 @@ export const purchasingApi = {
       overdueOrders: { id: string; number: string | null; supplier: string; expectedDate: string | null }[];
       expectedSoonCount: number;
     }>('/purchasing/dashboard', token),
+  // Not JSON — same rationale as invoicingApi.fetchPdf: real PDF bytes,
+  // opened in a new tab via an object URL.
+  fetchOrderPdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/purchasing/orders/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
+  fetchReceiptPdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/purchasing/receipts/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
 };
 
 export interface SalesOrderLineView {
@@ -593,6 +606,18 @@ export const salesApi = {
       overdueCount: number;
       overdueOrders: { id: string; number: string | null; customer: string; expectedDate: string | null }[];
     }>('/sales/dashboard', token),
+  // Not JSON — same rationale as invoicingApi.fetchPdf: real PDF bytes,
+  // opened in a new tab via an object URL.
+  fetchOrderPdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/sales/orders/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
+  fetchDeliveryNotePdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/sales/orders/${id}/delivery-note`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
 };
 
 export const scanApi = {

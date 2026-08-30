@@ -420,6 +420,7 @@ function OrderDetailModal({
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
+  const [printing, setPrinting] = useState<string | null>(null);
   const canReceive = order.status === 'confirmed' || order.status === 'partially_received';
   const canCancel = canReceive && order.lines.every((l) => l.quantityReceived === 0);
   const canInvoice = order.lines.some((l) => l.quantityReceived > 0);
@@ -435,6 +436,34 @@ function OrderDetailModal({
       setError(err instanceof ApiError ? err.message : "Erreur lors de l'annulation.");
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function printOrder() {
+    if (!accessToken) return;
+    setPrinting('order');
+    setError(null);
+    try {
+      const blob = await purchasingApi.fetchOrderPdf(accessToken, order.id);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de générer le bon de commande.");
+    } finally {
+      setPrinting(null);
+    }
+  }
+
+  async function printReceipt(receiptId: string) {
+    if (!accessToken) return;
+    setPrinting(receiptId);
+    setError(null);
+    try {
+      const blob = await purchasingApi.fetchReceiptPdf(accessToken, receiptId);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de générer le bon de livraison.");
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -474,6 +503,19 @@ function OrderDetailModal({
             </tbody>
           </table>
         </div>
+        {order.receipts && order.receipts.length > 0 && (
+          <div className="modal-section">
+            <div className="modal-section-label">Réceptions</div>
+            {order.receipts.map((r) => (
+              <div key={r.id} className="inline-edit-row" style={{ justifyContent: 'space-between' }}>
+                <span className="sub">{new Date(r.receivedAt).toLocaleDateString('fr-FR')}</span>
+                <button type="button" className="btn-link" disabled={printing !== null} onClick={() => printReceipt(r.id)}>
+                  {printing === r.id ? 'Génération…' : 'Imprimer le bon de livraison'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-footer">
           {canCancel && (
@@ -481,6 +523,9 @@ function OrderDetailModal({
               {cancelling ? 'Annulation…' : 'Annuler le bon'}
             </button>
           )}
+          <button type="button" className="btn-secondary" onClick={printOrder} disabled={printing !== null}>
+            {printing === 'order' ? 'Génération…' : 'Imprimer le BC'}
+          </button>
           <button type="button" className="btn-secondary" onClick={onClose}>
             Fermer
           </button>
@@ -644,6 +689,8 @@ function ReceiveModal({
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedReceiptId, setSavedReceiptId] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   function updateLine(i: number, patch: Partial<ReceiveLineState>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -655,7 +702,7 @@ function ReceiveModal({
     setSubmitting(true);
     setError(null);
     try {
-      await purchasingApi.receiveGoods(accessToken, {
+      const receipt = await purchasingApi.receiveGoods(accessToken, {
         purchaseOrderId: order?.id,
         siteId,
         landedCostAmount: landedCostAmount ? Number(landedCostAmount) : undefined,
@@ -671,11 +718,25 @@ function ReceiveModal({
             qualityResult: l.qualityResult || undefined,
           })),
       });
-      onSaved();
+      setSavedReceiptId(receipt.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erreur lors de la réception.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function printReceipt() {
+    if (!accessToken || !savedReceiptId) return;
+    setPrinting(true);
+    setError(null);
+    try {
+      const blob = await purchasingApi.fetchReceiptPdf(accessToken, savedReceiptId);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de générer le bon de livraison.");
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -691,6 +752,20 @@ function ReceiveModal({
             ✕
           </button>
         </div>
+        {savedReceiptId ? (
+          <div className="modal-section">
+            <p className="sub">Réception enregistrée.</p>
+            {error && <div className="error-banner">{error}</div>}
+            <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-secondary" onClick={printReceipt} disabled={printing}>
+                {printing ? 'Génération…' : 'Imprimer le bon de livraison'}
+              </button>
+              <button type="button" className="btn-primary" onClick={onSaved}>
+                Terminé
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="field-form">
           {!order && sites && (
             <div className="field-row">
@@ -815,6 +890,7 @@ function ReceiveModal({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

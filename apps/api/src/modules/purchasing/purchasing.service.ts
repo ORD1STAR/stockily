@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { QualityService } from '../quality/quality.service';
 import { StockService } from '../stock/stock.service';
 import { InvoicingService } from '../invoicing/invoicing.service';
+import { DocumentPdfService, formatMoney } from '../shared-pdf/document-pdf.service';
 import { RecordQualityCheckDto } from '../quality/dto/record-quality-check.dto';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { CreatePurchaseReceiptDto } from './dto/create-purchase-receipt.dto';
@@ -51,6 +52,16 @@ function serializeReceipt<T extends { lines: unknown[]; landedCostAmount?: unkno
   };
 }
 
+const PO_STATUS_LABEL_FR: Record<string, string> = {
+  draft: 'Brouillon',
+  confirmed: 'Confirmé',
+  partially_received: 'Partiellement reçu',
+  received: 'Reçu',
+  cancelled: 'Annulé',
+  rfq: 'En comparaison (RFQ)',
+  rfq_rejected: 'Rejeté (RFQ)',
+};
+
 @Injectable()
 export class PurchasingService {
   constructor(
@@ -58,6 +69,7 @@ export class PurchasingService {
     private readonly stock: StockService,
     private readonly quality: QualityService,
     private readonly invoicing: InvoicingService,
+    private readonly pdf: DocumentPdfService,
   ) {}
 
   // ---------------- Purchase orders ----------------
@@ -130,7 +142,10 @@ export class PurchasingService {
       // getPurchaseOrder fetch on click), so it needs the same shape
       // getPurchaseOrder already returns. Found live: a real order's
       // product column rendered as a raw UUID instead of "SKU — Nom".
-      include: { supplier: true, site: true, lines: { include: { product: true } } },
+      // `receipts` (id + receivedAt only, not the full lines) added for
+      // the same reason — the order detail modal lists past receipts with
+      // a "bon de livraison" print link per one.
+      include: { supplier: true, site: true, lines: { include: { product: true } }, receipts: { select: { id: true, receivedAt: true } } },
       orderBy: { createdAt: 'desc' },
     });
     return orders.map(serializeOrder);
@@ -488,5 +503,122 @@ export class PurchasingService {
       overdueOrders: overdue.map((o) => ({ id: o.id, number: o.number, supplier: o.supplier.name, expectedDate: o.expectedDate })),
       expectedSoonCount: expectedSoon.length,
     };
+  }
+
+  // ---------------- PDF ----------------
+
+  /** Bon de commande — what this org sends to the supplier requesting the goods. */
+  async generatePurchaseOrderPdf(orgId: string, id: string): Promise<Buffer> {
+    const order = await this.prisma.purchaseOrder.findFirst({
+      where: { id, orgId },
+      include: { organization: true, supplier: true, site: true, lines: { include: { product: true } } },
+    });
+    if (!order) throw new NotFoundException(`Unknown purchase order: ${id}`);
+
+    let total = 0;
+    const lines = order.lines.map((l) => {
+      const qty = Number(l.quantityOrdered);
+      const unitCost = Number(l.unitCost);
+      const lineTotal = qty * unitCost;
+      total += lineTotal;
+      return {
+        cells: {
+          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
+          qty: String(qty),
+          unitCost: formatMoney(unitCost),
+          total: formatMoney(lineTotal),
+        },
+      };
+    });
+
+    return this.pdf.generate({
+      title: 'BON DE COMMANDE',
+      number: order.number ?? '(brouillon)',
+      date: order.createdAt,
+      statusLabel: PO_STATUS_LABEL_FR[order.status] ?? order.status,
+      org: {
+        name: order.organization.name,
+        address: order.organization.address,
+        nif: order.organization.nif,
+        nis: order.organization.nis,
+        rc: order.organization.rc,
+        taxArticle: order.organization.taxArticle,
+        phone: order.organization.phone,
+        logo: order.organization.logo,
+      },
+      counterpartyLabel: 'FOURNISSEUR',
+      counterparty: { name: order.supplier.name, nif: order.supplier.nif },
+      meta: [
+        { label: 'Site de livraison', value: order.site.name },
+        ...(order.expectedDate ? [{ label: 'Livraison prévue', value: order.expectedDate.toLocaleDateString('fr-FR') }] : []),
+      ],
+      columns: [
+        { key: 'product', label: 'Désignation', width: 220 },
+        { key: 'qty', label: 'Qté', width: 70, align: 'right' as const },
+        { key: 'unitCost', label: 'Coût unitaire', width: 100, align: 'right' as const },
+        { key: 'total', label: 'Total', width: 105, align: 'right' as const },
+      ],
+      lines,
+      totalLabel: 'TOTAL',
+      totalValue: `${formatMoney(total)} DZD`,
+      footerNote: 'Document généré par Stockily.',
+    });
+  }
+
+  /** Bon de livraison / réception — proof of what a supplier actually delivered against a receipt. */
+  async generateReceiptPdf(orgId: string, id: string): Promise<Buffer> {
+    const receipt = await this.prisma.purchaseReceipt.findFirst({
+      where: { id, orgId },
+      include: {
+        organization: true,
+        site: true,
+        purchaseOrder: { include: { supplier: true } },
+        lines: { include: { product: true, batch: true, qualityCheck: true } },
+      },
+    });
+    if (!receipt) throw new NotFoundException(`Unknown purchase receipt: ${id}`);
+
+    const QUALITY_LABEL_FR: Record<string, string> = { conforme: 'Conforme', non_conforme: 'Non conforme' };
+    const lines = receipt.lines.map((l) => {
+      const extraParts: string[] = [];
+      if (l.batch) extraParts.push(`Lot ${l.batch.lotNumber}`);
+      if (l.qualityCheck) extraParts.push(QUALITY_LABEL_FR[l.qualityCheck.result] ?? l.qualityCheck.result);
+      return {
+        cells: {
+          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
+          qty: String(Number(l.quantityReceived)),
+          unitCost: formatMoney(Number(l.unitCost)),
+          extra: extraParts.join(' · ') || '—',
+        },
+      };
+    });
+
+    return this.pdf.generate({
+      title: 'BON DE LIVRAISON',
+      number: receipt.purchaseOrder?.number ?? `RÉC-${receipt.id.slice(0, 8).toUpperCase()}`,
+      date: receipt.receivedAt,
+      referenceLine: receipt.purchaseOrder?.number ? `Bon de commande : ${receipt.purchaseOrder.number}` : 'Réception libre (sans bon de commande)',
+      org: {
+        name: receipt.organization.name,
+        address: receipt.organization.address,
+        nif: receipt.organization.nif,
+        nis: receipt.organization.nis,
+        rc: receipt.organization.rc,
+        taxArticle: receipt.organization.taxArticle,
+        phone: receipt.organization.phone,
+        logo: receipt.organization.logo,
+      },
+      counterpartyLabel: 'FOURNISSEUR',
+      counterparty: receipt.purchaseOrder?.supplier ? { name: receipt.purchaseOrder.supplier.name, nif: receipt.purchaseOrder.supplier.nif } : null,
+      meta: [{ label: 'Site de réception', value: receipt.site.name }],
+      columns: [
+        { key: 'product', label: 'Désignation', width: 195 },
+        { key: 'qty', label: 'Qté reçue', width: 70, align: 'right' as const },
+        { key: 'unitCost', label: 'Coût unitaire', width: 95, align: 'right' as const },
+        { key: 'extra', label: 'Lot / Contrôle', width: 135 },
+      ],
+      lines,
+      footerNote: 'Document généré par Stockily.',
+    });
   }
 }

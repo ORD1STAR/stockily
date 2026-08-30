@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -79,6 +80,24 @@ export class PurchasingController {
   @RequiresPermission('purchasing', 'purchasing.receipt.read')
   getReceipt(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.purchasing.getReceipt(user.orgId, id);
+  }
+
+  // ---------------- Impression ----------------
+
+  @Get('orders/:id/pdf')
+  @RequiresPermission('purchasing', 'purchasing.order.read')
+  async downloadOrderPdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.purchasing.generatePurchaseOrderPdf(user.orgId, id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="bon-commande-${id}.pdf"` });
+    res.send(pdf);
+  }
+
+  @Get('receipts/:id/pdf')
+  @RequiresPermission('purchasing', 'purchasing.receipt.read')
+  async downloadReceiptPdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.purchasing.generateReceiptPdf(user.orgId, id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="bon-livraison-${id}.pdf"` });
+    res.send(pdf);
   }
 
   // ---------------- Facture fournisseur ----------------

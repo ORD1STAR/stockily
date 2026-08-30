@@ -469,6 +469,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
   const [error, setError] = useState<string | null>(null);
   const [shortageMessage, setShortageMessage] = useState<string | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
+  const [printing, setPrinting] = useState<'order' | 'delivery' | null>(null);
 
   const canPromote = order.kind === 'quote' && order.status !== 'cancelled';
   const canCancel = order.status !== 'cancelled' && order.status !== 'invoiced' && !order.lines.some((l) => l.quantityInvoiced > 0);
@@ -505,6 +506,34 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
       setError(err instanceof ApiError ? err.message : "Erreur lors de l'annulation.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function printOrder() {
+    if (!accessToken) return;
+    setPrinting('order');
+    setError(null);
+    try {
+      const blob = await salesApi.fetchOrderPdf(accessToken, order.id);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Impossible de générer le document.');
+    } finally {
+      setPrinting(null);
+    }
+  }
+
+  async function printDeliveryNote() {
+    if (!accessToken) return;
+    setPrinting('delivery');
+    setError(null);
+    try {
+      const blob = await salesApi.fetchDeliveryNotePdf(accessToken, order.id);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de générer le bon de livraison.");
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -567,6 +596,14 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
           {canCancel && (
             <button type="button" className="btn-secondary" onClick={handleCancel} disabled={busy}>
               {busy ? 'Annulation…' : 'Annuler'}
+            </button>
+          )}
+          <button type="button" className="btn-secondary" onClick={printOrder} disabled={printing !== null}>
+            {printing === 'order' ? 'Génération…' : order.kind === 'quote' ? 'Imprimer le devis' : 'Imprimer le BC'}
+          </button>
+          {order.kind === 'order' && (
+            <button type="button" className="btn-secondary" onClick={printDeliveryNote} disabled={printing !== null}>
+              {printing === 'delivery' ? 'Génération…' : 'Imprimer le BL'}
             </button>
           )}
           <button type="button" className="btn-secondary" onClick={onClose}>

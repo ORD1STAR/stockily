@@ -3,6 +3,7 @@ import { TenancyModule } from '../tenancy/tenancy.module';
 import { AuditModule } from '../audit/audit.module';
 import { StockModule } from '../stock/stock.module';
 import { InvoicingModule } from '../invoicing/invoicing.module';
+import { SharedPdfModule } from '../shared-pdf/shared-pdf.module';
 import { SalesController } from './sales.controller';
 import { SalesService } from './sales.service';
 
@@ -16,7 +17,7 @@ import { SalesService } from './sales.service';
 // finalizeInvoice's SalesOrder bookkeeping is done with raw Prisma calls
 // instead of injecting SalesService.
 @Module({
-  imports: [TenancyModule, AuditModule, StockModule, InvoicingModule],
+  imports: [TenancyModule, AuditModule, StockModule, InvoicingModule, SharedPdfModule],
   controllers: [SalesController],
   providers: [SalesService],
 })

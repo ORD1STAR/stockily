@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -69,6 +70,24 @@ export class SalesController {
   @Audit('sales_order', 'sales.order.invoiced')
   invoiceOrder(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: InvoiceSalesOrderDto) {
     return this.sales.invoiceSalesOrder(user.orgId, user.userId, id, dto);
+  }
+
+  // ---------------- Impression ----------------
+
+  @Get('orders/:id/pdf')
+  @RequiresPermission('sales', 'sales.order.read')
+  async downloadOrderPdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.sales.generateOrderPdf(user.orgId, id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="commande-${id}.pdf"` });
+    res.send(pdf);
+  }
+
+  @Get('orders/:id/delivery-note')
+  @RequiresPermission('sales', 'sales.order.read')
+  async downloadDeliveryNotePdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.sales.generateDeliveryNotePdf(user.orgId, id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="bon-livraison-${id}.pdf"` });
+    res.send(pdf);
   }
 
   // ---------------- Negotiated customer pricing ----------------

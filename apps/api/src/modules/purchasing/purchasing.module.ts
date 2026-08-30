@@ -4,6 +4,7 @@ import { AuditModule } from '../audit/audit.module';
 import { StockModule } from '../stock/stock.module';
 import { QualityModule } from '../quality/quality.module';
 import { InvoicingModule } from '../invoicing/invoicing.module';
+import { SharedPdfModule } from '../shared-pdf/shared-pdf.module';
 import { PurchasingController } from './purchasing.controller';
 import { PurchasingService } from './purchasing.service';
 
@@ -16,7 +17,7 @@ import { PurchasingService } from './purchasing.service';
 // for InvoicingModule (see that module's own comment on why the reverse
 // import must never happen).
 @Module({
-  imports: [TenancyModule, AuditModule, StockModule, QualityModule, InvoicingModule],
+  imports: [TenancyModule, AuditModule, StockModule, QualityModule, InvoicingModule, SharedPdfModule],
   controllers: [PurchasingController],
   providers: [PurchasingService],
 })

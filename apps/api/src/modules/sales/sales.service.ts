@@ -3,6 +3,7 @@ import { setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { InvoicingService } from '../invoicing/invoicing.service';
+import { DocumentPdfService, formatMoney } from '../shared-pdf/document-pdf.service';
 import { CreateSalesOrderDto, CreateSalesOrderLineDto } from './dto/create-sales-order.dto';
 import { UpdateSalesOrderStatusDto } from './dto/update-sales-order-status.dto';
 import { InvoiceSalesOrderDto } from './dto/invoice-sales-order.dto';
@@ -30,12 +31,24 @@ function serializeOrder<T extends { lines: unknown[] }>(o: T) {
 // here that isn't already owned by StockService (reservation) or
 // InvoicingService (the actual facture) — this module's job is genuinely
 // just orchestration plus its own tables' CRUD.
+const ORDER_STATUS_LABEL_FR: Record<string, string> = {
+  draft: 'Brouillon',
+  sent: 'Envoyé',
+  accepted: 'Accepté',
+  expired: 'Expiré',
+  confirmed: 'Confirmée',
+  partially_invoiced: 'Partiellement facturée',
+  invoiced: 'Facturée',
+  cancelled: 'Annulé',
+};
+
 @Injectable()
 export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stock: StockService,
     private readonly invoicing: InvoicingService,
+    private readonly pdf: DocumentPdfService,
   ) {}
 
   // ---------------- Sales orders (devis + commande) ----------------
@@ -308,6 +321,125 @@ export class SalesService {
       overdueCount: overdue.length,
       overdueOrders: overdue.map((o) => ({ id: o.id, number: o.number, customer: o.customer.name, expectedDate: o.expectedDate })),
     };
+  }
+
+  // ---------------- PDF (Milestone 10) ----------------
+
+  private async loadOrderForPdf(orgId: string, id: string) {
+    const order = await this.prisma.salesOrder.findFirst({
+      where: { id, orgId },
+      include: { organization: true, customer: true, site: true, lines: { include: { product: true } } },
+    });
+    if (!order) throw new NotFoundException(`Unknown sales order: ${id}`);
+    return order;
+  }
+
+  private orgForPdf(order: { organization: { name: string; address: string | null; nif: string | null; nis: string | null; rc: string | null; taxArticle: string | null; phone: string | null; logo: string | null } }) {
+    return {
+      name: order.organization.name,
+      address: order.organization.address,
+      nif: order.organization.nif,
+      nis: order.organization.nis,
+      rc: order.organization.rc,
+      taxArticle: order.organization.taxArticle,
+      phone: order.organization.phone,
+      logo: order.organization.logo,
+    };
+  }
+
+  /** Devis or bon de commande — what this org hands the customer, depending on the order's own `kind`. */
+  async generateOrderPdf(orgId: string, id: string): Promise<Buffer> {
+    const order = await this.loadOrderForPdf(orgId, id);
+
+    let total = 0;
+    const lines = order.lines.map((l) => {
+      const qty = Number(l.quantityOrdered);
+      const unitPrice = Number(l.unitPrice);
+      const discountPercent = l.discountPercent != null ? Number(l.discountPercent) : 0;
+      const lineTotal = qty * unitPrice * (1 - discountPercent / 100);
+      total += lineTotal;
+      return {
+        cells: {
+          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.description,
+          qty: String(qty),
+          unitPrice: formatMoney(unitPrice),
+          discount: discountPercent ? `${discountPercent}%` : '—',
+          total: formatMoney(lineTotal),
+        },
+      };
+    });
+
+    return this.pdf.generate({
+      title: order.kind === 'quote' ? 'DEVIS' : 'BON DE COMMANDE',
+      number: order.number ?? '(brouillon)',
+      date: order.createdAt,
+      statusLabel: ORDER_STATUS_LABEL_FR[order.status] ?? order.status,
+      referenceLine: order.promotedFromQuoteNumber ? `Devis d'origine : ${order.promotedFromQuoteNumber}` : null,
+      org: this.orgForPdf(order),
+      counterpartyLabel: 'CLIENT',
+      counterparty: { name: order.customer.name, nif: order.customer.nif },
+      meta: [
+        { label: 'Site', value: order.site.name },
+        ...(order.expectedDate ? [{ label: 'Date prévue', value: order.expectedDate.toLocaleDateString('fr-FR') }] : []),
+      ],
+      columns: [
+        { key: 'product', label: 'Désignation', width: 175 },
+        { key: 'qty', label: 'Qté', width: 45, align: 'right' as const },
+        { key: 'unitPrice', label: 'Prix unitaire', width: 95, align: 'right' as const },
+        { key: 'discount', label: 'Remise', width: 65, align: 'right' as const },
+        { key: 'total', label: 'Total', width: 115, align: 'right' as const },
+      ],
+      lines,
+      totalLabel: 'TOTAL',
+      totalValue: `${formatMoney(total)} DZD`,
+      footerNote: 'Document généré par Stockily.',
+    });
+  }
+
+  /**
+   * Bon de livraison — Ventes has no dedicated delivery-note entity (an
+   * explicit scope decision: a commande's own lines already carry
+   * quantityOrdered/quantityInvoiced, and nothing here tracks a delivery as
+   * a distinct event from invoicing). Printed straight from the commande
+   * instead: what's ordered, what's already been invoiced/shipped, and
+   * what's still outstanding — a real picking/delivery slip without a new
+   * table to keep in sync.
+   */
+  async generateDeliveryNotePdf(orgId: string, id: string): Promise<Buffer> {
+    const order = await this.loadOrderForPdf(orgId, id);
+    if (order.kind !== 'order') throw new BadRequestException('A delivery note only applies to a confirmed order, not a devis.');
+
+    const lines = order.lines.map((l) => {
+      const ordered = Number(l.quantityOrdered);
+      const invoiced = Number(l.quantityInvoiced);
+      return {
+        cells: {
+          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.description,
+          ordered: String(ordered),
+          delivered: String(invoiced),
+          remaining: String(Math.max(0, ordered - invoiced)),
+        },
+      };
+    });
+
+    return this.pdf.generate({
+      title: 'BON DE LIVRAISON',
+      number: order.number ?? '(brouillon)',
+      date: new Date(),
+      referenceLine: `Commande : ${order.number ?? '(brouillon)'}`,
+      org: this.orgForPdf(order),
+      counterpartyLabel: 'CLIENT',
+      counterparty: { name: order.customer.name, nif: order.customer.nif },
+      meta: [{ label: 'Site', value: order.site.name }],
+      columns: [
+        { key: 'product', label: 'Désignation', width: 220 },
+        { key: 'ordered', label: 'Commandé', width: 90, align: 'right' as const },
+        { key: 'delivered', label: 'Livré', width: 90, align: 'right' as const },
+        { key: 'remaining', label: 'Restant', width: 95, align: 'right' as const },
+      ],
+      lines,
+      footerNote: 'Document généré par Stockily.',
+    });
   }
 
   // ---------------- Helpers ----------------
