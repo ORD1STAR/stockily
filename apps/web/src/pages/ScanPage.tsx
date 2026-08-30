@@ -18,6 +18,7 @@ import {
   invoicingApi,
   purchasingApi,
   qualityApi,
+  salesApi,
   scanApi,
   sitesApi,
   stockApi,
@@ -349,12 +350,40 @@ export function ScanPage() {
     setCart((prev) => prev.filter((l) => l.productId !== productId));
   }
 
+  // Vente rapide's client picker only appears once the cart already has
+  // lines (each added at Product.sellPrice) — picking a client here is the
+  // one moment negotiated pricing (Ventes' own PartnerProductPrice, same
+  // source the full commande builder resolves from) can still apply
+  // automatically, so re-price every matching line the instant one is
+  // selected rather than leaving the till price silently wrong for a
+  // negotiated customer.
+  async function selectCheckoutPartner(newPartnerId: string) {
+    setCheckoutPartnerId(newPartnerId);
+    if (!newPartnerId || !accessToken || cart.length === 0) return;
+    try {
+      const prices = await salesApi.listPricing(accessToken, newPartnerId);
+      if (prices.length === 0) return;
+      setCart((prev) =>
+        prev.map((l) => {
+          const match = prices.find((p) => p.productId === l.productId);
+          if (!match) return l;
+          if (match.unitPrice != null) return { ...l, unitPrice: match.unitPrice };
+          if (match.discountPercent != null) return { ...l, unitPrice: Math.round(l.unitPrice * (1 - match.discountPercent / 100) * 100) / 100 };
+          return l;
+        }),
+      );
+    } catch {
+      // Best-effort — a pricing lookup failure shouldn't block picking the client.
+    }
+  }
+
   const cartTotal = cart.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
 
   // Receiving has no "available quantity" ceiling to respect — the whole
   // point is adding to what's on hand, unlike Vente rapide's OUT-side cap.
   function addToReceivingCart(r: ScanResolution) {
     setReceivingConfirm(null);
+    const isNewLine = !receivingCart.some((l) => l.productId === r.product.id);
     setReceivingCart((prev) => {
       const idx = prev.findIndex((l) => l.productId === r.product.id);
       if (idx === -1) {
@@ -364,6 +393,20 @@ export function ScanPage() {
       next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
       return next;
     });
+    // Pre-fills the last price actually paid for this product (any
+    // supplier — Réception rapide never asks for one), the same source
+    // PurchasingPage's own LastPriceHint reads from. Only on the line's
+    // first scan, and only if the cost is still untouched by the time the
+    // fetch resolves, so a manual edit in between never gets clobbered.
+    if (accessToken && isNewLine) {
+      purchasingApi
+        .getLastPricePaid(accessToken, r.product.id)
+        .then((last) => {
+          if (!last) return;
+          setReceivingCart((prev) => prev.map((l) => (l.productId === r.product.id && l.unitCost === 0 ? { ...l, unitCost: last.unitCost } : l)));
+        })
+        .catch(() => undefined);
+    }
   }
 
   function updateReceivingCartLine(productId: string, patch: Partial<Pick<ReceiveCartLine, 'quantity' | 'unitCost'>>) {
@@ -617,7 +660,7 @@ export function ScanPage() {
             onRemoveLine={removeCartLine}
             partners={partners}
             checkoutPartnerId={checkoutPartnerId}
-            setCheckoutPartnerId={setCheckoutPartnerId}
+            setCheckoutPartnerId={selectCheckoutPartner}
             checkoutPaid={checkoutPaid}
             setCheckoutPaid={setCheckoutPaid}
             checkoutSubmitting={checkoutSubmitting}
