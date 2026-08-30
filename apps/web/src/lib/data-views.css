@@ -58,11 +58,58 @@
 }
 
 .btn-link {
-  all: unset;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
   color: var(--purple, #4b2e83);
+  font-family: var(--f-body);
   font-size: 0.82rem;
-  text-decoration: underline;
+  font-weight: 500;
+  padding: 5px 8px;
+  margin: -5px -8px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.btn-link:hover {
+  background: var(--surface-alt);
+}
+.btn-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: transparent;
+}
+
+/* Bare input/select controls that don't live inside a `.field-row` (an
+   order/commande line item, a table-cell price edit, an ad hoc mini-form)
+   — same visual language as `.field-row`'s own inputs, for spots that
+   don't have the label+column structure to reach for that class instead.
+   Previously several of these across Achats/Ventes had no class at all
+   and rendered as bare unstyled browser controls. */
+.control {
+  font-family: var(--f-body);
+  font-size: 0.88rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--text);
+  min-width: 0;
+  box-sizing: border-box;
+}
+.control::placeholder {
+  color: var(--text-muted);
+}
+
+.field-row input:focus,
+.field-row select:focus,
+.field-row textarea:focus,
+.control:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(24, 152, 133, 0.15);
 }
 
 .site-select {

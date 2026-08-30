@@ -160,3 +160,144 @@ export function SearchableSelect({
     </div>
   );
 }
+
+// Multi-selection sibling of SearchableSelect — a search box that adds to a
+// picked set instead of committing a single value, with the picks shown as
+// removable chips above the input. Built for RfqFormModal's supplier picker
+// (a fixed row of one toggle-button per supplier doesn't scale once an org
+// has dozens of them — this stays usable and searchable at any count).
+export function SearchableMultiSelect({
+  values,
+  onChange,
+  options,
+  placeholder,
+}: {
+  values: string[];
+  onChange: (values: string[]) => void;
+  options: SearchableSelectOption[];
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedSet = useMemo(() => new Set(values), [values]);
+  const selectedOptions = options.filter((o) => selectedSet.has(o.value));
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const unpicked = options.filter((o) => !selectedSet.has(o.value));
+    const base = q ? unpicked.filter((o) => `${o.label} ${o.sublabel ?? ''}`.toLowerCase().includes(q)) : unpicked;
+    return base.slice(0, 50);
+  }, [options, query, selectedSet]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  function add(v: string) {
+    onChange([...values, v]);
+    setQuery('');
+    setHighlight(0);
+    inputRef.current?.focus();
+  }
+
+  function remove(v: string) {
+    onChange(values.filter((x) => x !== v));
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      setOpen(true);
+      return;
+    }
+    if (e.key === 'Backspace' && query === '' && values.length > 0) {
+      remove(values[values.length - 1]);
+      return;
+    }
+    if (!open) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const opt = filtered[highlight];
+      if (opt) add(opt.value);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setQuery('');
+      inputRef.current?.blur();
+    }
+  }
+
+  return (
+    <div className="searchable-select" ref={rootRef}>
+      {selectedOptions.length > 0 && (
+        <div className="multiselect-chips">
+          {selectedOptions.map((o) => (
+            <span key={o.value} className="multiselect-chip">
+              {o.label}
+              <button type="button" onClick={() => remove(o.value)} aria-label={`Retirer ${o.label}`}>
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        className="searchable-select-input"
+        value={query}
+        placeholder={placeholder}
+        onFocus={() => {
+          setOpen(true);
+          setHighlight(0);
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setHighlight(0);
+          setOpen(true);
+        }}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          setTimeout(() => {
+            setOpen(false);
+            setQuery('');
+          }, 120);
+        }}
+        autoComplete="off"
+      />
+      {open && (
+        <div className="searchable-select-dropdown">
+          {filtered.length === 0 && <div className="searchable-select-empty">Aucun résultat.</div>}
+          {filtered.map((o, i) => (
+            <button
+              type="button"
+              key={o.value}
+              className={`searchable-select-option${i === highlight ? ' highlighted' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setHighlight(i)}
+              onClick={() => add(o.value)}
+            >
+              <span>{o.label}</span>
+              {o.sublabel && <span className="searchable-select-sublabel mono">{o.sublabel}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
-import { SearchableSelect } from '../lib/SearchableSelect';
+import { SearchableSelect, SearchableMultiSelect } from '../lib/SearchableSelect';
 import {
   ApiError,
   Partner,
@@ -135,49 +135,51 @@ export function PurchasingPage() {
       {loading ? (
         <p className="sub">Chargement…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>N°</th>
-              <th>Fournisseur</th>
-              <th>Site</th>
-              <th>Statut</th>
-              <th>Progression</th>
-              <th>Créé le</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => {
-              const ordered = o.lines.reduce((s, l) => s + l.quantityOrdered, 0);
-              const received = o.lines.reduce((s, l) => s + l.quantityReceived, 0);
-              return (
-                <tr
-                  key={o.id}
-                  onClick={() => (o.status === 'rfq' || o.status === 'rfq_rejected' ? setRfqGroupId(o.comparisonGroupId) : setSelectedOrder(o))}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <td className="mono">{o.number ?? '—'}</td>
-                  <td>{o.supplier.name}</td>
-                  <td>{o.site.name}</td>
-                  <td>
-                    <span className={`pill ${statusPillClass(o.status)}`}>{STATUS_LABEL[o.status]}</span>
-                  </td>
-                  <td>
-                    {received} / {ordered}
-                  </td>
-                  <td>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
-                </tr>
-              );
-            })}
-            {orders.length === 0 && (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
               <tr>
-                <td colSpan={6} className="sub">
-                  Aucun bon de commande pour le moment.
-                </td>
+                <th>N°</th>
+                <th>Fournisseur</th>
+                <th>Site</th>
+                <th>Statut</th>
+                <th>Progression</th>
+                <th>Créé le</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {orders.map((o) => {
+                const ordered = o.lines.reduce((s, l) => s + l.quantityOrdered, 0);
+                const received = o.lines.reduce((s, l) => s + l.quantityReceived, 0);
+                return (
+                  <tr
+                    key={o.id}
+                    className="clickable"
+                    onClick={() => (o.status === 'rfq' || o.status === 'rfq_rejected' ? setRfqGroupId(o.comparisonGroupId) : setSelectedOrder(o))}
+                  >
+                    <td className="mono">{o.number ?? '—'}</td>
+                    <td>{o.supplier.name}</td>
+                    <td>{o.site.name}</td>
+                    <td>
+                      <span className={`pill ${statusPillClass(o.status)}`}>{STATUS_LABEL[o.status]}</span>
+                    </td>
+                    <td>
+                      {received} / {ordered}
+                    </td>
+                    <td>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
+                  </tr>
+                );
+              })}
+              {orders.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="sub">
+                    Aucun bon de commande pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {showOrderForm && (
@@ -354,6 +356,7 @@ function OrderFormModal({
                   value={l.quantityOrdered}
                   onChange={(e) => updateLine(i, { quantityOrdered: Number(e.target.value) })}
                   placeholder="Qté"
+                  className="control"
                   style={{ width: 90 }}
                   required
                 />
@@ -364,6 +367,7 @@ function OrderFormModal({
                   value={l.unitCost}
                   onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
                   placeholder="Coût unitaire"
+                  className="control"
                   style={{ width: 120 }}
                   required
                 />
@@ -448,26 +452,28 @@ function OrderDetailModal({
             ✕
           </button>
         </div>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Produit</th>
-              <th>Commandé</th>
-              <th>Reçu</th>
-              <th>Coût unitaire</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.lines.map((l) => (
-              <tr key={l.id}>
-                <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.productId}</td>
-                <td>{l.quantityOrdered}</td>
-                <td>{l.quantityReceived}</td>
-                <td>{l.unitCost.toFixed(2)} DZD</td>
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Produit</th>
+                <th>Commandé</th>
+                <th>Reçu</th>
+                <th>Coût unitaire</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {order.lines.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.productId}</td>
+                  <td>{l.quantityOrdered}</td>
+                  <td>{l.quantityReceived}</td>
+                  <td>{l.unitCost.toFixed(2)} DZD</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-footer">
           {canCancel && (
@@ -563,6 +569,7 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
                   step="any"
                   value={quantities[l.id]}
                   onChange={(e) => setQuantities((q) => ({ ...q, [l.id]: Number(e.target.value) }))}
+                  className="control"
                   style={{ width: 100 }}
                 />
                 <span className="sub">/ {l.quantityReceived} reçu · {l.unitCost.toFixed(2)} DZD/u</span>
@@ -742,6 +749,7 @@ function ReceiveModal({
                   value={l.quantity}
                   onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
                   placeholder="Qté reçue"
+                  className="control"
                   style={{ width: 100 }}
                   required
                 />
@@ -752,6 +760,7 @@ function ReceiveModal({
                   value={l.unitCost}
                   onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
                   placeholder="Coût unitaire"
+                  className="control"
                   style={{ width: 120 }}
                   required
                 />
@@ -760,10 +769,15 @@ function ReceiveModal({
                     value={l.newLotNumber}
                     onChange={(e) => updateLine(i, { newLotNumber: e.target.value })}
                     placeholder="N° de lot (optionnel)"
+                    className="control"
                     style={{ width: 160 }}
                   />
                 )}
-                <select value={l.qualityResult} onChange={(e) => updateLine(i, { qualityResult: e.target.value as ReceiveLineState['qualityResult'] })}>
+                <select
+                  value={l.qualityResult}
+                  onChange={(e) => updateLine(i, { qualityResult: e.target.value as ReceiveLineState['qualityResult'] })}
+                  className="control"
+                >
                   <option value="">Contrôle qualité (optionnel)</option>
                   <option value="conforme">Conforme</option>
                   <option value="non_conforme">Non conforme</option>
@@ -859,9 +873,6 @@ function RfqFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function toggleSupplier(id: string) {
-    setSupplierIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
-  }
   function updateLine(i: number, patch: Partial<(typeof productLines)[number]>) {
     setProductLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
@@ -910,18 +921,12 @@ function RfqFormModal({
           </div>
           <div className="field-row">
             <label>Fournisseurs à comparer (2 minimum)</label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {suppliers.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`toggle-btn ${supplierIds.includes(s.id) ? 'on' : ''}`}
-                  onClick={() => toggleSupplier(s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
+            <SearchableMultiSelect
+              values={supplierIds}
+              onChange={setSupplierIds}
+              options={suppliers.map((s) => ({ value: s.id, label: s.name, sublabel: s.nif }))}
+              placeholder="Rechercher un fournisseur…"
+            />
           </div>
 
           <div className="sub" style={{ marginTop: 4 }}>
@@ -944,6 +949,7 @@ function RfqFormModal({
                 value={l.quantity}
                 onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
                 placeholder="Qté"
+                className="control"
                 style={{ width: 90 }}
                 required
               />
@@ -1108,6 +1114,7 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
                               value={editedValue !== '' ? editedValue : line.unitCost || ''}
                               placeholder="Prix"
                               onChange={(e) => setEdit(c.id, line.id, e.target.value)}
+                              className="control"
                               style={{ width: 90 }}
                             />
                           </td>

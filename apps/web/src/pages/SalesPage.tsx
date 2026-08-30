@@ -147,44 +147,46 @@ export function SalesPage() {
       {loading ? (
         <p className="sub">Chargement…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>N°</th>
-              <th>Type</th>
-              <th>Client</th>
-              <th>Site</th>
-              <th>Statut</th>
-              <th>Total</th>
-              <th>Créé le</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleOrders.map((o) => {
-              const total = o.lines.reduce((s, l) => s + l.unitPrice * l.quantityOrdered * (1 - (l.discountPercent ?? 0) / 100), 0);
-              return (
-                <tr key={o.id} onClick={() => setSelectedOrder(o)} style={{ cursor: 'pointer' }}>
-                  <td className="mono">{o.number ?? '—'}</td>
-                  <td>{o.kind === 'quote' ? 'Devis' : 'Commande'}</td>
-                  <td>{o.customer.name}</td>
-                  <td>{o.site.name}</td>
-                  <td>
-                    <span className={`pill ${statusPillClass(o.status)}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
-                  </td>
-                  <td>{total.toFixed(2)} DZD</td>
-                  <td>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
-                </tr>
-              );
-            })}
-            {visibleOrders.length === 0 && (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
               <tr>
-                <td colSpan={7} className="sub">
-                  Aucun document pour le moment.
-                </td>
+                <th>N°</th>
+                <th>Type</th>
+                <th>Client</th>
+                <th>Site</th>
+                <th>Statut</th>
+                <th>Total</th>
+                <th>Créé le</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {visibleOrders.map((o) => {
+                const total = o.lines.reduce((s, l) => s + l.unitPrice * l.quantityOrdered * (1 - (l.discountPercent ?? 0) / 100), 0);
+                return (
+                  <tr key={o.id} className="clickable" onClick={() => setSelectedOrder(o)}>
+                    <td className="mono">{o.number ?? '—'}</td>
+                    <td>{o.kind === 'quote' ? 'Devis' : 'Commande'}</td>
+                    <td>{o.customer.name}</td>
+                    <td>{o.site.name}</td>
+                    <td>
+                      <span className={`pill ${statusPillClass(o.status)}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
+                    </td>
+                    <td>{total.toFixed(2)} DZD</td>
+                    <td>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
+                  </tr>
+                );
+              })}
+              {visibleOrders.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="sub">
+                    Aucun document pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {showFormKind && (
@@ -355,6 +357,7 @@ function OrderFormModal({
                     value={l.description}
                     onChange={(e) => updateLine(i, { description: e.target.value })}
                     placeholder="Description du service"
+                    className="control"
                     style={{ flex: '1 1 200px' }}
                     required
                   />
@@ -383,6 +386,7 @@ function OrderFormModal({
                   value={l.quantity}
                   onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
                   placeholder="Qté"
+                  className="control"
                   style={{ width: 90 }}
                   required
                 />
@@ -393,6 +397,7 @@ function OrderFormModal({
                   value={l.unitPrice}
                   onChange={(e) => updateLine(i, { unitPrice: e.target.value })}
                   placeholder={l.isService ? 'Prix unitaire (requis)' : 'Prix (auto si vide)'}
+                  className="control"
                   style={{ width: 160 }}
                   required={l.isService}
                 />
@@ -404,9 +409,10 @@ function OrderFormModal({
                   value={l.discountPercent}
                   onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
                   placeholder="Remise %"
+                  className="control"
                   style={{ width: 100 }}
                 />
-                <select value={l.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })}>
+                <select value={l.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })} className="control">
                   <option value="">Sans TVA</option>
                   {taxRates.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -517,28 +523,30 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
             ✕
           </button>
         </div>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Produit / Description</th>
-              <th>Commandé</th>
-              <th>Facturé</th>
-              <th>Prix unitaire</th>
-              <th>Remise</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.lines.map((l) => (
-              <tr key={l.id}>
-                <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</td>
-                <td>{l.quantityOrdered}</td>
-                <td>{l.quantityInvoiced}</td>
-                <td>{l.unitPrice.toFixed(2)} DZD</td>
-                <td>{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Produit / Description</th>
+                <th>Commandé</th>
+                <th>Facturé</th>
+                <th>Prix unitaire</th>
+                <th>Remise</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {order.lines.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</td>
+                  <td>{l.quantityOrdered}</td>
+                  <td>{l.quantityInvoiced}</td>
+                  <td>{l.unitPrice.toFixed(2)} DZD</td>
+                  <td>{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {order.invoices && order.invoices.length > 0 && (
           <div className="sub" style={{ marginTop: 8 }}>
             Factures liées : {order.invoices.map((inv) => inv.number ?? `#${inv.id.slice(0, 8)} (${inv.status})`).join(', ')}
@@ -641,6 +649,7 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
                   step="any"
                   value={quantities[l.id]}
                   onChange={(e) => setQuantities((q) => ({ ...q, [l.id]: Number(e.target.value) }))}
+                  className="control"
                   style={{ width: 100 }}
                 />
                 <span className="sub">/ {remaining} restant</span>
@@ -742,39 +751,41 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
           </div>
 
           {error && <div className="error-banner">{error}</div>}
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Produit</th>
-                <th>Prix négocié</th>
-                <th>Remise</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(prices ?? []).map((p) => (
-                <tr key={p.id}>
-                  <td>{p.partner?.name ?? p.partnerId}</td>
-                  <td>{p.product ? `${p.product.sku} — ${p.product.name}` : p.productId}</td>
-                  <td>{p.unitPrice != null ? `${p.unitPrice.toFixed(2)} DZD` : '—'}</td>
-                  <td>{p.discountPercent != null ? `${p.discountPercent}%` : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button type="button" className="btn-link" onClick={() => handleDelete(p.id)}>
-                      Retirer
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {prices !== null && prices.length === 0 && (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
                 <tr>
-                  <td colSpan={5} className="sub">
-                    Aucun tarif négocié.
-                  </td>
+                  <th>Client</th>
+                  <th>Produit</th>
+                  <th>Prix négocié</th>
+                  <th>Remise</th>
+                  <th></th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(prices ?? []).map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.partner?.name ?? p.partnerId}</td>
+                    <td>{p.product ? `${p.product.sku} — ${p.product.name}` : p.productId}</td>
+                    <td>{p.unitPrice != null ? `${p.unitPrice.toFixed(2)} DZD` : '—'}</td>
+                    <td>{p.discountPercent != null ? `${p.discountPercent}%` : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button type="button" className="btn-link" onClick={() => handleDelete(p.id)}>
+                        Retirer
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {prices !== null && prices.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="sub">
+                      Aucun tarif négocié.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           <form onSubmit={handleAdd} className="field-form" style={{ marginTop: 16 }}>
             <div className="sub">Ajouter / mettre à jour un tarif</div>
@@ -787,8 +798,27 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
                   placeholder="Produit…"
                 />
               </div>
-              <input type="number" min={0} step="any" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} placeholder="Prix négocié" style={{ width: 140 }} />
-              <input type="number" min={0} max={100} step="any" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} placeholder="Remise %" style={{ width: 110 }} />
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                placeholder="Prix négocié"
+                className="control"
+                style={{ width: 140 }}
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="any"
+                value={discountPercent}
+                onChange={(e) => setDiscountPercent(e.target.value)}
+                placeholder="Remise %"
+                className="control"
+                style={{ width: 110 }}
+              />
               <button type="submit" className="btn-primary" disabled={submitting || !partnerId || !productId}>
                 {submitting ? 'Enregistrement…' : 'Enregistrer'}
               </button>
