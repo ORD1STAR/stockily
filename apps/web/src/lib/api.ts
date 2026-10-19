@@ -9,7 +9,7 @@ export class ApiError extends Error {
     public readonly body: { message?: string | string[]; error?: string } | undefined,
   ) {
     super(
-      Array.isArray(body?.message) ? body.message.join(', ') : (body?.message ?? `Request failed with status ${status}`),
+      Array.isArray(body?.message) ? body.message.join(', ') : (body?.message ?? `La requête a échoué (statut ${status}).`),
     );
   }
 }
@@ -112,6 +112,7 @@ export interface StockRow {
   barcode: string | null;
   category: string | null;
   isLotTracked: boolean;
+  unitsPerCarton: number | null;
   site: { id: string; name: string };
   quantityOnHand: number;
   quantityQuarantined: number;
@@ -125,13 +126,28 @@ export interface ProductDetail {
   sku: string;
   name: string;
   barcode: string | null;
+  categoryId: string | null;
   category: string | null;
   isLotTracked: boolean;
+  unitsPerCarton: number | null;
   averageCost: number;
   minThreshold: number | null;
   maxThreshold: number | null;
   sellPrice: number | null;
   levels: { site: { id: string; name: string }; quantityOnHand: number; quantityQuarantined: number }[];
+}
+
+export interface ProductUsage {
+  stockOnHand: number;
+  stockMovements: number;
+  batches: number;
+  invoiceLines: number;
+  purchaseOrderLines: number;
+  purchaseReceiptLines: number;
+  salesOrderLines: number;
+  partnerPrices: number;
+  qualityChecks: number;
+  nonConformities: number;
 }
 
 export interface Site {
@@ -174,13 +190,25 @@ export const stockApi = {
       maxThreshold?: number;
       sellPrice?: number;
       barcode?: string;
+      unitsPerCarton?: number | null;
     },
   ) => authedRequest<ProductDetail>('/stock/products', token, { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (
     token: string,
     productId: string,
-    data: { name?: string; isLotTracked?: boolean; minThreshold?: number; maxThreshold?: number; sellPrice?: number; barcode?: string },
+    data: {
+      name?: string;
+      categoryId?: string;
+      isLotTracked?: boolean;
+      minThreshold?: number;
+      maxThreshold?: number;
+      sellPrice?: number;
+      barcode?: string;
+      unitsPerCarton?: number | null;
+    },
   ) => authedRequest<ProductDetail>(`/stock/products/${productId}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
+  getProductUsage: (token: string, productId: string) => authedRequest<ProductUsage>(`/stock/products/${productId}/usage`, token),
+  deleteProduct: (token: string, productId: string) => authedRequest<void>(`/stock/products/${productId}`, token, { method: 'DELETE' }),
   listCategories: (token: string) => authedRequest<ProductCategory[]>('/stock/categories', token),
   createCategory: (token: string, data: { name: string; parentId?: string }) =>
     authedRequest<ProductCategory>('/stock/categories', token, { method: 'POST', body: JSON.stringify(data) }),
@@ -260,7 +288,7 @@ export interface Partner {
   name: string;
   isCustomer: boolean;
   isSupplier: boolean;
-  nif: string;
+  nif: string | null;
   nis: string | null;
   rc: string | null;
   taxArticle: string | null;
@@ -310,7 +338,7 @@ export interface InvoiceView {
   siteId: string;
   site?: { name: string };
   partnerId: string | null;
-  partner: { name: string; nif: string } | null;
+  partner: { name: string; nif: string | null } | null;
   purchaseOrderId: string | null;
   salesOrderId: string | null;
   issuedAt: string;
@@ -354,6 +382,8 @@ export const invoicingApi = {
   recordPayment: (token: string, id: string, data: { amount: number; method?: string }) =>
     authedRequest(`/invoicing/invoices/${id}/payments`, token, { method: 'POST', body: JSON.stringify(data) }),
   resetPayments: (token: string, id: string) => authedRequest(`/invoicing/invoices/${id}/payments/reset`, token, { method: 'POST' }),
+  deletePartner: (token: string, id: string) => authedRequest<void>(`/invoicing/partners/${id}`, token, { method: 'DELETE' }),
+  deleteInvoice: (token: string, id: string) => authedRequest<void>(`/invoicing/invoices/${id}`, token, { method: 'DELETE' }),
   // Not JSON — fetched directly (not via authedRequest/rawRequest, which
   // always parse a JSON body) so the real PDF bytes can be opened in a new
   // tab via an object URL, giving a genuine print/download action rather
@@ -460,6 +490,9 @@ export const purchasingApi = {
   ) => authedRequest<PurchaseOrderView>('/purchasing/orders', token, { method: 'POST', body: JSON.stringify(data) }),
   cancelOrder: (token: string, id: string) =>
     authedRequest<PurchaseOrderView>(`/purchasing/orders/${id}`, token, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) }),
+  deleteOrder: (token: string, id: string) => authedRequest<void>(`/purchasing/orders/${id}`, token, { method: 'DELETE' }),
+  deleteOrderLine: (token: string, orderId: string, lineId: string) =>
+    authedRequest<PurchaseOrderView>(`/purchasing/orders/${orderId}/lines/${lineId}`, token, { method: 'DELETE' }),
   listReceipts: (token: string, purchaseOrderId?: string) =>
     authedRequest<PurchaseReceiptView[]>(`/purchasing/receipts${purchaseOrderId ? `?purchaseOrderId=${encodeURIComponent(purchaseOrderId)}` : ''}`, token),
   receiveGoods: (
@@ -528,6 +561,8 @@ export interface SalesOrderLineView {
   description: string;
   quantityOrdered: number;
   quantityInvoiced: number;
+  /** Already on a not-yet-finalized draft facture — no longer available to invoice. */
+  quantityInDraft: number;
   unitPrice: number;
   discountPercent: number | null;
   taxRateId: string | null;
@@ -586,6 +621,9 @@ export const salesApi = {
   ) => authedRequest<SalesOrderView>('/sales/orders', token, { method: 'POST', body: JSON.stringify(data) }),
   cancelOrder: (token: string, id: string) =>
     authedRequest<SalesOrderView>(`/sales/orders/${id}/status`, token, { method: 'PATCH', body: JSON.stringify({ action: 'cancelled' }) }),
+  deleteOrder: (token: string, id: string) => authedRequest<void>(`/sales/orders/${id}`, token, { method: 'DELETE' }),
+  deleteOrderLine: (token: string, orderId: string, lineId: string) =>
+    authedRequest<SalesOrderView>(`/sales/orders/${orderId}/lines/${lineId}`, token, { method: 'DELETE' }),
   promoteOrder: (token: string, id: string, acknowledgeShortage?: boolean) =>
     authedRequest<SalesOrderView>(`/sales/orders/${id}/status`, token, {
       method: 'PATCH',

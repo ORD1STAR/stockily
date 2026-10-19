@@ -32,7 +32,7 @@ export class ModuleEntitlementGuard implements CanActivate {
 
     if (entitlement === undefined) {
       const module = await this.prisma.module.findUnique({ where: { key: moduleKey } });
-      if (!module) throw new NotFoundException(`Unknown module: ${moduleKey}`);
+      if (!module) throw new NotFoundException(`Module inconnu : ${moduleKey}`);
 
       const row = await this.prisma.organizationModuleEntitlement.findUnique({
         where: { orgId_moduleId: { orgId, moduleId: module.id } },

@@ -78,7 +78,7 @@ export class QualityService {
     const hasDirect = input.siteId != null && input.quantity != null;
     if (hasBatch === hasDirect) {
       throw new InvalidQualityCheckInputError(
-        'Provide exactly one of: batchId (batch-based check) or siteId+quantity (product-direct check), not both or neither.',
+        'Fournissez exactement l\'un des deux : batchId (contrôle par lot) ou siteId+quantity (contrôle direct sur le produit), pas les deux ni aucun.',
       );
     }
 

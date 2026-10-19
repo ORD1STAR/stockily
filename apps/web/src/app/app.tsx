@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
 import { ProtectedRoute } from '../lib/ProtectedRoute';
+import { ToastContainer } from '../lib/toast';
 
 // Route-level code splitting — every page becomes its own chunk, fetched
 // only when actually visited, instead of one ~850KB bundle every visitor
@@ -114,6 +115,7 @@ export function App() {
           </Routes>
         </Suspense>
       </BrowserRouter>
+      <ToastContainer />
     </AuthProvider>
   );
 }

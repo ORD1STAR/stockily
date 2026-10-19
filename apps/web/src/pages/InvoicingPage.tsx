@@ -2,7 +2,10 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, InvoiceView, Partner, Site, StockRow, TaxRate, invoicingApi, sitesApi, stockApi } from '../lib/api';
+import { useDataChangeListener } from '../lib/data-events';
+import { CartonInput } from '../lib/CartonInput';
 import { SearchableSelect } from '../lib/SearchableSelect';
+import { toast } from '../lib/toast';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<InvoiceView['status'], string> = {
@@ -39,7 +42,6 @@ export function InvoicingPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<InvoiceView | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [showTaxRateForm, setShowTaxRateForm] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
@@ -70,6 +72,9 @@ export function InvoicingPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useDataChangeListener('partners', load);
+  useDataChangeListener('sites', load);
 
   async function openInvoice(id: string) {
     if (!accessToken) return;
@@ -114,9 +119,6 @@ export function InvoicingPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowTaxRateForm(true)}>
             + Taux de TVA
-          </button>
-          <button className="btn-secondary" onClick={() => setShowPartnerForm(true)}>
-            + Nouveau client
           </button>
           <button className="btn-primary" onClick={() => setShowCreate(true)}>
             + Nouvelle facture
@@ -197,30 +199,52 @@ export function InvoicingPage() {
             if (!accessToken) return;
             try {
               await invoicingApi.finalizeInvoice(accessToken, selected.id);
+              toast.success('Facture finalisée.');
               await refreshSelected();
             } catch (err) {
-              setPdfError(err instanceof ApiError ? err.message : 'Échec de la finalisation.');
+              const message = err instanceof ApiError ? err.message : 'Échec de la finalisation.';
+              setPdfError(message);
+              toast.error(message);
             }
           }}
           onRecordPayment={async (amount) => {
             if (!accessToken) return;
             try {
               await invoicingApi.recordPayment(accessToken, selected.id, { amount });
+              toast.success('Paiement enregistré.');
               await refreshSelected();
             } catch (err) {
-              setPdfError(err instanceof ApiError ? err.message : "Échec de l'enregistrement du paiement.");
+              const message = err instanceof ApiError ? err.message : "Échec de l'enregistrement du paiement.";
+              setPdfError(message);
+              toast.error(message);
             }
           }}
           onResetPayments={async () => {
             if (!accessToken) return;
             try {
               await invoicingApi.resetPayments(accessToken, selected.id);
+              toast.success('Paiements réinitialisés.');
               await refreshSelected();
             } catch (err) {
-              setPdfError(err instanceof ApiError ? err.message : "Échec de l'annulation des paiements.");
+              const message = err instanceof ApiError ? err.message : "Échec de l'annulation des paiements.";
+              setPdfError(message);
+              toast.error(message);
             }
           }}
           onOpenPdf={openPdf}
+          onDelete={async () => {
+            if (!accessToken) return;
+            try {
+              await invoicingApi.deleteInvoice(accessToken, selected.id);
+              toast.success('Facture supprimée.');
+              setSelected(null);
+              load();
+            } catch (err) {
+              const message = err instanceof ApiError ? err.message : 'Échec de la suppression.';
+              setPdfError(message);
+              toast.error(message);
+            }
+          }}
           pdfError={pdfError}
         />
       )}
@@ -234,15 +258,6 @@ export function InvoicingPage() {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
-            load();
-          }}
-        />
-      )}
-      {showPartnerForm && (
-        <PartnerFormModal
-          onClose={() => setShowPartnerForm(false)}
-          onSaved={() => {
-            setShowPartnerForm(false);
             load();
           }}
         />
@@ -281,16 +296,19 @@ function TaxRateFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     setError(null);
     try {
       await invoicingApi.createTaxRate(accessToken, { name, rate: Number(rate), isDefault });
+      toast.success('Taux de TVA créé.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de la création du taux de TVA.');
+      const message = err instanceof ApiError ? err.message : 'Échec de la création du taux de TVA.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -328,110 +346,6 @@ function TaxRateFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   );
 }
 
-function PartnerFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const { accessToken } = useAuth();
-  const [name, setName] = useState('');
-  const [nif, setNif] = useState('');
-  const [nis, setNis] = useState('');
-  const [rc, setRc] = useState('');
-  const [taxArticle, setTaxArticle] = useState('');
-  const [address, setAddress] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!accessToken) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await invoicingApi.createPartner(accessToken, {
-        name,
-        nif,
-        isCustomer: true,
-        isSupplier: false,
-        nis: nis || null,
-        rc: rc || null,
-        taxArticle: taxArticle || null,
-        address: address || null,
-        phone: phone || null,
-        email: email || null,
-        paymentTermsNetDays: null,
-      });
-      onSaved();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de la création du client.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <div className="modal-header-titles">
-            <h3>Nouveau client</h3>
-            <p className="modal-sub">Le NIF est requis pour pouvoir finaliser une facture à ce client (Décret 05-468).</p>
-          </div>
-          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
-            ✕
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="field-form">
-          <div className="field-row">
-            <label>Nom</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="field-grid">
-            <div className="field-row">
-              <label>NIF</label>
-              <input value={nif} onChange={(e) => setNif(e.target.value)} required />
-            </div>
-            <div className="field-row">
-              <label>NIS</label>
-              <input value={nis} onChange={(e) => setNis(e.target.value)} />
-            </div>
-            <div className="field-row">
-              <label>RC</label>
-              <input value={rc} onChange={(e) => setRc(e.target.value)} />
-            </div>
-            <div className="field-row">
-              <label>Article d'imposition</label>
-              <input value={taxArticle} onChange={(e) => setTaxArticle(e.target.value)} />
-            </div>
-          </div>
-          <div className="field-row">
-            <label>Adresse</label>
-            <textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
-          </div>
-          <div className="field-grid">
-            <div className="field-row">
-              <label>Téléphone</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-            <div className="field-row">
-              <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-          </div>
-          {error && <div className="error-banner">{error}</div>}
-          <div className="modal-footer">
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Annuler
-            </button>
-            <button type="submit" className="btn-primary" disabled={submitting}>
-              {submitting ? 'Création…' : 'Créer'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 function InvoiceModal({
   invoice,
   onClose,
@@ -439,6 +353,7 @@ function InvoiceModal({
   onRecordPayment,
   onResetPayments,
   onOpenPdf,
+  onDelete,
   pdfError,
 }: {
   invoice: InvoiceView;
@@ -447,6 +362,7 @@ function InvoiceModal({
   onRecordPayment: (amount: number) => void;
   onResetPayments: () => void;
   onOpenPdf: () => void;
+  onDelete: () => void;
   pdfError: string | null;
 }) {
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -455,9 +371,12 @@ function InvoiceModal({
   // itself shouldn't be able to wipe out a real payment as easily as the
   // mistake it's meant to fix.
   const [confirmingReset, setConfirmingReset] = useState(false);
+  // Same double-click-to-arm pattern, for the same reason, on the facture
+  // itself rather than just its payments.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -578,6 +497,14 @@ function InvoiceModal({
               </button>
             </>
           )}
+          <button
+            type="button"
+            className="btn-link danger"
+            onClick={() => (confirmingDelete ? onDelete() : setConfirmingDelete(true))}
+            onBlur={() => setConfirmingDelete(false)}
+          >
+            {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer la facture'}
+          </button>
         </div>
       </div>
     </div>
@@ -650,15 +577,18 @@ function CreateInvoiceModal({
           taxRateId: l.taxRateId || undefined,
         })),
       });
+      toast.success('Facture créée.');
       onCreated();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de la création.');
+      const message = err instanceof ApiError ? err.message : 'Échec de la création.';
+      setError(message);
+      toast.error(message);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 640 }}>
+    <div className="modal-backdrop open">
+      <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Nouvelle facture</h3>
@@ -691,65 +621,84 @@ function CreateInvoiceModal({
           </div>
 
           <div className="modal-section-label">Lignes</div>
-          {lines.map((line, i) => (
-            <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
-              <div className="field-row">
-                <label>Produit (optionnel — laissez vide pour une ligne de service)</label>
-                <SearchableSelect
-                  value={line.productId}
-                  onChange={(v) => selectProduct(i, v)}
-                  placeholder="Rechercher un produit…"
-                  emptyLabel="— aucun (service) —"
-                  options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                />
-              </div>
-              <div className="field-row">
-                <label>Désignation</label>
-                <input value={line.description} onChange={(e) => updateLine(i, { description: e.target.value })} required />
-              </div>
-              <div className="field-grid">
-                <div className="field-row">
-                  <label>Quantité</label>
+          <div className="line-items">
+            <div className="line-item line-item-head">
+              <span className="li-grow">Produit (vide = service)</span>
+              <span className="li-grow">Désignation</span>
+              <span className="li-num">Cartons</span>
+              <span className="li-num">Quantité</span>
+              <span className="li-money">Prix unitaire HT</span>
+              <span className="li-select">TVA</span>
+              <span className="li-remove" />
+            </div>
+            {lines.map((line, i) => {
+              const product = uniqueProducts.find((p) => p.productId === line.productId);
+              return (
+                <div key={i} className="line-item">
+                  <div className="li-grow">
+                    <SearchableSelect
+                      value={line.productId}
+                      onChange={(v) => selectProduct(i, v)}
+                      placeholder="Rechercher un produit…"
+                      emptyLabel="— aucun (service) —"
+                      options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                    />
+                  </div>
+                  <input
+                    value={line.description}
+                    onChange={(e) => updateLine(i, { description: e.target.value })}
+                    placeholder="Désignation"
+                    aria-label="Désignation"
+                    className="control li-grow"
+                    required
+                  />
+                  {line.productId ? (
+                    <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={Number(line.quantity) || 0} onQuantityChange={(q) => updateLine(i, { quantity: String(q) })} />
+                  ) : (
+                    <span className="li-num" />
+                  )}
                   <input
                     type="number"
                     min="0.001"
                     step="0.001"
                     value={line.quantity}
                     onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                    placeholder="Qté"
+                    aria-label="Quantité"
+                    className="control li-num"
                     required
                   />
-                </div>
-                <div className="field-row">
-                  <label>Prix unitaire HT</label>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
                     value={line.unitPrice}
                     onChange={(e) => updateLine(i, { unitPrice: e.target.value })}
+                    placeholder="Prix HT"
+                    aria-label="Prix unitaire HT"
+                    className="control li-money"
                     required
                   />
+                  <select value={line.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })} className="control li-select" aria-label="TVA">
+                    <option value="">Aucune TVA</option>
+                    {taxRates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.rate}%)
+                      </option>
+                    ))}
+                  </select>
+                  {lines.length > 1 ? (
+                    <button type="button" className="li-remove" onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))} aria-label="Retirer la ligne" title="Retirer">
+                      ✕
+                    </button>
+                  ) : (
+                    <span className="li-remove" />
+                  )}
                 </div>
-              </div>
-              <div className="field-row">
-                <label>TVA</label>
-                <select value={line.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })}>
-                  <option value="">Aucune</option>
-                  {taxRates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.rate}%)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {lines.length > 1 && (
-                <button type="button" className="btn-link" onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}>
-                  Retirer cette ligne
-                </button>
-              )}
-            </div>
-          ))}
-          <button type="button" className="btn-secondary" onClick={() => setLines((prev) => [...prev, blankLine()])} style={{ marginBottom: 10 }}>
+              );
+            })}
+          </div>
+          <button type="button" className="btn-link" onClick={() => setLines((prev) => [...prev, blankLine()])} style={{ marginBottom: 10 }}>
             + Ajouter une ligne
           </button>
 

@@ -2,6 +2,8 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Site, StockRow, Transfer, sitesApi, stockApi } from '../lib/api';
+import { notifyDataChanged } from '../lib/data-events';
+import { toast } from '../lib/toast';
 import '../lib/data-views.css';
 
 export function SitesPage() {
@@ -75,7 +77,7 @@ export function SitesPage() {
                 <div className="site-card" key={s.id}>
                   <h3>{s.name}</h3>
                   <div className="row">
-                    <span>{siteSkus.length} SKUs en stock</span>
+                    <span>{siteSkus.length} référence(s) en stock</span>
                   </div>
                 </div>
               );
@@ -153,16 +155,20 @@ function SiteFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     setError(null);
     try {
       await sitesApi.create(accessToken, { name, address: address || undefined });
+      notifyDataChanged('sites');
+      toast.success('Site créé.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du site.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la création du site.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -233,16 +239,19 @@ function TransferFormModal({
     setError(null);
     try {
       await sitesApi.createTransfer(accessToken, { productId, fromSiteId, toSiteId, quantity });
+      toast.success('Transfert créé.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du transfert.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la création du transfert.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -319,20 +328,27 @@ function TransferDetailModal({ transfer, onClose, onSaved }: { transfer: Transfe
   const [vehicleRef, setVehicleRef] = useState(transfer.vehicleRef ?? '');
   const [status, setStatus] = useState(transfer.status);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSave() {
     if (!accessToken) return;
     setSubmitting(true);
+    setError(null);
     try {
       await sitesApi.updateTransfer(accessToken, transfer.id, { status, driverName, driverPhone, vehicleRef });
+      toast.success('Transfert mis à jour.');
       onSaved();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la mise à jour du transfert.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -365,6 +381,7 @@ function TransferDetailModal({ transfer, onClose, onSaved }: { transfer: Transfe
           <label>Véhicule</label>
           <input value={vehicleRef} onChange={(e) => setVehicleRef(e.target.value)} placeholder="Immatriculation" />
         </div>
+        {error && <div className="error-banner">{error}</div>}
         <div className="modal-footer">
           <button type="button" className="btn-secondary" onClick={onClose}>
             Fermer

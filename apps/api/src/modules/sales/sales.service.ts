@@ -12,11 +12,17 @@ import { UpsertPartnerProductPriceDto } from './dto/upsert-partner-product-price
 // Prisma Decimal fields serialize as strings over JSON — same fix-at-the-
 // boundary convention as PurchasingService (see that file's own comment for
 // the real bug this once caused, found live in Chrome).
-function serializeOrderLine<T extends { quantityOrdered: unknown; quantityInvoiced: unknown; unitPrice: unknown; discountPercent?: unknown }>(l: T) {
+function serializeOrderLine<
+  T extends { quantityOrdered: unknown; quantityInvoiced: unknown; unitPrice: unknown; discountPercent?: unknown; invoiceLines?: { quantity: unknown }[] },
+>({ invoiceLines, ...l }: T) {
   return {
     ...l,
     quantityOrdered: Number(l.quantityOrdered),
     quantityInvoiced: Number(l.quantityInvoiced),
+    // Quantity already on not-yet-finalized draft factures (only present
+    // when the query included PENDING_DRAFT_LINES) — not yet in
+    // quantityInvoiced, but no longer available to invoice either.
+    quantityInDraft: (invoiceLines ?? []).reduce((s, il) => s + Number(il.quantity), 0),
     unitPrice: Number(l.unitPrice),
     discountPercent: l.discountPercent != null ? Number(l.discountPercent) : null,
   };
@@ -24,6 +30,8 @@ function serializeOrderLine<T extends { quantityOrdered: unknown; quantityInvoic
 function serializeOrder<T extends { lines: unknown[] }>(o: T) {
   return { ...o, lines: (o.lines as Parameters<typeof serializeOrderLine>[0][]).map(serializeOrderLine) };
 }
+
+const PENDING_DRAFT_LINES = { where: { invoice: { status: 'draft', deletedAt: null } }, select: { quantity: true } } as const;
 
 // Thin NestJS orchestration layer, same shape as PurchasingService — the
 // customer-side mirror of Achats. No @org/domain-sales package for the same
@@ -54,11 +62,11 @@ export class SalesService {
   // ---------------- Sales orders (devis + commande) ----------------
 
   async createSalesOrder(orgId: string, performedBy: string, dto: CreateSalesOrderDto) {
-    const customer = await this.prisma.partner.findFirst({ where: { id: dto.customerId, orgId } });
-    if (!customer) throw new NotFoundException(`Unknown customer: ${dto.customerId}`);
-    if (!customer.isCustomer) throw new BadRequestException(`Partner ${customer.name} is not flagged as a customer.`);
+    const customer = await this.prisma.partner.findFirst({ where: { id: dto.customerId, orgId, deletedAt: null } });
+    if (!customer) throw new NotFoundException(`Client inconnu : ${dto.customerId}`);
+    if (!customer.isCustomer) throw new BadRequestException(`Le partenaire ${customer.name} n'est pas marqué comme client.`);
     const site = await this.prisma.site.findFirst({ where: { id: dto.siteId, orgId } });
-    if (!site) throw new NotFoundException(`Unknown site: ${dto.siteId}`);
+    if (!site) throw new NotFoundException(`Site inconnu : ${dto.siteId}`);
 
     const resolvedLines = await this.resolveLinePrices(orgId, dto.customerId, dto.lines);
 
@@ -124,11 +132,12 @@ export class SalesService {
     const orders = await this.prisma.salesOrder.findMany({
       where: {
         orgId,
+        deletedAt: null,
         ...(filters.kind ? { kind: filters.kind } : {}),
         ...(filters.siteId ? { siteId: filters.siteId } : {}),
         ...(filters.customerId ? { customerId: filters.customerId } : {}),
       },
-      include: { customer: true, site: true, lines: { include: { product: true } } },
+      include: { customer: true, site: true, lines: { where: { deletedAt: null }, include: { product: true, invoiceLines: PENDING_DRAFT_LINES } } },
       orderBy: { createdAt: 'desc' },
     });
     return orders.map(serializeOrder);
@@ -136,28 +145,28 @@ export class SalesService {
 
   async getSalesOrder(orgId: string, id: string) {
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id, orgId },
+      where: { id, orgId, deletedAt: null },
       include: {
         customer: true,
         site: true,
-        lines: { include: { product: true, taxRate: true } },
+        lines: { where: { deletedAt: null }, include: { product: true, taxRate: true, invoiceLines: PENDING_DRAFT_LINES } },
         invoices: { include: { lines: true } },
       },
     });
-    if (!order) throw new NotFoundException(`Unknown sales order: ${id}`);
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${id}`);
     return serializeOrder(order);
   }
 
   async updateSalesOrderStatus(orgId: string, performedBy: string, id: string, dto: UpdateSalesOrderStatusDto) {
-    const order = await this.prisma.salesOrder.findFirst({ where: { id, orgId }, include: { lines: true } });
-    if (!order) throw new NotFoundException(`Unknown sales order: ${id}`);
+    const order = await this.prisma.salesOrder.findFirst({ where: { id, orgId, deletedAt: null }, include: { lines: { where: { deletedAt: null } } } });
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${id}`);
 
     if (dto.action === 'cancelled') {
       if (order.kind === 'order' && order.lines.some((l) => Number(l.quantityInvoiced) > 0)) {
-        throw new BadRequestException('Cannot cancel a commande that already has invoiced quantity on it.');
+        throw new BadRequestException('Impossible d\'annuler une commande qui a déjà une quantité facturée.');
       }
       if (order.status === 'invoiced' || order.status === 'cancelled') {
-        throw new BadRequestException(`Cannot cancel a sales order already ${order.status}.`);
+        throw new BadRequestException(`Impossible d'annuler une commande de vente déjà « ${order.status} ».`);
       }
 
       return this.prisma.$transaction(async (tx) => {
@@ -185,10 +194,10 @@ export class SalesService {
 
     // dto.action === 'promote' — devis -> commande
     if (order.kind !== 'quote') {
-      throw new BadRequestException('Only a devis can be promoted to a commande.');
+      throw new BadRequestException('Seul un devis peut être transformé en commande.');
     }
     if (order.status === 'cancelled') {
-      throw new BadRequestException('Cannot promote a cancelled devis.');
+      throw new BadRequestException('Impossible de transformer un devis annulé.');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -220,25 +229,115 @@ export class SalesService {
     });
   }
 
+  /**
+   * Soft delete of a whole devis/commande — never physical, same
+   * convention as Product/Invoice. Blocked once anything has been invoiced
+   * against it (the invoice would point at a hidden order). A still-open
+   * commande releases whatever it was holding reserved, exactly like the
+   * cancel branch of updateSalesOrderStatus; a devis or an already
+   * cancelled commande has nothing reserved.
+   */
+  async deleteSalesOrder(orgId: string, performedBy: string, id: string) {
+    const order = await this.prisma.salesOrder.findFirst({ where: { id, orgId, deletedAt: null }, include: { lines: { where: { deletedAt: null } } } });
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${id}`);
+    if (order.lines.some((l) => Number(l.quantityInvoiced) > 0)) {
+      throw new BadRequestException('Cette commande a déjà été facturée, elle ne peut plus être supprimée.');
+    }
+    const draftLines = await this.prisma.invoiceLine.count({
+      where: { salesOrderLineId: { in: order.lines.map((l) => l.id) }, invoice: { status: 'draft', deletedAt: null } },
+    });
+    if (draftLines > 0) {
+      throw new BadRequestException('Une facture brouillon existe pour cette commande — supprimez-la d\'abord depuis Factures.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
+      if (order.kind === 'order' && order.status !== 'cancelled') {
+        for (const line of order.lines) {
+          if (!line.productId) continue;
+          const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+          if (remaining > 0) {
+            await this.stock.releaseInTransaction(tx, { orgId, productId: line.productId, siteId: order.siteId, quantity: remaining, performedBy });
+          }
+        }
+      }
+      await tx.salesOrder.update({ where: { id }, data: { deletedAt: new Date() } });
+    });
+  }
+
+  /**
+   * Soft delete only — never physical, same convention as Product/Invoice/
+   * PurchaseOrderLine (see schema.prisma). Blocked once anything has been
+   * invoiced against the line (mirrors the cancel-order guard above) or if
+   * it's the order's last remaining line. Releases whatever a confirmed
+   * commande was still holding reserved for this line — the same call
+   * updateSalesOrderStatus's cancel branch makes, just for one line instead
+   * of every line on the order; a devis never reserved anything, so it's
+   * skipped there too.
+   */
+  async deleteOrderLine(orgId: string, performedBy: string, orderId: string, lineId: string) {
+    const order = await this.prisma.salesOrder.findFirst({ where: { id: orderId, orgId, deletedAt: null }, include: { lines: { where: { deletedAt: null } } } });
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${orderId}`);
+    const line = order.lines.find((l) => l.id === lineId);
+    if (!line) throw new NotFoundException(`Ligne inconnue : ${lineId}`);
+    if (Number(line.quantityInvoiced) > 0) {
+      throw new BadRequestException('Cette ligne a déjà été facturée, elle ne peut plus être supprimée.');
+    }
+    if (order.lines.length <= 1) {
+      throw new BadRequestException('Impossible de supprimer la dernière ligne d\'une commande.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
+      if (order.kind === 'order' && line.productId) {
+        const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+        if (remaining > 0) {
+          await this.stock.releaseInTransaction(tx, { orgId, productId: line.productId, siteId: order.siteId, quantity: remaining, performedBy });
+        }
+      }
+      await tx.salesOrderLine.update({ where: { id: lineId }, data: { deletedAt: new Date() } });
+    });
+    // Read back outside the transaction — it has committed by this point,
+    // so this sees the delete/release, unlike reading through `tx` itself
+    // (an interactive transaction's own connection is fine, but calling
+    // back into this.getSalesOrder — which always goes through the root
+    // this.prisma, a *different* connection — would read pre-commit state).
+    return this.getSalesOrder(orgId, orderId);
+  }
+
   // ---------------- Invoicing (facture client from a commande) ----------------
 
   async invoiceSalesOrder(orgId: string, performedBy: string, salesOrderId: string, dto: InvoiceSalesOrderDto) {
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id: salesOrderId, orgId },
-      include: { lines: { include: { product: true, taxRate: true } } },
+      where: { id: salesOrderId, orgId, deletedAt: null },
+      include: { lines: { where: { deletedAt: null }, include: { product: true, taxRate: true } } },
     });
-    if (!order) throw new NotFoundException(`Unknown sales order: ${salesOrderId}`);
-    if (order.kind !== 'order') throw new BadRequestException('Only a commande can be invoiced — promote the devis first.');
-    if (order.status === 'cancelled') throw new BadRequestException('Cannot invoice a cancelled commande.');
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${salesOrderId}`);
+    if (order.kind !== 'order') throw new BadRequestException('Seule une commande peut être facturée — transformez d\'abord le devis.');
+    if (order.status === 'cancelled') throw new BadRequestException('Impossible de facturer une commande annulée.');
+
+    // quantityInvoiced only moves when a facture is finalized, so quantities
+    // already sitting on not-yet-finalized drafts for this commande count
+    // as taken too — otherwise every click on "Facturer" could draft the
+    // full remaining quantity again.
+    const pendingDraftLines = await this.prisma.invoiceLine.groupBy({
+      by: ['salesOrderLineId'],
+      where: { salesOrderLineId: { in: order.lines.map((l) => l.id) }, invoice: { status: 'draft', deletedAt: null } },
+      _sum: { quantity: true },
+    });
+    const pendingByLineId = new Map(pendingDraftLines.map((p) => [p.salesOrderLineId, Number(p._sum.quantity ?? 0)]));
 
     const linesByLineId = new Map(order.lines.map((l) => [l.id, l]));
     const invoiceLines = dto.lines.map((requested) => {
       const line = linesByLineId.get(requested.salesOrderLineId);
-      if (!line) throw new NotFoundException(`Unknown sales order line: ${requested.salesOrderLineId}`);
-      const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+      if (!line) throw new NotFoundException(`Ligne de commande de vente inconnue : ${requested.salesOrderLineId}`);
+      const pending = pendingByLineId.get(line.id) ?? 0;
+      const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - pending;
       if (requested.quantity > remaining) {
         throw new BadRequestException(
-          `Cannot invoice ${requested.quantity} of "${line.description}": only ${remaining} remains un-invoiced on this line.`,
+          remaining <= 0
+            ? `« ${line.description} » est déjà entièrement facturé${pending > 0 ? ` (dont ${pending} dans une facture brouillon non finalisée)` : ''}.`
+            : `Impossible de facturer ${requested.quantity} de « ${line.description} » : seulement ${remaining} reste(nt) non facturé(s) sur cette ligne${pending > 0 ? ` (${pending} déjà dans une facture brouillon)` : ''}.`,
         );
       }
       return {
@@ -279,10 +378,10 @@ export class SalesService {
   }
 
   async upsertPartnerProductPrice(orgId: string, dto: UpsertPartnerProductPriceDto) {
-    const partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId } });
-    if (!partner) throw new NotFoundException(`Unknown partner: ${dto.partnerId}`);
+    const partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId, deletedAt: null } });
+    if (!partner) throw new NotFoundException(`Partenaire inconnu : ${dto.partnerId}`);
     const product = await this.prisma.product.findFirst({ where: { id: dto.productId, orgId } });
-    if (!product) throw new NotFoundException(`Unknown product: ${dto.productId}`);
+    if (!product) throw new NotFoundException(`Produit inconnu : ${dto.productId}`);
 
     const saved = await this.prisma.partnerProductPrice.upsert({
       where: { orgId_partnerId_productId: { orgId, partnerId: dto.partnerId, productId: dto.productId } },
@@ -294,7 +393,7 @@ export class SalesService {
 
   async deletePartnerProductPrice(orgId: string, id: string) {
     const existing = await this.prisma.partnerProductPrice.findFirst({ where: { id, orgId } });
-    if (!existing) throw new NotFoundException(`Unknown price entry: ${id}`);
+    if (!existing) throw new NotFoundException(`Entrée de prix inconnue : ${id}`);
     await this.prisma.partnerProductPrice.delete({ where: { id } });
   }
 
@@ -302,10 +401,10 @@ export class SalesService {
 
   async getDashboard(orgId: string) {
     const now = new Date();
-    const openQuotes = await this.prisma.salesOrder.count({ where: { orgId, kind: 'quote', status: { in: ['draft', 'sent'] } } });
+    const openQuotes = await this.prisma.salesOrder.count({ where: { orgId, deletedAt: null, kind: 'quote', status: { in: ['draft', 'sent'] } } });
     const openOrders = await this.prisma.salesOrder.findMany({
-      where: { orgId, kind: 'order', status: { in: ['confirmed', 'partially_invoiced'] } },
-      include: { lines: true, customer: true },
+      where: { orgId, deletedAt: null, kind: 'order', status: { in: ['confirmed', 'partially_invoiced'] } },
+      include: { lines: { where: { deletedAt: null } }, customer: true },
     });
 
     const openOrdersValue = openOrders.reduce(
@@ -327,10 +426,10 @@ export class SalesService {
 
   private async loadOrderForPdf(orgId: string, id: string) {
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id, orgId },
-      include: { organization: true, customer: true, site: true, lines: { include: { product: true } } },
+      where: { id, orgId, deletedAt: null },
+      include: { organization: true, customer: true, site: true, lines: { where: { deletedAt: null }, include: { product: true } } },
     });
-    if (!order) throw new NotFoundException(`Unknown sales order: ${id}`);
+    if (!order) throw new NotFoundException(`Commande de vente inconnue : ${id}`);
     return order;
   }
 
@@ -407,7 +506,7 @@ export class SalesService {
    */
   async generateDeliveryNotePdf(orgId: string, id: string): Promise<Buffer> {
     const order = await this.loadOrderForPdf(orgId, id);
-    if (order.kind !== 'order') throw new BadRequestException('A delivery note only applies to a confirmed order, not a devis.');
+    if (order.kind !== 'order') throw new BadRequestException('Un bon de livraison ne s\'applique qu\'à une commande confirmée, pas à un devis.');
 
     const lines = order.lines.map((l) => {
       const ordered = Number(l.quantityOrdered);
@@ -465,13 +564,13 @@ export class SalesService {
     return Promise.all(
       lines.map(async (l) => {
         if (!l.productId) {
-          if (!l.description) throw new BadRequestException('A service line (no productId) requires a description.');
-          if (l.unitPrice == null) throw new BadRequestException('A service line (no productId) requires an explicit unitPrice.');
+          if (!l.description) throw new BadRequestException('Une ligne de service (sans productId) nécessite une description.');
+          if (l.unitPrice == null) throw new BadRequestException('Une ligne de service (sans productId) nécessite un unitPrice explicite.');
           return { ...l, description: l.description, unitPrice: l.unitPrice };
         }
 
         const product = await this.prisma.product.findFirst({ where: { id: l.productId, orgId } });
-        if (!product) throw new NotFoundException(`Unknown product: ${l.productId}`);
+        if (!product) throw new NotFoundException(`Produit inconnu : ${l.productId}`);
         const description = l.description ?? product.name;
 
         if (l.unitPrice != null) return { ...l, description, unitPrice: l.unitPrice };

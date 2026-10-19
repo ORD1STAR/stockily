@@ -38,16 +38,16 @@ export class AuthService {
 
   async signup(dto: SignupDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Email already in use');
+    if (existing) throw new ConflictException('Cet email est déjà utilisé.');
 
     const superAdminRole = await this.prisma.role.findFirst({ where: { name: 'Super Admin', isSystem: true } });
     if (!superAdminRole) {
-      throw new InternalServerErrorException('System roles are not seeded — run `npm run db:seed` first.');
+      throw new InternalServerErrorException('Les rôles système ne sont pas initialisés — exécutez `npm run db:seed` d\'abord.');
     }
 
     const phase1Modules = await this.prisma.module.findMany({ where: { key: { in: PHASE1_MODULE_KEYS } } });
     if (phase1Modules.length !== PHASE1_MODULE_KEYS.length) {
-      throw new InternalServerErrorException('Modules are not seeded — run `npm run db:seed` first.');
+      throw new InternalServerErrorException('Les modules ne sont pas initialisés — exécutez `npm run db:seed` d\'abord.');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
@@ -79,6 +79,9 @@ export class AuthService {
       await tx.organizationModuleEntitlement.createMany({
         data: phase1Modules.map((m) => ({ orgId: organization.id, moduleId: m.id, status: 'trial', trialEndsAt })),
       });
+      // Every new org starts with one site, so Stock/Sites etc. have
+      // somewhere to attach to without a manual setup step.
+      await tx.site.create({ data: { orgId: organization.id, name: 'Site #1' } });
       return { organization, user };
     });
 
@@ -95,8 +98,21 @@ export class AuthService {
     // Deliberately identical error for "no such user" and "wrong password"
     // — distinguishing them lets an attacker enumerate valid emails.
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Email ou mot de passe incorrect.');
     }
+
+    // Self-heals orgs that predate the signup-time site creation above (or
+    // whose only site got deleted) — login is the one path every active
+    // account reliably passes through. Like signup, this runs with no
+    // tenant context yet (unauthenticated endpoint), so RLS-scoped access
+    // needs its own explicit transaction — see rls-extension.ts.
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, user.orgId);
+      const siteCount = await tx.site.count({ where: { orgId: user.orgId } });
+      if (siteCount === 0) {
+        await tx.site.create({ data: { orgId: user.orgId, name: 'Site #1' } });
+      }
+    });
 
     const tokens = await this.issueTokens(user.id, user.orgId);
     return { user: { id: user.id, email: user.email }, ...tokens };
@@ -107,7 +123,7 @@ export class AuthService {
     const existing = await this.prisma.refreshToken.findFirst({ where: { tokenHash } });
 
     if (!existing || existing.revokedAt || existing.expiresAt.getTime() < Date.now()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new UnauthorizedException('Session expirée ou invalide.');
     }
 
     // Rotate: the presented token is revoked immediately, so it can never

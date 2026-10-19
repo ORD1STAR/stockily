@@ -23,11 +23,11 @@ export class ScanService {
     let codeValue: string;
     if (dto.productId) {
       const product = await this.prisma.product.findFirst({ where: { id: dto.productId, orgId } });
-      if (!product) throw new NotFoundException(`Unknown product: ${dto.productId}`);
+      if (!product) throw new NotFoundException(`Produit inconnu : ${dto.productId}`);
       codeValue = product.sku;
     } else {
       const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, orgId } });
-      if (!batch) throw new NotFoundException(`Unknown batch: ${dto.batchId}`);
+      if (!batch) throw new NotFoundException(`Lot inconnu : ${dto.batchId}`);
       codeValue = batch.lotNumber;
     }
 
@@ -55,7 +55,7 @@ export class ScanService {
 
   async recordPrint(orgId: string, id: string) {
     const label = await this.prisma.barcodeLabel.findFirst({ where: { id, orgId } });
-    if (!label) throw new NotFoundException(`Unknown label: ${id}`);
+    if (!label) throw new NotFoundException(`Étiquette inconnue : ${id}`);
     return this.prisma.barcodeLabel.update({ where: { id }, data: { printedCount: { increment: 1 } } });
   }
 
@@ -64,7 +64,7 @@ export class ScanService {
       where: { id, orgId },
       include: { product: { select: { name: true, sku: true } }, batch: { select: { lotNumber: true, expiryDate: true } } },
     });
-    if (!label) throw new NotFoundException(`Unknown label: ${id}`);
+    if (!label) throw new NotFoundException(`Étiquette inconnue : ${id}`);
 
     const title = label.product?.name ?? (label.batch ? `Lot ${label.batch.lotNumber}` : label.codeValue);
     const subtitle = label.product

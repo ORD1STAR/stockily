@@ -1,7 +1,11 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
-// Deliberately narrower than CreateProductDto — sku, categoryId and
-// unitOfMeasure are genuinely structural, not editable here. isLotTracked
+// Deliberately narrower than CreateProductDto — sku and unitOfMeasure are
+// genuinely structural, not editable here. categoryId used to be excluded
+// on the same reasoning but the "Modifier" flow on the Stock product detail
+// needs to let a product be reassigned to a different family, same as it
+// already can be set at creation time — see StockService.updateProduct.
+// isLotTracked
 // used to be excluded on the same reasoning ("cascading implications once
 // batches exist"), but nothing in domain-stock or domain-quality actually
 // reads it to gate any business logic — it's a display/UX flag only (what
@@ -14,6 +18,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -37,4 +45,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   barcode?: string;
+
+  // Units per carton — optional, editable later; null clears it.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  unitsPerCarton?: number | null;
 }

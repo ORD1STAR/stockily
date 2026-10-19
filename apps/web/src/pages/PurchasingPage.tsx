@@ -1,7 +1,11 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { PartnersModal } from '../lib/PartnersModal';
 import { useAuth } from '../lib/auth-context';
+import { useDataChangeListener } from '../lib/data-events';
 import { SearchableSelect, SearchableMultiSelect } from '../lib/SearchableSelect';
+import { CartonInput } from '../lib/CartonInput';
+import { toast } from '../lib/toast';
 import {
   ApiError,
   Partner,
@@ -47,6 +51,7 @@ export function PurchasingPage() {
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrderView | null>(null);
   const [showReceiveFor, setShowReceiveFor] = useState<PurchaseOrderView | null>(null);
   const [rfqGroupId, setRfqGroupId] = useState<string | null>(null);
+  const [showPartners, setShowPartners] = useState(false);
   const [dashboard, setDashboard] = useState<{
     openOrdersCount: number;
     openOrdersValue: number;
@@ -82,6 +87,9 @@ export function PurchasingPage() {
     load();
   }, [load]);
 
+  useDataChangeListener('partners', load);
+  useDataChangeListener('sites', load);
+
   const suppliers = partners.filter((p) => p.isSupplier);
   const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
 
@@ -93,7 +101,11 @@ export function PurchasingPage() {
           <div className="sub">{orders.length} bon(s) de commande</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => setShowRfqForm(true)} disabled={sites.length === 0 || suppliers.length < 2}>
+          <button
+            className="btn-secondary"
+            onClick={() => setShowRfqForm(true)}
+            disabled={sites.length === 0}
+          >
             + Comparer fournisseurs (RFQ)
           </button>
           <button className="btn-secondary" onClick={() => setShowFreeReceipt(true)} disabled={sites.length === 0}>
@@ -206,6 +218,10 @@ export function PurchasingPage() {
             setSelectedOrder(null);
             load();
           }}
+          onLineDeleted={(updated) => {
+            setSelectedOrder(updated);
+            load();
+          }}
         />
       )}
       {showReceiveFor && (
@@ -237,6 +253,7 @@ export function PurchasingPage() {
           suppliers={suppliers}
           products={uniqueProducts}
           onClose={() => setShowRfqForm(false)}
+          onAddSupplier={() => setShowPartners(true)}
           onCreated={(groupId) => {
             setShowRfqForm(false);
             setRfqGroupId(groupId);
@@ -254,6 +271,9 @@ export function PurchasingPage() {
           }}
         />
       )}
+      {/* Rendered after the RFQ form so it stacks on top of it; the 'partners'
+          data-change listener above reloads `suppliers` once one is added. */}
+      {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
     </AppShell>
   );
 }
@@ -295,17 +315,20 @@ function OrderFormModal({
         supplierId,
         lines: lines.filter((l) => l.productId && l.quantityOrdered > 0),
       });
+      toast.success('Bon de commande créé.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du bon de commande.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la création du bon de commande.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-backdrop open">
+      <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Nouveau bon de commande</h3>
@@ -338,50 +361,67 @@ function OrderFormModal({
           <div className="sub" style={{ marginTop: 4 }}>
             Lignes
           </div>
-          {lines.map((l, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 200px' }}>
-                  <SearchableSelect
-                    value={l.productId}
-                    onChange={(v) => updateLine(i, { productId: v })}
-                    options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                    placeholder="Produit…"
-                  />
-                </div>
-                <input
-                  type="number"
-                  min={0.001}
-                  step="any"
-                  value={l.quantityOrdered}
-                  onChange={(e) => updateLine(i, { quantityOrdered: Number(e.target.value) })}
-                  placeholder="Qté"
-                  className="control"
-                  style={{ width: 90 }}
-                  required
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.unitCost}
-                  onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
-                  placeholder="Coût unitaire"
-                  className="control"
-                  style={{ width: 120 }}
-                  required
-                />
-                {lines.length > 1 && (
-                  <button type="button" className="btn-link" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}>
-                    Retirer
-                  </button>
-                )}
-              </div>
-              {l.productId && (
-                <LastPriceHint productId={l.productId} supplierId={supplierId} onApply={(price) => updateLine(i, { unitCost: price })} />
-              )}
+          <div className="line-items">
+            <div className="line-item line-item-head">
+              <span className="li-grow">Produit</span>
+              <span className="li-num">Cartons</span>
+              <span className="li-num">Quantité</span>
+              <span className="li-money">Coût unitaire</span>
+              <span className="li-remove" />
             </div>
-          ))}
+            {lines.map((l, i) => {
+              const product = products.find((p) => p.productId === l.productId);
+              return (
+                <div key={i}>
+                  <div className="line-item">
+                    <div className="li-grow">
+                      <SearchableSelect
+                        value={l.productId}
+                        onChange={(v) => updateLine(i, { productId: v })}
+                        options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                        placeholder="Produit…"
+                      />
+                    </div>
+                    <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={l.quantityOrdered} onQuantityChange={(q) => updateLine(i, { quantityOrdered: q })} />
+                    <input
+                      type="number"
+                      min={0.001}
+                      step="any"
+                      value={l.quantityOrdered}
+                      onChange={(e) => updateLine(i, { quantityOrdered: Number(e.target.value) })}
+                      placeholder="Qté"
+                      aria-label="Quantité"
+                      className="control li-num"
+                      required
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={l.unitCost}
+                      onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
+                      placeholder="Coût unitaire"
+                      aria-label="Coût unitaire"
+                      className="control li-money"
+                      required
+                    />
+                    {lines.length > 1 ? (
+                      <button type="button" className="li-remove" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} aria-label="Retirer la ligne" title="Retirer">
+                        ✕
+                      </button>
+                    ) : (
+                      <span className="li-remove" />
+                    )}
+                  </div>
+                  {l.productId && (
+                    <div className="line-item-hint">
+                      <LastPriceHint productId={l.productId} supplierId={supplierId} onApply={(price) => updateLine(i, { unitCost: price })} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <button
             type="button"
             className="btn-link"
@@ -410,20 +450,63 @@ function OrderDetailModal({
   onClose,
   onReceive,
   onCancelled,
+  onLineDeleted,
 }: {
   order: PurchaseOrderView;
   onClose: () => void;
   onReceive: () => void;
   onCancelled: () => void;
+  onLineDeleted: (updated: PurchaseOrderView) => void;
 }) {
   const { accessToken } = useAuth();
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [printing, setPrinting] = useState<string | null>(null);
+  const [confirmingLineId, setConfirmingLineId] = useState<string | null>(null);
+  const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
   const canReceive = order.status === 'confirmed' || order.status === 'partially_received';
   const canCancel = canReceive && order.lines.every((l) => l.quantityReceived === 0);
   const canInvoice = order.lines.some((l) => l.quantityReceived > 0);
+  const canDelete = order.lines.every((l) => l.quantityReceived === 0) && (order.receipts ?? []).length === 0;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!accessToken) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await purchasingApi.deleteOrder(accessToken, order.id);
+      toast.success('Bon de commande supprimé.');
+      onCancelled();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  }
+
+  async function handleDeleteLine(lineId: string) {
+    if (!accessToken) return;
+    setDeletingLineId(lineId);
+    setError(null);
+    try {
+      const updated = await purchasingApi.deleteOrderLine(accessToken, order.id, lineId);
+      toast.success('Ligne supprimée.');
+      onLineDeleted(updated);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression de la ligne.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingLineId(null);
+      setConfirmingLineId(null);
+    }
+  }
 
   async function handleCancel() {
     if (!accessToken) return;
@@ -431,9 +514,12 @@ function OrderDetailModal({
     setError(null);
     try {
       await purchasingApi.cancelOrder(accessToken, order.id);
+      toast.success('Bon de commande annulé.');
       onCancelled();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors de l'annulation.");
+      const message = err instanceof ApiError ? err.message : "Erreur lors de l'annulation.";
+      setError(message);
+      toast.error(message);
     } finally {
       setCancelling(false);
     }
@@ -468,7 +554,7 @@ function OrderDetailModal({
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -489,6 +575,7 @@ function OrderDetailModal({
                 <th>Commandé</th>
                 <th>Reçu</th>
                 <th>Coût unitaire</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -498,6 +585,18 @@ function OrderDetailModal({
                   <td>{l.quantityOrdered}</td>
                   <td>{l.quantityReceived}</td>
                   <td>{l.unitCost.toFixed(2)} DZD</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-link danger"
+                      disabled={l.quantityReceived > 0 || deletingLineId === l.id}
+                      title={l.quantityReceived > 0 ? 'Cette ligne a déjà été réceptionnée, elle ne peut plus être supprimée.' : undefined}
+                      onClick={() => (confirmingLineId === l.id ? handleDeleteLine(l.id) : setConfirmingLineId(l.id))}
+                      onBlur={() => setConfirmingLineId((c) => (c === l.id ? null : c))}
+                    >
+                      {deletingLineId === l.id ? 'Suppression…' : confirmingLineId === l.id ? 'Confirmer ?' : 'Retirer'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -522,6 +621,17 @@ function OrderDetailModal({
             <button type="button" className="btn-link" onClick={printOrder} disabled={printing !== null}>
               {printing === 'order' ? 'Génération…' : 'Imprimer le BC'}
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                className="btn-link danger"
+                disabled={deleting}
+                onClick={() => (confirmingDelete ? handleDelete() : setConfirmingDelete(true))}
+                onBlur={() => setConfirmingDelete(false)}
+              >
+                {deleting ? 'Suppression…' : confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer le bon'}
+              </button>
+            )}
           </div>
           <div className="modal-footer-group">
             {canCancel && (
@@ -577,15 +687,18 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
           })),
       });
       setDone(true);
+      toast.success('Facture fournisseur créée.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création de la facture.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la création de la facture.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -723,8 +836,11 @@ function ReceiveModal({
           })),
       });
       setSavedReceiptId(receipt.id);
+      toast.success('Réception enregistrée.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la réception.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la réception.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -745,8 +861,8 @@ function ReceiveModal({
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-backdrop open">
+      <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{order ? `Réceptionner — ${order.number ?? ''}` : 'Réception libre'}</h3>
@@ -805,70 +921,93 @@ function ReceiveModal({
             <p className="sub">Sera réparti au prorata de la valeur de chaque ligne (coût unitaire × quantité) dans le coût de revient.</p>
           )}
 
-          {lines.map((l, i) => (
-            <div key={i} className="lot-mini-table" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              {order ? (
-                <strong>{l.productLabel}</strong>
-              ) : (
-                <SearchableSelect
-                  value={l.productId}
-                  onChange={(v) => {
-                    const p = products.find((pr) => pr.productId === v);
-                    updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v, isLotTracked: p?.isLotTracked ?? false });
-                  }}
-                  options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                  placeholder="Produit…"
-                />
-              )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  min={0.001}
-                  step="any"
-                  value={l.quantity}
-                  onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
-                  placeholder="Qté reçue"
-                  className="control"
-                  style={{ width: 100 }}
-                  required
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.unitCost}
-                  onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
-                  placeholder="Coût unitaire"
-                  className="control"
-                  style={{ width: 120 }}
-                  required
-                />
-                {l.isLotTracked && (
-                  <input
-                    value={l.newLotNumber}
-                    onChange={(e) => updateLine(i, { newLotNumber: e.target.value })}
-                    placeholder="N° de lot (optionnel)"
-                    className="control"
-                    style={{ width: 160 }}
-                  />
-                )}
-                <select
-                  value={l.qualityResult}
-                  onChange={(e) => updateLine(i, { qualityResult: e.target.value as ReceiveLineState['qualityResult'] })}
-                  className="control"
-                >
-                  <option value="">Contrôle qualité (optionnel)</option>
-                  <option value="conforme">Conforme</option>
-                  <option value="non_conforme">Non conforme</option>
-                </select>
-                {!order && lines.length > 1 && (
-                  <button type="button" className="btn-link" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}>
-                    Retirer
-                  </button>
-                )}
-              </div>
+          <div className="line-items">
+            <div className="line-item line-item-head">
+              <span className="li-grow">Produit</span>
+              <span className="li-num">Cartons</span>
+              <span className="li-num">Qté reçue</span>
+              <span className="li-money">Coût unitaire</span>
+              {lines.some((l) => l.isLotTracked) && <span className="li-text">N° de lot</span>}
+              <span className="li-select">Contrôle qualité</span>
+              {!order && <span className="li-remove" />}
             </div>
-          ))}
+            {lines.map((l, i) => {
+              const product = products.find((p) => p.productId === l.productId);
+              const anyLotTracked = lines.some((x) => x.isLotTracked);
+              return (
+                <div key={i} className="line-item">
+                  <div className="li-grow">
+                    {order ? (
+                      <strong>{l.productLabel}</strong>
+                    ) : (
+                      <SearchableSelect
+                        value={l.productId}
+                        onChange={(v) => {
+                          const p = products.find((pr) => pr.productId === v);
+                          updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v, isLotTracked: p?.isLotTracked ?? false });
+                        }}
+                        options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                        placeholder="Produit…"
+                      />
+                    )}
+                  </div>
+                  <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={l.quantity} onQuantityChange={(q) => updateLine(i, { quantity: q })} />
+                  <input
+                    type="number"
+                    min={0.001}
+                    step="any"
+                    value={l.quantity}
+                    onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
+                    placeholder="Qté reçue"
+                    aria-label="Qté reçue"
+                    className="control li-num"
+                    required
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={l.unitCost}
+                    onChange={(e) => updateLine(i, { unitCost: Number(e.target.value) })}
+                    placeholder="Coût unitaire"
+                    aria-label="Coût unitaire"
+                    className="control li-money"
+                    required
+                  />
+                  {anyLotTracked &&
+                    (l.isLotTracked ? (
+                      <input
+                        value={l.newLotNumber}
+                        onChange={(e) => updateLine(i, { newLotNumber: e.target.value })}
+                        placeholder="N° de lot"
+                        aria-label="N° de lot (optionnel)"
+                        className="control li-text"
+                      />
+                    ) : (
+                      <span className="li-text" />
+                    ))}
+                  <select
+                    value={l.qualityResult}
+                    onChange={(e) => updateLine(i, { qualityResult: e.target.value as ReceiveLineState['qualityResult'] })}
+                    className="control li-select"
+                    aria-label="Contrôle qualité (optionnel)"
+                  >
+                    <option value="">— Non contrôlé</option>
+                    <option value="conforme">Conforme</option>
+                    <option value="non_conforme">Non conforme</option>
+                  </select>
+                  {!order &&
+                    (lines.length > 1 ? (
+                      <button type="button" className="li-remove" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} aria-label="Retirer la ligne" title="Retirer">
+                        ✕
+                      </button>
+                    ) : (
+                      <span className="li-remove" />
+                    ))}
+                </div>
+              );
+            })}
+          </div>
           {!order && (
             <button
               type="button"
@@ -938,12 +1077,14 @@ function RfqFormModal({
   suppliers,
   products,
   onClose,
+  onAddSupplier,
   onCreated,
 }: {
   sites: Site[];
   suppliers: Partner[];
   products: StockRow[];
   onClose: () => void;
+  onAddSupplier: () => void;
   onCreated: (groupId: string) => void;
 }) {
   const { accessToken } = useAuth();
@@ -968,17 +1109,20 @@ function RfqFormModal({
         supplierIds,
         productLines: productLines.filter((l) => l.productId && l.quantity > 0),
       });
+      toast.success('RFQ créé.');
       onCreated(res.comparisonGroupId);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la création du RFQ.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la création du RFQ.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-backdrop open">
+      <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Comparer des fournisseurs (RFQ)</h3>
@@ -1001,6 +1145,15 @@ function RfqFormModal({
           </div>
           <div className="field-row">
             <label>Fournisseurs à comparer (2 minimum)</label>
+            {suppliers.length < 2 && (
+              <div className="error-banner">
+                {suppliers.length === 0 ? 'Aucun fournisseur enregistré' : 'Un seul fournisseur enregistré'} — il en faut au moins 2 pour comparer
+                leurs prix.{' '}
+                <button type="button" className="btn-link" onClick={onAddSupplier}>
+                  Ajouter un fournisseur
+                </button>
+              </div>
+            )}
             <SearchableMultiSelect
               values={supplierIds}
               onChange={setSupplierIds}
@@ -1012,34 +1165,48 @@ function RfqFormModal({
           <div className="sub" style={{ marginTop: 4 }}>
             Produits à comparer
           </div>
-          {productLines.map((l, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 200px' }}>
-                <SearchableSelect
-                  value={l.productId}
-                  onChange={(v) => updateLine(i, { productId: v })}
-                  options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                  placeholder="Produit…"
-                />
-              </div>
-              <input
-                type="number"
-                min={0.001}
-                step="any"
-                value={l.quantity}
-                onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
-                placeholder="Qté"
-                className="control"
-                style={{ width: 90 }}
-                required
-              />
-              {productLines.length > 1 && (
-                <button type="button" className="btn-link" onClick={() => setProductLines((ls) => ls.filter((_, idx) => idx !== i))}>
-                  Retirer
-                </button>
-              )}
+          <div className="line-items">
+            <div className="line-item line-item-head">
+              <span className="li-grow">Produit</span>
+              <span className="li-num">Cartons</span>
+              <span className="li-num">Quantité</span>
+              <span className="li-remove" />
             </div>
-          ))}
+            {productLines.map((l, i) => {
+              const product = products.find((p) => p.productId === l.productId);
+              return (
+                <div key={i} className="line-item">
+                  <div className="li-grow">
+                    <SearchableSelect
+                      value={l.productId}
+                      onChange={(v) => updateLine(i, { productId: v })}
+                      options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                      placeholder="Produit…"
+                    />
+                  </div>
+                  <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={l.quantity} onQuantityChange={(q) => updateLine(i, { quantity: q })} />
+                  <input
+                    type="number"
+                    min={0.001}
+                    step="any"
+                    value={l.quantity}
+                    onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
+                    placeholder="Qté"
+                    aria-label="Quantité"
+                    className="control li-num"
+                    required
+                  />
+                  {productLines.length > 1 ? (
+                    <button type="button" className="li-remove" onClick={() => setProductLines((ls) => ls.filter((_, idx) => idx !== i))} aria-label="Retirer la ligne" title="Retirer">
+                      ✕
+                    </button>
+                  ) : (
+                    <span className="li-remove" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <button
             type="button"
             className="btn-link"
@@ -1048,12 +1215,13 @@ function RfqFormModal({
             + Ajouter une ligne
           </button>
 
+          {products.length === 0 && <div className="error-banner">Aucun produit en stock — créez d'abord un produit pour pouvoir le comparer.</div>}
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>
               Annuler
             </button>
-            <button type="submit" className="btn-primary" disabled={submitting || supplierIds.length < 2}>
+            <button type="submit" className="btn-primary" disabled={submitting || supplierIds.length < 2 || products.length === 0}>
               {submitting ? 'Création…' : 'Créer les demandes de prix'}
             </button>
           </div>
@@ -1110,8 +1278,11 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
         return next;
       });
       await load();
+      toast.success('Prix enregistrés.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors de l'enregistrement des prix.");
+      const message = err instanceof ApiError ? err.message : "Erreur lors de l'enregistrement des prix.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(null);
     }
@@ -1123,19 +1294,47 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
     setError(null);
     try {
       await purchasingApi.awardRfq(accessToken, groupId, purchaseOrderId);
+      toast.success('Fournisseur retenu.');
       onAwarded();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors de l'attribution.");
+      const message = err instanceof ApiError ? err.message : "Erreur lors de l'attribution.";
+      setError(message);
+      toast.error(message);
     } finally {
       setAwarding(null);
     }
   }
 
   const decided = candidates?.some((c) => c.status !== 'rfq') ?? false;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Removes the comparison itself — every candidate still "rfq" or
+  // "rfq_rejected". An awarded winner is a real bon de commande by now and
+  // stays; it can be deleted from its own detail modal.
+  async function handleDeleteComparison() {
+    if (!accessToken || !candidates) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      for (const c of candidates.filter((c) => c.status === 'rfq' || c.status === 'rfq_rejected')) {
+        await purchasingApi.deleteOrder(accessToken, c.id);
+      }
+      toast.success('Comparaison supprimée.');
+      onAwarded();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  }
   const productIds = Array.from(new Set((candidates ?? []).flatMap((c) => c.lines.map((l) => l.productId))));
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -1235,9 +1434,22 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
           </div>
         )}
         <div className="modal-footer" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Fermer
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Fermer
+            </button>
+            {candidates && (
+              <button
+                type="button"
+                className="btn-link danger"
+                disabled={deleting}
+                onClick={() => (confirmingDelete ? handleDeleteComparison() : setConfirmingDelete(true))}
+                onBlur={() => setConfirmingDelete(false)}
+              >
+                {deleting ? 'Suppression…' : confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer la comparaison'}
+              </button>
+            )}
+          </div>
           {!decided && candidates && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {candidates.map((c) => (

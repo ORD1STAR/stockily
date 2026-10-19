@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
@@ -47,6 +47,14 @@ export class InvoicingController {
   @Audit('partner', 'invoicing.partner.updated')
   updatePartner(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdatePartnerDto) {
     return this.invoicing.updatePartner(user.orgId, id, dto);
+  }
+
+  @Delete('partners/:id')
+  @RequiresPermission('invoicing', 'invoicing.partner.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('partner', 'invoicing.partner.deleted')
+  deletePartner(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.invoicing.deletePartner(user.orgId, id);
   }
 
   // ---------------- Tax rates ----------------
@@ -133,6 +141,14 @@ export class InvoicingController {
   @Audit('payment', 'invoicing.payment.reset')
   resetPayments(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.invoicing.resetPayments(user.orgId, id);
+  }
+
+  @Delete('invoices/:id')
+  @RequiresPermission('invoicing', 'invoicing.invoice.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('invoice', 'invoicing.invoice.deleted')
+  deleteInvoice(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.invoicing.softDeleteInvoice(user.orgId, id);
   }
 
   @Get('invoices/:id/pdf')

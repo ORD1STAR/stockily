@@ -24,6 +24,7 @@ import {
   stockApi,
 } from '../lib/api';
 import { SearchableSelect } from '../lib/SearchableSelect';
+import { useDataChangeListener } from '../lib/data-events';
 import '../lib/data-views.css';
 import './DashboardPage.css';
 import './ScanPage.css';
@@ -153,18 +154,33 @@ export function ScanPage() {
   // operator has a chance to move the product away).
   const lastCheckoutScanRef = useRef<{ code: string; time: number } | null>(null);
 
-  useEffect(() => {
+  const loadSites = useCallback(() => {
     if (!accessToken) return;
     sitesApi.list(accessToken).then((rows) => {
       setSites(rows);
-      if (rows[0]) setSiteId(rows[0].id);
+      // Only auto-pick a default the first time — once the operator has
+      // chosen a site, a site created elsewhere shouldn't silently swap it.
+      setSiteId((current) => current || rows[0]?.id || current);
     });
+  }, [accessToken]);
+
+  const loadPartners = useCallback(() => {
+    if (!accessToken) return;
     // Same trade-off as StockPage: if Invoicing isn't entitled for this org,
     // the fournisseur/client picker just stays empty rather than blocking
     // the whole Scan page.
     invoicingApi.listPartners(accessToken).then(setPartners).catch(() => setPartners([]));
-    invoicingApi.listTaxRates(accessToken).then(setTaxRates).catch(() => setTaxRates([]));
   }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    loadSites();
+    loadPartners();
+    invoicingApi.listTaxRates(accessToken).then(setTaxRates).catch(() => setTaxRates([]));
+  }, [accessToken, loadSites, loadPartners]);
+
+  useDataChangeListener('sites', loadSites);
+  useDataChangeListener('partners', loadPartners);
 
   // Pauses the decode loop only — leaves the stream (and hardware access)
   // alone, so resuming later this same session is instant, no permission

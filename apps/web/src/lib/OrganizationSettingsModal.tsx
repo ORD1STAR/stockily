@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth-context';
 import { ApiError, OrganizationProfile, invoicingApi } from './api';
+import { toast } from './toast';
 
 const MAX_LOGO_DIMENSION = 240; // px — a logo printed at ~36pt on an invoice never needs more
 const ACCEPTED_LOGO_TYPES = ['image/png', 'image/jpeg'];
@@ -48,7 +49,6 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
   const { accessToken } = useAuth();
   const [profile, setProfile] = useState<OrganizationProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -76,7 +76,6 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
     e.preventDefault();
     if (!accessToken || !profile) return;
     setError(null);
-    setSaved(false);
     try {
       const updated = await invoicingApi.updateOrganizationProfile(accessToken, {
         name: profile.name,
@@ -90,16 +89,19 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         logo: profile.logo,
       });
       setProfile(updated);
-      setSaved(true);
+      toast.success('Paramètres enregistrés.');
+      onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+      const message = err instanceof ApiError ? err.message : 'Échec de l’enregistrement.';
+      setError(message);
+      toast.error(message);
     }
   }
 
   if (!profile) return null;
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -199,7 +201,6 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
             <input value="DZD" disabled />
           </div>
           {error && <div className="error-banner">{error}</div>}
-          {saved && <div className="note-box">Enregistré.</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>
               Fermer

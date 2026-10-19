@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useAuth } from './auth-context';
 import { ApiError, Partner, invoicingApi } from './api';
+import { notifyDataChanged } from './data-events';
+import { toast } from './toast';
 import './data-views.css';
 
 // Fournisseurs & clients management, reachable from the sidebar's
@@ -38,7 +40,7 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -149,6 +151,26 @@ function PartnerEditForm({
   const [paymentTermsNetDays, setPaymentTermsNetDays] = useState(partner?.paymentTermsNetDays?.toString() ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  async function handleDelete() {
+    if (!accessToken || !partner) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await invoicingApi.deletePartner(accessToken, partner.id);
+      notifyDataChanged('partners');
+      toast.success('Partenaire supprimé.');
+      onSaved();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Échec de la suppression.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+      setConfirmingDelete(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -159,7 +181,7 @@ function PartnerEditForm({
       name,
       isCustomer,
       isSupplier,
-      nif,
+      nif: nif || null,
       nis: nis || null,
       rc: rc || null,
       taxArticle: taxArticle || null,
@@ -174,16 +196,20 @@ function PartnerEditForm({
       } else {
         await invoicingApi.createPartner(accessToken, data);
       }
+      notifyDataChanged('partners');
+      toast.success(partner ? 'Partenaire modifié.' : 'Partenaire créé.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+      const message = err instanceof ApiError ? err.message : 'Échec de l’enregistrement.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -212,7 +238,7 @@ function PartnerEditForm({
           <div className="field-grid">
             <div className="field-row">
               <label>NIF</label>
-              <input value={nif} onChange={(e) => setNif(e.target.value)} required />
+              <input value={nif} onChange={(e) => setNif(e.target.value)} />
             </div>
             <div className="field-row">
               <label>NIS</label>
@@ -253,6 +279,18 @@ function PartnerEditForm({
           </div>
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
+            {partner && (
+              <button
+                type="button"
+                className="btn-link danger"
+                style={{ marginRight: 'auto' }}
+                disabled={submitting}
+                onClick={() => (confirmingDelete ? handleDelete() : setConfirmingDelete(true))}
+                onBlur={() => setConfirmingDelete(false)}
+              >
+                {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer'}
+              </button>
+            )}
             <button type="button" className="btn-secondary" onClick={onClose}>
               Annuler
             </button>

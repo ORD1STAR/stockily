@@ -35,7 +35,7 @@ export class SitesService {
    */
   async createTransfer(orgId: string, performedBy: string, dto: CreateTransferDto) {
     if (dto.fromSiteId === dto.toSiteId) {
-      throw new BadRequestException('fromSiteId and toSiteId must differ');
+      throw new BadRequestException('Le site de départ et le site d\'arrivée doivent être différents.');
     }
     void performedBy; // no ledger move happens at creation anymore — kept in the signature for API stability
 
@@ -67,7 +67,7 @@ export class SitesService {
   // known gap in docs/MILESTONE_2.md, not silently accepted.
   async updateTransfer(orgId: string, performedBy: string, transferId: string, dto: UpdateTransferDto) {
     const existing = await this.prisma.stockTransfer.findFirst({ where: { id: transferId, orgId } });
-    if (!existing) throw new NotFoundException(`Unknown transfer: ${transferId}`);
+    if (!existing) throw new NotFoundException(`Transfert inconnu : ${transferId}`);
 
     // The ledger move happens exactly once, on the transition INTO
     // 'delivered' — checked against the transfer's own prior status, not

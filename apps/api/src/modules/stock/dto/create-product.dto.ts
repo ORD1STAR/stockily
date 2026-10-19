@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 // Single unit of measure per product, no variant model (§9 decisions #2/#4)
 // — deliberately no `unit conversion` or `variantOf` fields here.
@@ -42,4 +42,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   barcode?: string;
+
+  // Units per carton — optional, editable later; null clears it.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  unitsPerCarton?: number | null;
 }

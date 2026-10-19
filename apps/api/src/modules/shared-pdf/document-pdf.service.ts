@@ -101,77 +101,112 @@ export class DocumentPdfService {
   }
 
   private renderHeader(doc: PDFKit.PDFDocument, input: DocumentPdfInput): void {
+    const top = 50;
     const logoBuffer = parseDataUrl(input.org.logo);
-    const logoSize = 36;
-    const nameX = logoBuffer ? MARGIN + logoSize + 10 : MARGIN;
+    const logoSize = 48;
+    const nameX = logoBuffer ? MARGIN + logoSize + 12 : MARGIN;
     if (logoBuffer) {
-      doc.image(logoBuffer, MARGIN, 52, { fit: [logoSize, logoSize] });
+      doc.image(logoBuffer, MARGIN, top, { fit: [logoSize, logoSize], valign: 'center' });
     }
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text(input.org.name, nameX, 54, { width: 300 - (nameX - MARGIN) });
-    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(20).text(input.title, MARGIN, 54, { width: CONTENT_WIDTH, align: 'right' });
+
+    // Right column flows top-down (title, N°, date, optional reference
+    // line, status badge) instead of sitting at fixed y positions — fixed
+    // positions put the "Devis d'origine" line and the badge on top of
+    // each other. The left-hand name gets whatever width the title leaves.
+    doc.font('Helvetica-Bold').fontSize(20);
+    const titleWidth = doc.widthOfString(input.title);
+    doc.fillColor(BRAND).text(input.title, MARGIN, top + 2, { width: CONTENT_WIDTH, align: 'right' });
     doc
-      .fillColor(MUTED)
-      .font('Helvetica')
-      .fontSize(10)
-      .text(`N° ${input.number}`, MARGIN, 80, { width: CONTENT_WIDTH, align: 'right' })
-      .text(input.date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }), MARGIN, 94, {
-        width: CONTENT_WIDTH,
-        align: 'right',
-      });
+      .fillColor(INK)
+      .font('Helvetica-Bold')
+      .fontSize(22)
+      .text(input.org.name, nameX, logoBuffer ? top + 12 : top, { width: Math.max(120, RIGHT_EDGE - titleWidth - 24 - nameX), height: 52, ellipsis: true });
+
+    let ry = top + 30;
+    doc.fillColor(MUTED).font('Helvetica').fontSize(10);
+    doc.text(`N° ${input.number}`, MARGIN, ry, { width: CONTENT_WIDTH, align: 'right' });
+    ry += 14;
+    doc.text(input.date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }), MARGIN, ry, { width: CONTENT_WIDTH, align: 'right' });
+    ry += 14;
     if (input.referenceLine) {
-      doc.fontSize(8.5).text(input.referenceLine, MARGIN, 108, { width: CONTENT_WIDTH, align: 'right' });
+      doc.fontSize(8.5).text(input.referenceLine, MARGIN, ry, { width: CONTENT_WIDTH, align: 'right' });
+      ry += 13;
     }
 
+    let rightBottom = ry;
     if (input.statusLabel) {
-      const badgeWidth = doc.widthOfString(input.statusLabel.toUpperCase()) + 20;
-      doc.roundedRect(RIGHT_EDGE - badgeWidth, 112, badgeWidth, 18, 3).fillAndStroke(PANEL_BG, HAIRLINE);
-      doc
-        .fillColor(MUTED)
-        .font('Helvetica-Bold')
-        .fontSize(8)
-        .text(input.statusLabel.toUpperCase(), RIGHT_EDGE - badgeWidth, 117, { width: badgeWidth, align: 'center' });
+      const label = input.statusLabel.toUpperCase();
+      const badgeTop = ry + 4;
+      doc.font('Helvetica-Bold').fontSize(8);
+      const badgeWidth = doc.widthOfString(label) + 20;
+      doc.roundedRect(RIGHT_EDGE - badgeWidth, badgeTop, badgeWidth, 18, 3).fillAndStroke(PANEL_BG, HAIRLINE);
+      doc.fillColor(MUTED).text(label, RIGHT_EDGE - badgeWidth, badgeTop + 5, { width: badgeWidth, align: 'center', lineBreak: false });
+      rightBottom = badgeTop + 18;
     }
 
-    doc.moveTo(MARGIN, 142).lineTo(RIGHT_EDGE, 142).lineWidth(1.5).strokeColor(BRAND).stroke();
+    const ruleY = Math.max(rightBottom, top + logoSize) + 12;
+    doc.moveTo(MARGIN, ruleY).lineTo(RIGHT_EDGE, ruleY).lineWidth(1.5).strokeColor(BRAND).stroke();
     doc.strokeColor(INK).lineWidth(1);
-    doc.y = 158;
+    doc.y = ruleY + 16;
   }
 
   private renderPartyCards(doc: PDFKit.PDFDocument, input: DocumentPdfInput): void {
     const top = doc.y;
     const cardWidth = (CONTENT_WIDTH - 20) / 2;
-    const cardHeight = 96;
-
-    this.drawCard(doc, MARGIN, top, cardWidth, cardHeight, 'ÉMETTEUR', [
+    const sellerLines: (string | null)[] = [
       input.org.name,
       input.org.address,
       input.org.nif ? `NIF : ${input.org.nif}` : null,
       input.org.rc ? `RC : ${input.org.rc}` : null,
       input.org.phone,
-    ]);
-
-    this.drawCard(doc, MARGIN + cardWidth + 20, top, cardWidth, cardHeight, input.counterpartyLabel, [
+    ];
+    const buyerLabel = input.counterpartyLabel;
+    const buyerLines: (string | null)[] = [
       input.counterparty?.name ?? '—',
-      input.counterparty?.nif ? `NIF : ${input.counterparty.nif}` : null,
-    ]);
+      // NIF is no longer required on a Partner (explicit user decision) —
+      // once there's a counterparty at all, its NIF label always prints,
+      // with an empty value when none is on file.
+      input.counterparty ? `NIF : ${input.counterparty.nif ?? ''}` : null,
+    ];
+
+    // Sized to the taller card's actual content (wrapped lines included) —
+    // a fixed height let a fully filled-in seller profile (address + NIF +
+    // NIS + RC + article + phone) spill its last line below the card.
+    const cardHeight = Math.max(96, this.cardContentHeight(doc, cardWidth, sellerLines), this.cardContentHeight(doc, cardWidth, buyerLines));
+    this.drawCard(doc, MARGIN, top, cardWidth, cardHeight, 'ÉMETTEUR', sellerLines);
+    this.drawCard(doc, MARGIN + cardWidth + 20, top, cardWidth, cardHeight, buyerLabel, buyerLines);
 
     doc.y = top + cardHeight + 20;
   }
 
+  /** Same layout maths as drawCard below, without drawing — the card's total height including its bottom padding. */
+  private cardContentHeight(doc: PDFKit.PDFDocument, width: number, lines: (string | null)[]): number {
+    const textWidth = width - 28;
+    let h = 28 + Math.max(16, doc.font('Helvetica-Bold').fontSize(10.5).heightOfString(lines[0] ?? '', { width: textWidth }) + 3);
+    doc.font('Helvetica').fontSize(9);
+    for (const line of lines.slice(1)) {
+      if (!line) continue;
+      h += Math.max(13, doc.heightOfString(line, { width: textWidth }) + 2);
+    }
+    return h + 12;
+  }
+
   private drawCard(doc: PDFKit.PDFDocument, x: number, y: number, width: number, height: number, label: string, lines: (string | null)[]): void {
+    const textWidth = width - 28;
     doc.roundedRect(x, y, width, height, 4).fillAndStroke(PANEL_BG, HAIRLINE);
-    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(8).text(label, x + 14, y + 12, { width: width - 28, characterSpacing: 0.5 });
+    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(8).text(label, x + 14, y + 12, { width: textWidth, characterSpacing: 0.5 });
 
     let ly = y + 28;
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(lines[0] ?? '', x + 14, ly, { width: width - 28 });
-    ly += 16;
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(lines[0] ?? '', x + 14, ly, { width: textWidth });
+    ly += Math.max(16, doc.heightOfString(lines[0] ?? '', { width: textWidth }) + 3);
     doc.font('Helvetica').fontSize(9).fillColor('#3a3a3a');
     for (const line of lines.slice(1)) {
       if (!line) continue;
-      doc.text(line, x + 14, ly, { width: width - 28 });
-      ly += 13;
+      doc.text(line, x + 14, ly, { width: textWidth });
+      ly += Math.max(13, doc.heightOfString(line, { width: textWidth }) + 2);
     }
   }
+
 
   private renderMeta(doc: PDFKit.PDFDocument, meta: { label: string; value: string }[]): void {
     const y = doc.y;

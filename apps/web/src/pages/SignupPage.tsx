@@ -23,7 +23,7 @@ export function SignupPage() {
       await signup(organizationName, email, password);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+      setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Veuillez réessayer.');
     } finally {
       setSubmitting(false);
     }

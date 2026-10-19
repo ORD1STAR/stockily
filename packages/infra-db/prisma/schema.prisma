@@ -253,6 +253,17 @@ model Product {
   // Nullable + a nullable-safe compound unique (Postgres allows any number
   // of NULLs in a unique index) since most products won't have one set.
   barcode       String?
+  // Soft delete — never physically removed (too many FKs from stock/sales/
+  // purchasing/invoicing history point at a product to ever hard-delete it).
+  // Set instead of removing the row; every "list active products" read path
+  // filters `deletedAt: null`, but historical joins (an old invoice/order
+  // line's own `product` relation) are left unfiltered so past documents
+  // keep rendering correctly.
+  deletedAt     DateTime?
+  // Packaging hint only — units per carton, used by the Ventes/Achats line
+  // editors to turn "N cartons" into a quantity. Stock stays counted in
+  // units; this is not a second unit of measure.
+  unitsPerCarton Int?
 
   organization Organization     @relation(fields: [orgId], references: [id])
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -488,7 +499,13 @@ model Partner {
   name       String
   isCustomer Boolean @default(false)
   isSupplier Boolean @default(false)
-  nif        String  // required — 2022 finance law ties buyer VAT deduction to it
+  // Previously required (2022 finance law ties buyer VAT deduction to it) —
+  // made optional per explicit user decision: a Partner can be registered
+  // before its NIF is on file, and an invoice can still be finalized for it
+  // (see invoicing.service.ts's finalizeInvoice — the compliance guard that
+  // used to block that was removed). The PDF/print template renders the
+  // "NIF :" / "NIS :" label with an empty value rather than omitting it.
+  nif        String?
   nis        String?
   rc         String?
   taxArticle String?
@@ -511,6 +528,10 @@ model Partner {
   purchaseOrders PurchaseOrder[]
   salesOrders    SalesOrder[]
   productPrices  PartnerProductPrice[]
+
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // reasoning; every list/get query filters `deletedAt: null`.
+  deletedAt DateTime?
 
   @@index([orgId])
   @@map("partners")
@@ -563,6 +584,9 @@ model Invoice {
   // fixed 30-day REMINDER_AFTER_DAYS approximation with a real per-partner
   // figure where available.
   dueDate DateTime?
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // rationale; same convention here.
+  deletedAt DateTime?
 
   organization Organization  @relation(fields: [orgId], references: [id])
   site         Site          @relation(fields: [siteId], references: [id])
@@ -683,6 +707,10 @@ model PurchaseOrder {
   receipts     PurchaseReceipt[]
   invoices     Invoice[]
 
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // reasoning; every list/get query filters `deletedAt: null`.
+  deletedAt DateTime?
+
   @@unique([orgId, number])
   @@index([orgId])
   @@index([comparisonGroupId])
@@ -711,6 +739,9 @@ model PurchaseOrderLine {
   quantityOrdered  Decimal @db.Decimal(14, 3)
   quantityReceived Decimal @default(0) @db.Decimal(14, 3) // cumulative, updated on each receipt
   unitCost         Decimal @db.Decimal(14, 2) // planning/expected cost — the receipt line's own unitCost is what actually feeds the WAC
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // rationale; same convention here.
+  deletedAt        DateTime?
 
   purchaseOrder PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
   product       Product               @relation(fields: [productId], references: [id])
@@ -812,6 +843,10 @@ model SalesOrder {
   lines        SalesOrderLine[]
   invoices     Invoice[]
 
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // reasoning; every list/get query filters `deletedAt: null`.
+  deletedAt DateTime?
+
   @@unique([orgId, number])
   @@index([orgId])
   @@map("sales_orders")
@@ -842,6 +877,9 @@ model SalesOrderLine {
   unitPrice        Decimal  @db.Decimal(14, 2) // resolved from PartnerProductPrice or Product.sellPrice at line-build time, freely overridable
   discountPercent  Decimal? @db.Decimal(5, 2)
   taxRateId        String?
+  // Soft delete — never physically removed. See Product.deletedAt for the
+  // rationale; same convention here.
+  deletedAt        DateTime?
 
   salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
   product       Product?      @relation(fields: [productId], references: [id])

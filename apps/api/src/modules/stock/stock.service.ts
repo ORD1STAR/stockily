@@ -65,7 +65,7 @@ export class StockService {
 
   async createProduct(orgId: string, dto: CreateProductDto) {
     const existing = await this.prisma.product.findUnique({ where: { orgId_sku: { orgId, sku: dto.sku } } });
-    if (existing) throw new ConflictException(`SKU already in use: ${dto.sku}`);
+    if (existing) throw new ConflictException(`Cette référence est déjà utilisée : ${dto.sku}`);
 
     const barcode = dto.barcode?.trim() || null;
     if (barcode) await this.assertBarcodeAvailable(orgId, barcode);
@@ -81,6 +81,7 @@ export class StockService {
         minThreshold: dto.minThreshold ?? null,
         maxThreshold: dto.maxThreshold ?? null,
         sellPrice: dto.sellPrice ?? null,
+        unitsPerCarton: dto.unitsPerCarton ?? null,
         barcode,
       },
     });
@@ -88,7 +89,7 @@ export class StockService {
 
   async updateProduct(orgId: string, productId: string, dto: UpdateProductDto) {
     const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId } });
-    if (!existing) throw new NotFoundException(`Unknown product: ${productId}`);
+    if (!existing) throw new NotFoundException(`Produit inconnu : ${productId}`);
 
     const barcode = dto.barcode !== undefined ? dto.barcode.trim() || null : undefined;
     if (barcode) await this.assertBarcodeAvailable(orgId, barcode, productId);
@@ -115,13 +116,66 @@ export class StockService {
       where: { id: productId },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId || null } : {}),
         ...(dto.isLotTracked !== undefined ? { isLotTracked: dto.isLotTracked } : {}),
         ...(dto.minThreshold !== undefined ? { minThreshold: dto.minThreshold } : {}),
         ...(dto.maxThreshold !== undefined ? { maxThreshold: dto.maxThreshold } : {}),
         ...(dto.sellPrice !== undefined ? { sellPrice: dto.sellPrice } : {}),
+        ...(dto.unitsPerCarton !== undefined ? { unitsPerCarton: dto.unitsPerCarton } : {}),
         ...(barcode !== undefined ? { barcode } : {}),
       },
     });
+  }
+
+  /**
+   * Feeds the Stock product-detail "Supprimer" confirmation — every table
+   * with a `productId` FK found across stock/quality/purchasing/sales/
+   * invoicing (see schema.prisma), so the UI can warn what's actually
+   * attached before a soft delete rather than the delete just silently
+   * making history harder to find.
+   */
+  async getProductUsage(orgId: string, productId: string) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, orgId, deletedAt: null }, select: { id: true } });
+    if (!product) throw new NotFoundException(`Produit inconnu : ${productId}`);
+
+    const [stockLevels, movements, batches, invoiceLines, purchaseOrderLines, purchaseReceiptLines, salesOrderLines, partnerPrices, qualityChecks, nonConformities] =
+      await Promise.all([
+        this.prisma.stockLevel.aggregate({ where: { productId }, _sum: { quantityOnHand: true } }),
+        this.prisma.stockMovement.count({ where: { productId } }),
+        this.prisma.batch.count({ where: { productId } }),
+        this.prisma.invoiceLine.count({ where: { productId } }),
+        this.prisma.purchaseOrderLine.count({ where: { productId, deletedAt: null } }),
+        this.prisma.purchaseReceiptLine.count({ where: { productId } }),
+        this.prisma.salesOrderLine.count({ where: { productId, deletedAt: null } }),
+        this.prisma.partnerProductPrice.count({ where: { productId } }),
+        this.prisma.qualityCheck.count({ where: { productId } }),
+        this.prisma.nonConformity.count({ where: { productId } }),
+      ]);
+
+    return {
+      stockOnHand: Number(stockLevels._sum.quantityOnHand ?? 0),
+      stockMovements: movements,
+      batches,
+      invoiceLines,
+      purchaseOrderLines,
+      purchaseReceiptLines,
+      salesOrderLines,
+      partnerPrices,
+      qualityChecks,
+      nonConformities,
+    };
+  }
+
+  /**
+   * Soft delete only — never physical (too many FKs point at a product
+   * across every module's history). The dependency warning is entirely
+   * client-side (getProductUsage above, called before this) — this always
+   * succeeds since it's non-destructive.
+   */
+  async softDeleteProduct(orgId: string, productId: string) {
+    const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId, deletedAt: null } });
+    if (!existing) throw new NotFoundException(`Produit inconnu : ${productId}`);
+    return this.prisma.product.update({ where: { id: productId }, data: { deletedAt: new Date() } });
   }
 
   // A friendly ConflictException instead of letting the DB's raw P2002
@@ -164,7 +218,7 @@ export class StockService {
     const sites = await this.prisma.site.findMany({ where: siteFilter, select: { id: true, name: true } });
 
     const products = await this.prisma.product.findMany({
-      where: { orgId },
+      where: { orgId, deletedAt: null },
       include: {
         category: { select: { name: true } },
         stockLevels: { where: { site: siteFilter }, include: { site: { select: { id: true, name: true } } } },
@@ -185,6 +239,7 @@ export class StockService {
           barcode: p.barcode,
           category: p.category?.name ?? null,
           isLotTracked: p.isLotTracked,
+          unitsPerCarton: p.unitsPerCarton,
           site,
           quantityOnHand,
           quantityQuarantined,
@@ -205,18 +260,20 @@ export class StockService {
 
   async getProductDetail(orgId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
-      where: { id: productId, orgId },
+      where: { id: productId, orgId, deletedAt: null },
       include: { category: { select: { name: true } }, stockLevels: { include: { site: { select: { id: true, name: true } } } } },
     });
-    if (!product) throw new NotFoundException(`Unknown product: ${productId}`);
+    if (!product) throw new NotFoundException(`Produit inconnu : ${productId}`);
 
     return {
       id: product.id,
       sku: product.sku,
       name: product.name,
       barcode: product.barcode,
+      categoryId: product.categoryId,
       category: product.category?.name ?? null,
       isLotTracked: product.isLotTracked,
+      unitsPerCarton: product.unitsPerCarton,
       averageCost: Number(product.averageCost),
       minThreshold: product.minThreshold != null ? Number(product.minThreshold) : null,
       maxThreshold: product.maxThreshold != null ? Number(product.maxThreshold) : null,

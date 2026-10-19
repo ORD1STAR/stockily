@@ -1,7 +1,10 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
+import { useDataChangeListener } from '../lib/data-events';
+import { CartonInput } from '../lib/CartonInput';
 import { SearchableSelect } from '../lib/SearchableSelect';
+import { toast } from '../lib/toast';
 import {
   ApiError,
   Partner,
@@ -84,6 +87,9 @@ export function SalesPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useDataChangeListener('partners', load);
+  useDataChangeListener('sites', load);
 
   const customers = partners.filter((p) => p.isCustomer);
   const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
@@ -292,12 +298,15 @@ function OrderFormModal({
     setError(null);
     try {
       await salesApi.createOrder(accessToken, buildPayload(acknowledgeShortage));
+      toast.success(kind === 'quote' ? 'Devis créé.' : 'Commande créée.');
       onSaved();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setShortageMessage(err.message);
       } else {
-        setError(err instanceof ApiError ? err.message : 'Erreur lors de la création.');
+        const message = err instanceof ApiError ? err.message : 'Erreur lors de la création.';
+        setError(message);
+        toast.error(message);
       }
     } finally {
       setSubmitting(false);
@@ -311,8 +320,8 @@ function OrderFormModal({
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-backdrop open">
+      <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{kind === 'quote' ? 'Nouveau devis' : 'Nouvelle commande'}</h3>
@@ -349,85 +358,112 @@ function OrderFormModal({
           <div className="sub" style={{ marginTop: 4 }}>
             Lignes
           </div>
-          {lines.map((l, i) => (
-            <div key={i} className="lot-mini-table" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                {l.isService ? (
+          <div className="line-items">
+            <div className="line-item line-item-head">
+              <span className="li-grow">Produit / service</span>
+              <span className="li-num">Cartons</span>
+              <span className="li-num">Quantité</span>
+              <span className="li-money">Prix unitaire</span>
+              <span className="li-num">Remise %</span>
+              <span className="li-select">TVA</span>
+              <span className="li-remove" />
+            </div>
+            {lines.map((l, i) => {
+              const product = l.isService ? undefined : products.find((p) => p.productId === l.productId);
+              return (
+                <div key={i} className="line-item">
+                  <div className="li-grow" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {l.isService ? (
+                      <input
+                        value={l.description}
+                        onChange={(e) => updateLine(i, { description: e.target.value })}
+                        placeholder="Description du service"
+                        aria-label="Description du service"
+                        className="control"
+                        style={{ flex: 1 }}
+                        required
+                      />
+                    ) : (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <SearchableSelect
+                          value={l.productId}
+                          onChange={(v) => {
+                            const p = products.find((pr) => pr.productId === v);
+                            updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v });
+                          }}
+                          options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                          placeholder="Produit…"
+                        />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}
+                      onClick={() => updateLine(i, { isService: !l.isService, productId: '', description: '' })}
+                      title={l.isService ? 'Utiliser un produit du stock' : 'Ligne de service (sans stock)'}
+                    >
+                      {l.isService ? 'Produit' : 'Service'}
+                    </button>
+                  </div>
+                  {l.isService ? (
+                    <span className="li-num" />
+                  ) : (
+                    <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={l.quantity} onQuantityChange={(q) => updateLine(i, { quantity: q })} />
+                  )}
                   <input
-                    value={l.description}
-                    onChange={(e) => updateLine(i, { description: e.target.value })}
-                    placeholder="Description du service"
-                    className="control"
-                    style={{ flex: '1 1 200px' }}
+                    type="number"
+                    min={0.001}
+                    step="any"
+                    value={l.quantity}
+                    onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
+                    placeholder="Qté"
+                    aria-label="Quantité"
+                    className="control li-num"
                     required
                   />
-                ) : (
-                  <div style={{ flex: '1 1 200px' }}>
-                    <SearchableSelect
-                      value={l.productId}
-                      onChange={(v) => {
-                        const p = products.find((pr) => pr.productId === v);
-                        updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v });
-                      }}
-                      options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                      placeholder="Produit…"
-                    />
-                  </div>
-                )}
-                <button type="button" className="btn-link" onClick={() => updateLine(i, { isService: !l.isService, productId: '', description: '' })}>
-                  {l.isService ? 'Utiliser un produit' : 'Ligne de service'}
-                </button>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  min={0.001}
-                  step="any"
-                  value={l.quantity}
-                  onChange={(e) => updateLine(i, { quantity: Number(e.target.value) })}
-                  placeholder="Qté"
-                  className="control"
-                  style={{ width: 90 }}
-                  required
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={l.unitPrice}
-                  onChange={(e) => updateLine(i, { unitPrice: e.target.value })}
-                  placeholder={l.isService ? 'Prix unitaire (requis)' : 'Prix (auto si vide)'}
-                  className="control"
-                  style={{ width: 160 }}
-                  required={l.isService}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="any"
-                  value={l.discountPercent}
-                  onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
-                  placeholder="Remise %"
-                  className="control"
-                  style={{ width: 100 }}
-                />
-                <select value={l.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })} className="control">
-                  <option value="">Sans TVA</option>
-                  {taxRates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.rate}%)
-                    </option>
-                  ))}
-                </select>
-                {lines.length > 1 && (
-                  <button type="button" className="btn-link" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}>
-                    Retirer
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={l.unitPrice}
+                    onChange={(e) => updateLine(i, { unitPrice: e.target.value })}
+                    placeholder={l.isService ? 'Prix (requis)' : 'Auto'}
+                    aria-label="Prix unitaire"
+                    title={l.isService ? 'Prix unitaire (requis)' : 'Laisser vide pour le prix automatique'}
+                    className="control li-money"
+                    required={l.isService}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={l.discountPercent}
+                    onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
+                    placeholder="0"
+                    aria-label="Remise %"
+                    className="control li-num"
+                  />
+                  <select value={l.taxRateId} onChange={(e) => updateLine(i, { taxRateId: e.target.value })} className="control li-select" aria-label="TVA">
+                    <option value="">Sans TVA</option>
+                    {taxRates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.rate}%)
+                      </option>
+                    ))}
+                  </select>
+                  {lines.length > 1 ? (
+                    <button type="button" className="li-remove" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} aria-label="Retirer la ligne" title="Retirer">
+                      ✕
+                    </button>
+                  ) : (
+                    <span className="li-remove" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <button type="button" className="btn-link" onClick={() => setLines((ls) => [...ls, blankLine(defaultTaxRateId)])}>
             + Ajouter une ligne
           </button>
@@ -470,11 +506,51 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
   const [shortageMessage, setShortageMessage] = useState<string | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [printing, setPrinting] = useState<'order' | 'delivery' | null>(null);
+  const [confirmingLineId, setConfirmingLineId] = useState<string | null>(null);
+  const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
 
   const canPromote = order.kind === 'quote' && order.status !== 'cancelled';
   const canCancel = order.status !== 'cancelled' && order.status !== 'invoiced' && !order.lines.some((l) => l.quantityInvoiced > 0);
-  const remainingToInvoice = order.lines.reduce((s, l) => s + (l.quantityOrdered - l.quantityInvoiced), 0);
+  const remainingToInvoice = order.lines.reduce((s, l) => s + remainingToInvoiceOn(l), 0);
   const canInvoice = order.kind === 'order' && order.status !== 'cancelled' && remainingToInvoice > 0;
+  const canDelete = !order.lines.some((l) => l.quantityInvoiced > 0 || l.quantityInDraft > 0);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  async function handleDelete() {
+    if (!accessToken) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await salesApi.deleteOrder(accessToken, order.id);
+      toast.success(order.kind === 'quote' ? 'Devis supprimé.' : 'Commande supprimée.');
+      onChanged();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBusy(false);
+      setConfirmingDelete(false);
+    }
+  }
+
+  async function handleDeleteLine(lineId: string) {
+    if (!accessToken) return;
+    setDeletingLineId(lineId);
+    setError(null);
+    try {
+      await salesApi.deleteOrderLine(accessToken, order.id, lineId);
+      toast.success('Ligne supprimée.');
+      onChanged();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression de la ligne.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingLineId(null);
+      setConfirmingLineId(null);
+    }
+  }
 
   async function handlePromote(acknowledgeShortage = false) {
     if (!accessToken) return;
@@ -483,12 +559,15 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
     setShortageMessage(null);
     try {
       await salesApi.promoteOrder(accessToken, order.id, acknowledgeShortage);
+      toast.success('Devis transformé en commande.');
       onChanged();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setShortageMessage(err.message);
       } else {
-        setError(err instanceof ApiError ? err.message : 'Erreur lors de la promotion.');
+        const message = err instanceof ApiError ? err.message : 'Erreur lors de la promotion.';
+        setError(message);
+        toast.error(message);
       }
     } finally {
       setBusy(false);
@@ -501,9 +580,12 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
     setError(null);
     try {
       await salesApi.cancelOrder(accessToken, order.id);
+      toast.success(order.kind === 'quote' ? 'Devis annulé.' : 'Commande annulée.');
       onChanged();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors de l'annulation.");
+      const message = err instanceof ApiError ? err.message : "Erreur lors de l'annulation.";
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -538,7 +620,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -561,6 +643,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
                 <th>Facturé</th>
                 <th>Prix unitaire</th>
                 <th>Remise</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -568,9 +651,24 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
                 <tr key={l.id}>
                   <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</td>
                   <td>{l.quantityOrdered}</td>
-                  <td>{l.quantityInvoiced}</td>
+                  <td>
+                    {l.quantityInvoiced}
+                    {l.quantityInDraft > 0 && <span className="sub"> (+{l.quantityInDraft} en brouillon)</span>}
+                  </td>
                   <td>{l.unitPrice.toFixed(2)} DZD</td>
                   <td>{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-link danger"
+                      disabled={l.quantityInvoiced > 0 || deletingLineId === l.id}
+                      title={l.quantityInvoiced > 0 ? 'Cette ligne a déjà été facturée, elle ne peut plus être supprimée.' : undefined}
+                      onClick={() => (confirmingLineId === l.id ? handleDeleteLine(l.id) : setConfirmingLineId(l.id))}
+                      onBlur={() => setConfirmingLineId((c) => (c === l.id ? null : c))}
+                    >
+                      {deletingLineId === l.id ? 'Suppression…' : confirmingLineId === l.id ? 'Confirmer ?' : 'Retirer'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -600,6 +698,17 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
             {order.kind === 'order' && (
               <button type="button" className="btn-link" onClick={printDeliveryNote} disabled={printing !== null}>
                 {printing === 'delivery' ? 'Génération…' : 'Imprimer le BL'}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                className="btn-link danger"
+                disabled={busy}
+                onClick={() => (confirmingDelete ? handleDelete() : setConfirmingDelete(true))}
+                onBlur={() => setConfirmingDelete(false)}
+              >
+                {confirmingDelete ? 'Confirmer la suppression ?' : order.kind === 'quote' ? 'Supprimer le devis' : 'Supprimer la commande'}
               </button>
             )}
           </div>
@@ -639,11 +748,17 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
   );
 }
 
+// Quantities sitting on draft factures aren't in quantityInvoiced until they
+// are finalized, but they're spoken for — the API refuses to draft them twice.
+function remainingToInvoiceOn(l: SalesOrderView['lines'][number]): number {
+  return Math.max(0, l.quantityOrdered - l.quantityInvoiced - l.quantityInDraft);
+}
+
 function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderView; onClose: () => void; onInvoiced: () => void }) {
   const { accessToken } = useAuth();
-  const invoiceableLines = order.lines.filter((l) => l.quantityOrdered - l.quantityInvoiced > 0);
+  const invoiceableLines = order.lines.filter((l) => remainingToInvoiceOn(l) > 0);
   const [quantities, setQuantities] = useState<Record<string, number>>(
-    Object.fromEntries(invoiceableLines.map((l) => [l.id, l.quantityOrdered - l.quantityInvoiced])),
+    Object.fromEntries(invoiceableLines.map((l) => [l.id, remainingToInvoiceOn(l)])),
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -657,16 +772,19 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
       await salesApi.invoiceOrder(accessToken, order.id, {
         lines: invoiceableLines.filter((l) => quantities[l.id] > 0).map((l) => ({ salesOrderLineId: l.id, quantity: quantities[l.id] })),
       });
+      toast.success('Facture créée.');
       onInvoiced();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la facturation.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la facturation.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -679,7 +797,7 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
         </div>
         <form onSubmit={handleSubmit} className="field-form">
           {invoiceableLines.map((l) => {
-            const remaining = l.quantityOrdered - l.quantityInvoiced;
+            const remaining = remainingToInvoiceOn(l);
             return (
               <div key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 220px' }}>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</div>
@@ -751,8 +869,11 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
       setUnitPrice('');
       setDiscountPercent('');
       load();
+      toast.success('Prix enregistré.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Erreur lors de l'enregistrement.");
+      const message = err instanceof ApiError ? err.message : "Erreur lors de l'enregistrement.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -763,13 +884,16 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
     try {
       await salesApi.deletePricing(accessToken, id);
       load();
+      toast.success('Prix supprimé.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de la suppression.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de la suppression.';
+      setError(message);
+      toast.error(message);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">

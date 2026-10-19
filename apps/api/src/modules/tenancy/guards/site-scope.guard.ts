@@ -33,7 +33,7 @@ export class SiteScopeGuard implements CanActivate {
         statusCode: 403,
         error: 'site_scope_denied',
         siteId,
-        message: 'No role assignment grants access to this site.',
+        message: 'Aucun rôle ne donne accès à ce site.',
       });
     }
     return true;

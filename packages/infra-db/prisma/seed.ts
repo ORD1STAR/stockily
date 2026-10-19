@@ -63,6 +63,7 @@ const ACTIONS: Record<string, string[]> = {
   stock: [
     'stock.product.read',
     'stock.product.write',
+    'stock.product.delete',
     'stock.movement.create',
     'stock.movement.read',
     'stock.inventory.adjust',
@@ -79,9 +80,11 @@ const ACTIONS: Record<string, string[]> = {
     'invoicing.invoice.create',
     'invoicing.invoice.finalize',
     'invoicing.invoice.void',
+    'invoicing.invoice.delete',
     'invoicing.payment.create',
     'invoicing.partner.read',
     'invoicing.partner.write',
+    'invoicing.partner.delete',
     'invoicing.taxrate.read',
     'invoicing.taxrate.write',
     // Business-legal-profile fields (name/address/NIF/NIS/RC/tax article)
@@ -103,6 +106,8 @@ const ACTIONS: Record<string, string[]> = {
     'purchasing.order.read',
     'purchasing.order.update',
     'purchasing.order.cancel',
+    'purchasing.order.delete',
+    'purchasing.orderline.delete',
     'purchasing.receipt.create',
     'purchasing.receipt.read',
     // Milestone 10
@@ -119,6 +124,8 @@ const ACTIONS: Record<string, string[]> = {
     'sales.order.read',
     'sales.order.update',
     'sales.order.cancel',
+    'sales.order.delete',
+    'sales.orderline.delete',
     'sales.invoice.create',
     'sales.pricing.read',
     'sales.pricing.write',

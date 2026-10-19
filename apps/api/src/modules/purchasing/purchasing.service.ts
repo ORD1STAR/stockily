@@ -75,10 +75,10 @@ export class PurchasingService {
   // ---------------- Purchase orders ----------------
 
   async createPurchaseOrder(orgId: string, performedBy: string, dto: CreatePurchaseOrderDto) {
-    const supplier = await this.prisma.partner.findFirst({ where: { id: dto.supplierId, orgId } });
-    if (!supplier) throw new NotFoundException(`Unknown supplier: ${dto.supplierId}`);
+    const supplier = await this.prisma.partner.findFirst({ where: { id: dto.supplierId, orgId, deletedAt: null } });
+    if (!supplier) throw new NotFoundException(`Fournisseur inconnu : ${dto.supplierId}`);
     if (!supplier.isSupplier) {
-      throw new BadRequestException(`Partner ${supplier.name} is not flagged as a supplier.`);
+      throw new BadRequestException(`Le partenaire ${supplier.name} n'est pas marqué comme fournisseur.`);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -136,7 +136,7 @@ export class PurchasingService {
 
   async listPurchaseOrders(orgId: string, siteId?: string) {
     const orders = await this.prisma.purchaseOrder.findMany({
-      where: { orgId, ...(siteId ? { siteId } : {}) },
+      where: { orgId, deletedAt: null, ...(siteId ? { siteId } : {}) },
       // `product: true` on lines here too — the frontend's order detail
       // modal is fed straight from this list's rows (no separate
       // getPurchaseOrder fetch on click), so it needs the same shape
@@ -145,7 +145,7 @@ export class PurchasingService {
       // `receipts` (id + receivedAt only, not the full lines) added for
       // the same reason — the order detail modal lists past receipts with
       // a "bon de livraison" print link per one.
-      include: { supplier: true, site: true, lines: { include: { product: true } }, receipts: { select: { id: true, receivedAt: true } } },
+      include: { supplier: true, site: true, lines: { where: { deletedAt: null }, include: { product: true } }, receipts: { select: { id: true, receivedAt: true } } },
       orderBy: { createdAt: 'desc' },
     });
     return orders.map(serializeOrder);
@@ -153,21 +153,21 @@ export class PurchasingService {
 
   async getPurchaseOrder(orgId: string, id: string) {
     const order = await this.prisma.purchaseOrder.findFirst({
-      where: { id, orgId },
-      include: { supplier: true, site: true, lines: { include: { product: true } }, receipts: { include: { lines: true } } },
+      where: { id, orgId, deletedAt: null },
+      include: { supplier: true, site: true, lines: { where: { deletedAt: null }, include: { product: true } }, receipts: { include: { lines: true } } },
     });
-    if (!order) throw new NotFoundException(`Unknown purchase order: ${id}`);
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${id}`);
     return serializeOrder(order);
   }
 
   async updatePurchaseOrder(orgId: string, id: string, dto: UpdatePurchaseOrderDto) {
-    const order = await this.prisma.purchaseOrder.findFirst({ where: { id, orgId }, include: { lines: true } });
-    if (!order) throw new NotFoundException(`Unknown purchase order: ${id}`);
+    const order = await this.prisma.purchaseOrder.findFirst({ where: { id, orgId, deletedAt: null }, include: { lines: true } });
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${id}`);
     if (order.lines.some((l) => Number(l.quantityReceived) > 0)) {
-      throw new BadRequestException('Cannot cancel a purchase order that already has received quantity on it.');
+      throw new BadRequestException('Impossible d\'annuler un bon de commande qui a déjà une quantité reçue.');
     }
     if (order.status === 'received' || order.status === 'cancelled') {
-      throw new BadRequestException(`Cannot cancel a purchase order already ${order.status}.`);
+      throw new BadRequestException(`Impossible d'annuler un bon de commande déjà « ${order.status} ».`);
     }
 
     const updated = await this.prisma.purchaseOrder.update({
@@ -176,6 +176,43 @@ export class PurchasingService {
       include: { lines: true, supplier: true, site: true },
     });
     return serializeOrder(updated);
+  }
+
+  /**
+   * Soft delete of a whole bon de commande (or one RFQ candidate) — never
+   * physical, same convention as Product/Invoice. Blocked once anything has
+   * been received against it: those receipts already moved stock and fed
+   * the last-price history, and hiding their order would orphan them.
+   */
+  async deletePurchaseOrder(orgId: string, id: string) {
+    const order = await this.prisma.purchaseOrder.findFirst({ where: { id, orgId, deletedAt: null }, include: { lines: true, receipts: { select: { id: true } } } });
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${id}`);
+    if (order.receipts.length > 0 || order.lines.some((l) => Number(l.quantityReceived) > 0)) {
+      throw new BadRequestException('Ce bon de commande a déjà été réceptionné, il ne peut plus être supprimé.');
+    }
+    await this.prisma.purchaseOrder.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  /**
+   * Soft delete only — never physical, same convention as Product/Invoice
+   * (see schema.prisma). Blocked once anything has actually been received
+   * against the line (its receiptLines / quantityReceived would then point
+   * at a line no longer shown on the order) or if it's the order's last
+   * remaining line (an order with zero lines is meaningless).
+   */
+  async deleteOrderLine(orgId: string, orderId: string, lineId: string) {
+    const order = await this.prisma.purchaseOrder.findFirst({ where: { id: orderId, orgId, deletedAt: null }, include: { lines: { where: { deletedAt: null } } } });
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${orderId}`);
+    const line = order.lines.find((l) => l.id === lineId);
+    if (!line) throw new NotFoundException(`Ligne inconnue : ${lineId}`);
+    if (Number(line.quantityReceived) > 0) {
+      throw new BadRequestException('Cette ligne a déjà été réceptionnée, elle ne peut plus être supprimée.');
+    }
+    if (order.lines.length <= 1) {
+      throw new BadRequestException('Impossible de supprimer la dernière ligne d\'un bon de commande.');
+    }
+    await this.prisma.purchaseOrderLine.update({ where: { id: lineId }, data: { deletedAt: new Date() } });
+    return this.getPurchaseOrder(orgId, orderId);
   }
 
   // ---------------- Receiving ----------------
@@ -195,7 +232,7 @@ export class PurchasingService {
     const totalRawValue = rawValues.reduce((s, v) => s + v, 0);
     if (totalRawValue <= 0) {
       throw new BadRequestException(
-        'Cannot allocate landedCostAmount across lines with zero total value — remove it or give at least one line a positive unitCost.',
+        'Impossible de répartir le landedCostAmount sur des lignes dont la valeur totale est nulle — retirez-le ou donnez un unitCost positif à au moins une ligne.',
       );
     }
 
@@ -209,10 +246,10 @@ export class PurchasingService {
   async receiveGoods(orgId: string, performedBy: string, dto: CreatePurchaseReceiptDto) {
     let purchaseOrder = null;
     if (dto.purchaseOrderId) {
-      purchaseOrder = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.purchaseOrderId, orgId } });
-      if (!purchaseOrder) throw new NotFoundException(`Unknown purchase order: ${dto.purchaseOrderId}`);
+      purchaseOrder = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.purchaseOrderId, orgId, deletedAt: null } });
+      if (!purchaseOrder) throw new NotFoundException(`Bon de commande inconnu : ${dto.purchaseOrderId}`);
       if (purchaseOrder.status === 'cancelled') {
-        throw new BadRequestException('Cannot receive against a cancelled purchase order.');
+        throw new BadRequestException('Impossible de réceptionner un bon de commande annulé.');
       }
     }
 
@@ -320,7 +357,7 @@ export class PurchasingService {
       where: { id, orgId },
       include: { site: true, purchaseOrder: true, lines: { include: { product: true } } },
     });
-    if (!receipt) throw new NotFoundException(`Unknown purchase receipt: ${id}`);
+    if (!receipt) throw new NotFoundException(`Réception inconnue : ${id}`);
     return serializeReceipt(receipt);
   }
 
@@ -337,8 +374,8 @@ export class PurchasingService {
 
   /** Achats' own convenience wrapper around Invoicing's createInvoice — see the DTO's own doc for why this exists at all instead of just calling POST /invoicing/invoices directly. */
   async createSupplierInvoice(orgId: string, purchaseOrderId: string, dto: CreateSupplierInvoiceDto) {
-    const po = await this.prisma.purchaseOrder.findFirst({ where: { id: purchaseOrderId, orgId } });
-    if (!po) throw new NotFoundException(`Unknown purchase order: ${purchaseOrderId}`);
+    const po = await this.prisma.purchaseOrder.findFirst({ where: { id: purchaseOrderId, orgId, deletedAt: null } });
+    if (!po) throw new NotFoundException(`Bon de commande inconnu : ${purchaseOrderId}`);
 
     return this.invoicing.createInvoice(orgId, {
       type: 'SUPPLIER',
@@ -363,10 +400,10 @@ export class PurchasingService {
    */
   async createRfq(orgId: string, performedBy: string, dto: CreateRfqDto) {
     const site = await this.prisma.site.findFirst({ where: { id: dto.siteId, orgId } });
-    if (!site) throw new NotFoundException(`Unknown site: ${dto.siteId}`);
-    const suppliers = await this.prisma.partner.findMany({ where: { id: { in: dto.supplierIds }, orgId, isSupplier: true } });
+    if (!site) throw new NotFoundException(`Site inconnu : ${dto.siteId}`);
+    const suppliers = await this.prisma.partner.findMany({ where: { id: { in: dto.supplierIds }, orgId, deletedAt: null, isSupplier: true } });
     if (suppliers.length !== dto.supplierIds.length) {
-      throw new BadRequestException('One or more supplierIds are unknown or not flagged as a supplier.');
+      throw new BadRequestException('Un ou plusieurs supplierIds sont inconnus ou non marqués comme fournisseur.');
     }
 
     const comparisonGroupId = crypto.randomUUID();
@@ -393,23 +430,23 @@ export class PurchasingService {
 
   async getRfqGroup(orgId: string, comparisonGroupId: string) {
     const candidates = await this.prisma.purchaseOrder.findMany({
-      where: { orgId, comparisonGroupId },
-      include: { lines: { include: { product: true } }, supplier: true, site: true },
+      where: { orgId, comparisonGroupId, deletedAt: null },
+      include: { lines: { where: { deletedAt: null }, include: { product: true } }, supplier: true, site: true },
       orderBy: { createdAt: 'asc' },
     });
-    if (candidates.length === 0) throw new NotFoundException(`Unknown RFQ comparison group: ${comparisonGroupId}`);
+    if (candidates.length === 0) throw new NotFoundException(`Groupe de comparaison RFQ inconnu : ${comparisonGroupId}`);
     return candidates.map(serializeOrder);
   }
 
   /** Fills in the price a supplier actually quoted for one RFQ candidate — every candidate line starts at unitCost 0 (see createRfq); the buyer records the real quote here before comparing/awarding. Only touches lines still on an "rfq" order — once awarded/rejected, prices are frozen. */
   async updateRfqLinePrices(orgId: string, purchaseOrderId: string, dto: UpdateRfqPricesDto) {
-    const order = await this.prisma.purchaseOrder.findFirst({ where: { id: purchaseOrderId, orgId }, include: { lines: true } });
-    if (!order) throw new NotFoundException(`Unknown purchase order: ${purchaseOrderId}`);
-    if (order.status !== 'rfq') throw new BadRequestException('Prices can only be edited while this candidate is still in comparison (rfq status).');
+    const order = await this.prisma.purchaseOrder.findFirst({ where: { id: purchaseOrderId, orgId, deletedAt: null }, include: { lines: true } });
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${purchaseOrderId}`);
+    if (order.status !== 'rfq') throw new BadRequestException('Les prix ne peuvent être modifiés que tant que ce candidat est encore en comparaison (statut rfq).');
 
     const lineIds = new Set(order.lines.map((l) => l.id));
     for (const l of dto.lines) {
-      if (!lineIds.has(l.lineId)) throw new BadRequestException(`Line ${l.lineId} does not belong to purchase order ${purchaseOrderId}.`);
+      if (!lineIds.has(l.lineId)) throw new BadRequestException(`La ligne ${l.lineId} n'appartient pas au bon de commande ${purchaseOrderId}.`);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -427,11 +464,11 @@ export class PurchasingService {
 
   /** Awards one candidate — assigns it a real number and confirms it; every sibling in the group flips to rfq_rejected, kept for audit history. */
   async awardRfq(orgId: string, comparisonGroupId: string, winningPurchaseOrderId: string) {
-    const candidates = await this.prisma.purchaseOrder.findMany({ where: { orgId, comparisonGroupId } });
-    if (candidates.length === 0) throw new NotFoundException(`Unknown RFQ comparison group: ${comparisonGroupId}`);
+    const candidates = await this.prisma.purchaseOrder.findMany({ where: { orgId, comparisonGroupId, deletedAt: null } });
+    if (candidates.length === 0) throw new NotFoundException(`Groupe de comparaison RFQ inconnu : ${comparisonGroupId}`);
     const winner = candidates.find((c) => c.id === winningPurchaseOrderId);
-    if (!winner) throw new NotFoundException(`Purchase order ${winningPurchaseOrderId} is not part of comparison group ${comparisonGroupId}`);
-    if (winner.status !== 'rfq') throw new BadRequestException(`This candidate is already ${winner.status}.`);
+    if (!winner) throw new NotFoundException(`Le bon de commande ${winningPurchaseOrderId} ne fait pas partie du groupe de comparaison ${comparisonGroupId}`);
+    if (winner.status !== 'rfq') throw new BadRequestException(`Ce candidat est déjà « ${winner.status} ».`);
 
     return this.prisma.$transaction(async (tx) => {
       await setTenantOnTransaction(tx, orgId);
@@ -452,7 +489,7 @@ export class PurchasingService {
       });
 
       await tx.purchaseOrder.updateMany({
-        where: { orgId, comparisonGroupId, id: { not: winningPurchaseOrderId }, status: 'rfq' },
+        where: { orgId, comparisonGroupId, deletedAt: null, id: { not: winningPurchaseOrderId }, status: 'rfq' },
         data: { status: 'rfq_rejected' },
       });
 
@@ -485,8 +522,8 @@ export class PurchasingService {
   async getDashboard(orgId: string) {
     const now = new Date();
     const openOrders = await this.prisma.purchaseOrder.findMany({
-      where: { orgId, status: { in: ['confirmed', 'partially_received'] } },
-      include: { lines: true, supplier: true },
+      where: { orgId, deletedAt: null, status: { in: ['confirmed', 'partially_received'] } },
+      include: { lines: { where: { deletedAt: null } }, supplier: true },
     });
 
     const openOrdersValue = openOrders.reduce(
@@ -511,9 +548,9 @@ export class PurchasingService {
   async generatePurchaseOrderPdf(orgId: string, id: string): Promise<Buffer> {
     const order = await this.prisma.purchaseOrder.findFirst({
       where: { id, orgId },
-      include: { organization: true, supplier: true, site: true, lines: { include: { product: true } } },
+      include: { organization: true, supplier: true, site: true, lines: { where: { deletedAt: null }, include: { product: true } } },
     });
-    if (!order) throw new NotFoundException(`Unknown purchase order: ${id}`);
+    if (!order) throw new NotFoundException(`Bon de commande inconnu : ${id}`);
 
     let total = 0;
     const lines = order.lines.map((l) => {
@@ -576,7 +613,7 @@ export class PurchasingService {
         lines: { include: { product: true, batch: true, qualityCheck: true } },
       },
     });
-    if (!receipt) throw new NotFoundException(`Unknown purchase receipt: ${id}`);
+    if (!receipt) throw new NotFoundException(`Réception inconnue : ${id}`);
 
     const QUALITY_LABEL_FR: Record<string, string> = { conforme: 'Conforme', non_conforme: 'Non conforme' };
     const lines = receipt.lines.map((l) => {

@@ -61,6 +61,22 @@ export class SalesController {
     return this.sales.updateSalesOrderStatus(user.orgId, user.userId, id, dto);
   }
 
+  @Delete('orders/:id')
+  @RequiresPermission('sales', 'sales.order.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('sales_order', 'sales.order.deleted')
+  deleteOrder(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.sales.deleteSalesOrder(user.orgId, user.userId, id);
+  }
+
+  @Delete('orders/:id/lines/:lineId')
+  @RequiresPermission('sales', 'sales.orderline.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('sales_order_line', 'sales.orderline.deleted')
+  deleteOrderLine(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('lineId') lineId: string) {
+    return this.sales.deleteOrderLine(user.orgId, user.userId, id, lineId);
+  }
+
   // Generates a draft CUSTOMER invoice from (a subset of) a commande's
   // lines — see SalesService.invoiceSalesOrder for why finalization stays
   // on Invoicing's own page rather than happening here.

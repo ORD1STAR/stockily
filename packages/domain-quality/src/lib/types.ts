@@ -122,14 +122,14 @@ export type QualityDomainEvent =
 
 export class UnknownProductError extends Error {
   constructor(public readonly productId: string) {
-    super(`Unknown product: ${productId}`);
+    super(`Produit inconnu : ${productId}`);
     this.name = 'UnknownProductError';
   }
 }
 
 export class UnknownBatchError extends Error {
   constructor(public readonly batchId: string) {
-    super(`Unknown batch: ${batchId}`);
+    super(`Lot inconnu : ${batchId}`);
     this.name = 'UnknownBatchError';
   }
 }
@@ -143,14 +143,14 @@ export class InvalidQualityCheckInputError extends Error {
 
 export class NonConformityAlreadyResolvedError extends Error {
   constructor(public readonly nonConformityId: string) {
-    super(`Non-conformity already resolved: ${nonConformityId}`);
+    super(`Non-conformité déjà résolue : ${nonConformityId}`);
     this.name = 'NonConformityAlreadyResolvedError';
   }
 }
 
 export class UnknownNonConformityError extends Error {
   constructor(public readonly nonConformityId: string) {
-    super(`Unknown non-conformity: ${nonConformityId}`);
+    super(`Non-conformité inconnue : ${nonConformityId}`);
     this.name = 'UnknownNonConformityError';
   }
 }

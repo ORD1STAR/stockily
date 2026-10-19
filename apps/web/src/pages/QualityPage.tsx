@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Batch, NonConformity, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { toast } from '../lib/toast';
 import '../lib/data-views.css';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -181,7 +182,7 @@ export function QualityPage() {
                   <tr key={r.key}>
                     <td className="mono">{r.lotLabel}</td>
                     <td>
-                      <span className="has-tip" data-tip={`SKU : ${r.productSku}`}>
+                      <span className="has-tip" data-tip={`Référence : ${r.productSku}`}>
                         {r.productName}
                       </span>
                     </td>
@@ -261,16 +262,19 @@ function ResolveNonConformityModal({
     setError(null);
     try {
       await qualityApi.resolveNonConformity(accessToken, nonConformityId, resolutionNotes || undefined);
+      toast.success('Non-conformité résolue.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Échec de la résolution.');
+      const message = err instanceof ApiError ? err.message : 'Échec de la résolution.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
@@ -368,16 +372,19 @@ function QualityCheckModal({ products, onClose, onSaved }: { products: StockRow[
       } else {
         await qualityApi.recordCheck(accessToken, { productId, siteId, quantity, result, notes: notes || undefined });
       }
+      toast.success('Contrôle qualité enregistré.');
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erreur lors de l’enregistrement du contrôle.');
+      const message = err instanceof ApiError ? err.message : 'Erreur lors de l’enregistrement du contrôle.';
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="modal-backdrop open" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop open">
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">

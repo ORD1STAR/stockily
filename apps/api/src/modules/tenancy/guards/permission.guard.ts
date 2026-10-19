@@ -32,7 +32,7 @@ export class PermissionGuard implements CanActivate {
     if (!userId) throw new UnauthorizedException();
 
     const module = await this.prisma.module.findUnique({ where: { key: required.moduleKey } });
-    if (!module) throw new NotFoundException(`Unknown module: ${required.moduleKey}`);
+    if (!module) throw new NotFoundException(`Module inconnu : ${required.moduleKey}`);
 
     const rawSiteId: string | undefined = req.params?.siteId ?? req.body?.siteId ?? req.query?.siteId;
 
@@ -61,7 +61,7 @@ export class PermissionGuard implements CanActivate {
         statusCode: 403,
         error: 'permission_denied',
         action: required.action,
-        message: 'No applicable role for this site.',
+        message: 'Aucun rôle applicable pour ce site.',
       });
     }
 
@@ -77,7 +77,7 @@ export class PermissionGuard implements CanActivate {
         statusCode: 403,
         error: 'permission_denied',
         action: required.action,
-        message: `Missing permission: ${required.action}`,
+        message: `Permission manquante : ${required.action}`,
       });
     }
 

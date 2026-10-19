@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -69,6 +69,20 @@ export class StockController {
   @Audit('product', 'stock.product.updated')
   updateProduct(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.stock.updateProduct(user.orgId, id, dto);
+  }
+
+  @Get('products/:id/usage')
+  @RequiresPermission('stock', 'stock.product.read')
+  getProductUsage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.stock.getProductUsage(user.orgId, id);
+  }
+
+  @Delete('products/:id')
+  @RequiresPermission('stock', 'stock.product.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('product', 'stock.product.deleted')
+  deleteProduct(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.stock.softDeleteProduct(user.orgId, id);
   }
 
   @Post('movements')

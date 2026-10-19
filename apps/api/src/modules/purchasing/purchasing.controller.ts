@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
@@ -56,6 +56,22 @@ export class PurchasingController {
   @Audit('purchase_order', 'purchasing.order.cancelled')
   updateOrder(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
     return this.purchasing.updatePurchaseOrder(user.orgId, id, dto);
+  }
+
+  @Delete('orders/:id')
+  @RequiresPermission('purchasing', 'purchasing.order.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order', 'purchasing.order.deleted')
+  deleteOrder(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.purchasing.deletePurchaseOrder(user.orgId, id);
+  }
+
+  @Delete('orders/:id/lines/:lineId')
+  @RequiresPermission('purchasing', 'purchasing.orderline.delete')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_order_line', 'purchasing.orderline.deleted')
+  deleteOrderLine(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('lineId') lineId: string) {
+    return this.purchasing.deleteOrderLine(user.orgId, id, lineId);
   }
 
   // Accepts a tableau of lines, posts the real IN stock movement per line

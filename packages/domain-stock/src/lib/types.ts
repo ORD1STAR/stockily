@@ -156,7 +156,7 @@ export class NegativeStockError extends Error {
     public readonly available: number,
   ) {
     super(
-      `Movement would take stock negative for product ${productId} at site ${siteId}: requested ${requested}, only ${available} available.`,
+      `Ce mouvement rendrait le stock négatif pour le produit ${productId} sur le site ${siteId} : ${requested} demandé(s), seulement ${available} disponible(s).`,
     );
     this.name = 'NegativeStockError';
   }
@@ -164,7 +164,7 @@ export class NegativeStockError extends Error {
 
 export class UnknownProductError extends Error {
   constructor(public readonly productId: string) {
-    super(`Unknown product: ${productId}`);
+    super(`Produit inconnu : ${productId}`);
     this.name = 'UnknownProductError';
   }
 }
@@ -177,7 +177,7 @@ export class InsufficientQuarantineSourceError extends Error {
     public readonly available: number,
   ) {
     super(
-      `Cannot quarantine ${requested} of product ${productId} at site ${siteId}: only ${available} on hand.`,
+      `Impossible de mettre en quarantaine ${requested} unité(s) du produit ${productId} sur le site ${siteId} : seulement ${available} en stock.`,
     );
     this.name = 'InsufficientQuarantineSourceError';
   }
@@ -192,7 +192,7 @@ export class InsufficientReservableStockError extends Error {
     public readonly available: number,
   ) {
     super(
-      `Cannot reserve ${requested} of product ${productId} at site ${siteId}: only ${available} available (on hand minus already reserved).`,
+      `Impossible de réserver ${requested} unité(s) du produit ${productId} sur le site ${siteId} : seulement ${available} disponible(s) (stock physique moins déjà réservé).`,
     );
     this.name = 'InsufficientReservableStockError';
   }

@@ -10,7 +10,7 @@ export class ModuleEntitlementException extends HttpException {
         statusCode: HttpStatus.PAYMENT_REQUIRED,
         error: 'module_entitlement_required',
         moduleKey,
-        message: `Module "${moduleKey}" is not active (or its trial has expired) for this organization.`,
+        message: `Le module « ${moduleKey} » n'est pas actif (ou son essai a expiré) pour cette organisation.`,
       },
       HttpStatus.PAYMENT_REQUIRED,
     );

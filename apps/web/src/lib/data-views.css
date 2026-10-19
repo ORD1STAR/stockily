@@ -90,6 +90,12 @@
   cursor: default;
   background: transparent;
 }
+/* Shared by every delete/remove action (product, facture, Achats/Ventes
+   line) — same double-click-to-arm pattern, just needs to read as
+   destructive rather than the default purple link color. */
+.btn-link.danger {
+  color: var(--danger);
+}
 
 /* Bare input/select controls that don't live inside a `.field-row` (an
    order/commande line item, a table-cell price edit, an ad hoc mini-form)
@@ -566,6 +572,17 @@ table.data tr.clickable:hover {
   font-size: 0.8rem;
   font-weight: 500;
 }
+
+/* Column headers above a repeating row of line-item inputs (Achats/Ventes'
+   "Lignes" — produit/quantité/coût) — a plain `placeholder` disappears the
+   moment a value is typed, which left every field unlabeled as soon as it
+   had real content (found from a user screenshot: "1" and "0" with no way
+   to tell which was quantity vs. cost). */
+.field-line-label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
 .field-row input,
 .field-row select,
 .field-row textarea {
@@ -691,4 +708,80 @@ table.data tr.clickable:hover {
   font-family: var(--f-mono);
   font-size: 0.78rem;
   color: var(--text-muted);
+}
+
+/* Line-item editors (Achats, Réception, RFQ, Ventes, Factures) — one row
+   per article: product, then the small numeric fields, then a ✕ to remove,
+   with a single header row instead of a label above every field. The
+   modal goes extra wide so the row fits; below 700px it wraps, the product
+   on its own line and the header hidden (every input keeps a placeholder
+   and aria-label). */
+.modal.xwide {
+  max-width: 940px;
+}
+.line-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.line-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.line-item > * {
+  flex: 0 0 auto;
+}
+.line-item .li-grow {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+.line-item .li-num {
+  width: 80px;
+}
+.line-item .li-money {
+  width: 110px;
+}
+.line-item .li-text {
+  width: 130px;
+}
+.line-item .li-select {
+  width: 150px;
+}
+.line-item .li-remove {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.line-item .li-remove:hover {
+  background: var(--surface-alt);
+  color: var(--danger);
+}
+.line-item-head {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.line-item-hint {
+  padding-left: 2px;
+  margin-top: -2px;
+}
+@media (max-width: 700px) {
+  .line-item {
+    flex-wrap: wrap;
+  }
+  .line-item .li-grow {
+    flex-basis: 100%;
+  }
+  .line-item-head {
+    display: none;
+  }
 }

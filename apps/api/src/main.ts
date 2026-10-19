@@ -3,6 +3,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
 import { AllExceptionsFilter } from './app/all-exceptions.filter';
+import { frenchValidationExceptionFactory } from './app/validation-messages';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -25,6 +26,7 @@ async function bootstrap() {
       whitelist: true, // strip properties not declared on the DTO
       forbidNonWhitelisted: true, // reject requests carrying unexpected fields, rather than silently dropping them
       transform: true, // so e.g. class-validator sees a real Date/number, not the raw string body
+      exceptionFactory: frenchValidationExceptionFactory, // class-validator's own messages are English — the frontend shows body.message verbatim
     }),
   );
   const port = process.env.PORT || 3000;

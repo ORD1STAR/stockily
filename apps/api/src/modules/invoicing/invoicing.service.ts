@@ -38,7 +38,7 @@ export class InvoicingService {
         name: dto.name,
         isCustomer: dto.isCustomer ?? true,
         isSupplier: dto.isSupplier ?? false,
-        nif: dto.nif,
+        nif: dto.nif ?? null,
         nis: dto.nis ?? null,
         rc: dto.rc ?? null,
         taxArticle: dto.taxArticle ?? null,
@@ -51,12 +51,23 @@ export class InvoicingService {
   }
 
   async listPartners(orgId: string) {
-    return this.prisma.partner.findMany({ where: { orgId }, orderBy: { name: 'asc' } });
+    return this.prisma.partner.findMany({ where: { orgId, deletedAt: null }, orderBy: { name: 'asc' } });
+  }
+
+  /**
+   * Soft delete — the partner disappears from lists and pickers, but every
+   * existing facture/commande keeps pointing at it (and still prints its
+   * name), which a physical delete would break.
+   */
+  async deletePartner(orgId: string, id: string) {
+    const existing = await this.prisma.partner.findFirst({ where: { id, orgId, deletedAt: null } });
+    if (!existing) throw new NotFoundException(`Partenaire inconnu : ${id}`);
+    await this.prisma.partner.update({ where: { id }, data: { deletedAt: new Date() } });
   }
 
   async updatePartner(orgId: string, id: string, dto: UpdatePartnerDto) {
-    const existing = await this.prisma.partner.findFirst({ where: { id, orgId } });
-    if (!existing) throw new NotFoundException(`Unknown partner: ${id}`);
+    const existing = await this.prisma.partner.findFirst({ where: { id, orgId, deletedAt: null } });
+    if (!existing) throw new NotFoundException(`Partenaire inconnu : ${id}`);
     return this.prisma.partner.update({
       where: { id },
       data: {
@@ -117,18 +128,18 @@ export class InvoicingService {
   async createInvoice(orgId: string, dto: CreateInvoiceDto) {
     let partner: { paymentTermsNetDays: number | null } | null = null;
     if (dto.partnerId) {
-      partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId } });
-      if (!partner) throw new NotFoundException(`Unknown partner: ${dto.partnerId}`);
+      partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId, deletedAt: null } });
+      if (!partner) throw new NotFoundException(`Partenaire inconnu : ${dto.partnerId}`);
     }
     const site = await this.prisma.site.findFirst({ where: { id: dto.siteId, orgId } });
-    if (!site) throw new NotFoundException(`Unknown site: ${dto.siteId}`);
+    if (!site) throw new NotFoundException(`Site inconnu : ${dto.siteId}`);
     if (dto.purchaseOrderId) {
       const po = await this.prisma.purchaseOrder.findFirst({ where: { id: dto.purchaseOrderId, orgId } });
-      if (!po) throw new NotFoundException(`Unknown purchase order: ${dto.purchaseOrderId}`);
+      if (!po) throw new NotFoundException(`Bon de commande inconnu : ${dto.purchaseOrderId}`);
     }
     if (dto.salesOrderId) {
-      const so = await this.prisma.salesOrder.findFirst({ where: { id: dto.salesOrderId, orgId } });
-      if (!so) throw new NotFoundException(`Unknown sales order: ${dto.salesOrderId}`);
+      const so = await this.prisma.salesOrder.findFirst({ where: { id: dto.salesOrderId, orgId, deletedAt: null } });
+      if (!so) throw new NotFoundException(`Commande de vente inconnue : ${dto.salesOrderId}`);
     }
 
     const linesData = dto.lines.map((l) => this.toLineCreateData(l));
@@ -195,7 +206,7 @@ export class InvoicingService {
 
   async listInvoices(orgId: string, filters: { status?: string }) {
     const invoices = await this.prisma.invoice.findMany({
-      where: { orgId, ...(filters.status ? { status: filters.status } : {}) },
+      where: { orgId, deletedAt: null, ...(filters.status ? { status: filters.status } : {}) },
       include: { lines: { include: { taxRate: true } }, partner: { select: { name: true, nif: true } }, payments: true },
       orderBy: { issuedAt: 'desc' },
     });
@@ -204,11 +215,24 @@ export class InvoicingService {
 
   async getInvoiceDetail(orgId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({
-      where: { id: invoiceId, orgId },
+      where: { id: invoiceId, orgId, deletedAt: null },
       include: { lines: { include: { taxRate: true, product: { select: { name: true } } } }, partner: true, payments: true, site: true },
     });
-    if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
+    if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
     return this.assembleView(invoice);
+  }
+
+  /**
+   * Soft delete only — never physical, same convention as Product (see
+   * schema.prisma). Deliberately broader than voidInvoice above (which is
+   * narrow by design: draft-CUSTOMER-only, or payment-free-SUPPLIER) — this
+   * is a separate action with no status restriction, matching the request
+   * to simply remove a facture from view regardless of its state.
+   */
+  async softDeleteInvoice(orgId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, orgId, deletedAt: null } });
+    if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
+    return this.prisma.invoice.update({ where: { id: invoiceId }, data: { deletedAt: new Date() } });
   }
 
   private toLineInputs(invoice: InvoiceWithLines): InvoiceLineInput[] {
@@ -261,23 +285,20 @@ export class InvoicingService {
 
   async finalizeInvoice(orgId: string, invoiceId: string, performedBy: string) {
     const invoice = await this.prisma.invoice.findFirst({
-      where: { id: invoiceId, orgId },
+      where: { id: invoiceId, orgId, deletedAt: null },
       include: { lines: true, partner: true },
     });
-    if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
+    if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
     if (invoice.type !== 'CUSTOMER') {
-      throw new BadRequestException('Only CUSTOMER invoices go through finalize — a SUPPLIER invoice is already final at creation.');
+      throw new BadRequestException('Seules les factures CLIENT passent par la finalisation — une facture FOURNISSEUR est déjà finale dès sa création.');
     }
     if (invoice.status !== 'draft') {
-      throw new ConflictException(`Invoice ${invoice.number ?? invoice.id} is not a draft (status: ${invoice.status}).`);
+      throw new ConflictException(`La facture ${invoice.number ?? invoice.id} n'est pas un brouillon (statut : ${invoice.status}).`);
     }
-    // Defense in depth only — Partner.nif is a required non-null column,
-    // so an attached partner always has one; a null partnerId is the
-    // actual "vente comptoir" override path (Action Plan §9 decision,
-    // confirmed with the user), not a missing-NIF case to special-case here.
-    if (invoice.partnerId && !invoice.partner?.nif) {
-      throw new BadRequestException('Partner has no NIF on file.');
-    }
+    // NIF/NIS are no longer required on a Partner (explicit user decision —
+    // see the PartnersModal form and CreatePartnerDto) — finalizing an
+    // invoice for a partner with no NIF on file is allowed; the PDF/print
+    // template just renders the "NIF :" label with an empty value.
 
     const org = await this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
     if (!org.name || !org.address || !org.nif || !org.nis || !org.rc || !org.taxArticle) {
@@ -359,14 +380,27 @@ export class InvoicingService {
         // (SalesService.invoiceSalesOrder calls createInvoice) — a real
         // circular-module-dependency risk, avoided by keeping this small,
         // self-contained bookkeeping inline instead.
-        if (line.productId && line.salesOrderLineId) {
+        // Services-only lines (productId null) still advance
+        // quantityInvoiced — only the reservation release needs a product.
+        if (line.salesOrderLineId) {
           const soLine = await tx.salesOrderLine.findUniqueOrThrow({ where: { id: line.salesOrderLineId } });
-          await this.stock.releaseInTransaction(tx, {
-            orgId,
-            productId: line.productId,
-            siteId: invoice.siteId,
-            quantity: Number(line.quantity),
-          });
+          // Last line of defence against over-invoicing a commande: several
+          // drafts can exist for the same line, and only finalization moves
+          // quantityInvoiced, so this is the one place the total is certain.
+          const remaining = Number(soLine.quantityOrdered) - Number(soLine.quantityInvoiced);
+          if (Number(line.quantity) > remaining) {
+            throw new BadRequestException(
+              `Impossible de finaliser : « ${line.description} » dépasserait la quantité commandée (${Number(soLine.quantityOrdered)} commandé(s), ${Number(soLine.quantityInvoiced)} déjà facturé(s)).`,
+            );
+          }
+          if (line.productId) {
+            await this.stock.releaseInTransaction(tx, {
+              orgId,
+              productId: line.productId,
+              siteId: invoice.siteId,
+              quantity: Number(line.quantity),
+            });
+          }
           await tx.salesOrderLine.update({
             where: { id: line.salesOrderLineId },
             data: { quantityInvoiced: { increment: Number(line.quantity) } },
@@ -430,16 +464,16 @@ export class InvoicingService {
   }
 
   async voidInvoice(orgId: string, invoiceId: string) {
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, orgId }, include: { payments: true } });
-    if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
+    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, orgId, deletedAt: null }, include: { payments: true } });
+    if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
 
     if (invoice.type === 'CUSTOMER' && invoice.status !== 'draft') {
       throw new BadRequestException(
-        'Only a draft CUSTOMER invoice can be voided. A finalized invoice carries a compliance-numbered, gapless sequence and cannot simply be removed — issue a credit note instead (Retours/SAV, Phase 3) once that module exists.',
+        'Seule une facture CLIENT en brouillon peut être annulée. Une facture finalisée porte une numérotation séquentielle sans trou requise pour la conformité et ne peut pas être simplement supprimée — émettez plutôt un avoir (Retours/SAV, Phase 3) une fois ce module disponible.',
       );
     }
     if (invoice.type === 'SUPPLIER' && invoice.payments.length > 0) {
-      throw new BadRequestException('Cannot void a supplier invoice that already has recorded payments.');
+      throw new BadRequestException('Impossible d\'annuler une facture fournisseur qui a déjà des paiements enregistrés.');
     }
 
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'void' } });
@@ -451,12 +485,12 @@ export class InvoicingService {
     return this.prisma.$transaction(async (tx) => {
       await setTenantOnTransaction(tx, orgId);
       const invoice = await tx.invoice.findFirst({
-        where: { id: invoiceId, orgId },
+        where: { id: invoiceId, orgId, deletedAt: null },
         include: { lines: { include: { taxRate: true } }, payments: true },
       });
-      if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
-      if (invoice.status === 'draft') throw new BadRequestException('Finalize this invoice before recording a payment against it.');
-      if (invoice.status === 'void') throw new BadRequestException('Cannot record a payment against a voided invoice.');
+      if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
+      if (invoice.status === 'draft') throw new BadRequestException('Finalisez cette facture avant d\'y enregistrer un paiement.');
+      if (invoice.status === 'void') throw new BadRequestException('Impossible d\'enregistrer un paiement sur une facture annulée.');
 
       const totals = computeInvoiceTotals(this.toLineInputs(invoice));
       const alreadyPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
@@ -467,7 +501,7 @@ export class InvoicingService {
         throw new BadRequestException({
           statusCode: 400,
           error: 'overpayment',
-          message: `Payment of ${dto.amount} exceeds the remaining balance of ${Math.round((totals.totalTtc - alreadyPaid) * 100) / 100}.`,
+          message: `Le paiement de ${dto.amount} dépasse le solde restant de ${Math.round((totals.totalTtc - alreadyPaid) * 100) / 100}.`,
         });
       }
 
@@ -490,10 +524,10 @@ export class InvoicingService {
   async resetPayments(orgId: string, invoiceId: string) {
     return this.prisma.$transaction(async (tx) => {
       await setTenantOnTransaction(tx, orgId);
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, orgId }, include: { payments: true } });
-      if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, orgId, deletedAt: null }, include: { payments: true } });
+      if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
       if (invoice.status === 'draft' || invoice.status === 'void') {
-        throw new BadRequestException('No payments to reset on a draft or voided invoice.');
+        throw new BadRequestException('Aucun paiement à réinitialiser sur une facture brouillon ou annulée.');
       }
       await tx.payment.deleteMany({ where: { invoiceId } });
       return tx.invoice.update({ where: { id: invoiceId }, data: { status: 'unpaid' } });
@@ -504,11 +538,11 @@ export class InvoicingService {
 
   async generatePdf(orgId: string, invoiceId: string): Promise<Buffer> {
     const invoice = await this.prisma.invoice.findFirst({
-      where: { id: invoiceId, orgId },
+      where: { id: invoiceId, orgId, deletedAt: null },
       include: { lines: { include: { taxRate: true } }, partner: true, organization: true },
     });
-    if (!invoice) throw new NotFoundException(`Unknown invoice: ${invoiceId}`);
-    if (invoice.status === 'draft') throw new BadRequestException('Finalize the invoice before generating its PDF.');
+    if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
+    if (invoice.status === 'draft') throw new BadRequestException('Finalisez la facture avant de générer son PDF.');
 
     const totals = computeInvoiceTotals(this.toLineInputs(invoice));
 
@@ -554,7 +588,7 @@ export class InvoicingService {
   async runReminderCheck(orgId: string) {
     const cutoff = new Date(Date.now() - REMINDER_AFTER_DAYS * 24 * 60 * 60 * 1000);
     const overdue = await this.prisma.invoice.findMany({
-      where: { orgId, status: { in: ['unpaid', 'partially_paid'] }, finalizedAt: { lte: cutoff } },
+      where: { orgId, deletedAt: null, status: { in: ['unpaid', 'partially_paid'] }, finalizedAt: { lte: cutoff } },
       include: { partner: true, reminders: { orderBy: { sentAt: 'desc' }, take: 1 } },
     });
 

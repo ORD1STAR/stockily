@@ -5,7 +5,7 @@ export interface SearchableSelectOption {
   value: string;
   label: string;
   /** Shown muted next to the label (a SKU, a NIF) and included in the search match. */
-  sublabel?: string;
+  sublabel?: string | null;
 }
 
 // A type-to-filter combobox for the three lookups that matter most as a

@@ -13,13 +13,13 @@ export class CreatePartnerDto {
   @IsBoolean()
   isSupplier?: boolean;
 
-  // Required — every Partner record represents a formal business
-  // relationship with a real NIF (Action Plan §9 decision #9/§3); a
-  // customer with no NIF is modeled as no Partner at all (partnerId: null
-  // on the invoice, "vente comptoir"), not a Partner with an empty NIF.
+  // Previously required (Action Plan §9 decision #9/§3) — made optional per
+  // explicit user decision: a Partner can be created before its NIF is on
+  // file. See schema.prisma's Partner.nif comment and invoicing.service.ts's
+  // finalizeInvoice for the rest of this decision's consequences.
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  nif!: string;
+  nif?: string;
 
   @IsOptional()
   @IsString()

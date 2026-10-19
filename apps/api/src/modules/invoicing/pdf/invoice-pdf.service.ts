@@ -54,7 +54,7 @@ export interface InvoicePdfInput {
     /** A data: URL (see OrganizationSettingsModal.tsx's upload handler), or null if the org never set one. */
     logo: string | null;
   };
-  buyer: { name: string; nif: string } | null; // null = vente comptoir
+  buyer: { name: string; nif: string | null } | null; // null = vente comptoir
   lines: InvoicePdfLine[];
   totalHt: number;
   totalTax: number;
@@ -142,54 +142,56 @@ export class InvoicePdfService {
 
   private renderHeader(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     const title = input.type === 'SUPPLIER' ? 'FACTURE FOURNISSEUR' : 'FACTURE';
+    const top = 50;
 
     // Logo is optional (most orgs never set one) — when present it sits
-    // to the left of the seller name instead of pushing it down, so the
-    // header keeps the same two-line height either way.
+    // to the left of the seller name, vertically centred on it.
     const logoBuffer = parseDataUrl(input.seller.logo);
-    const logoSize = 36;
-    const nameX = logoBuffer ? MARGIN + logoSize + 10 : MARGIN;
+    const logoSize = 48;
+    const nameX = logoBuffer ? MARGIN + logoSize + 12 : MARGIN;
     if (logoBuffer) {
-      doc.image(logoBuffer, MARGIN, 52, { fit: [logoSize, logoSize] });
+      doc.image(logoBuffer, MARGIN, top, { fit: [logoSize, logoSize], valign: 'center' });
     }
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text(input.seller.name, nameX, 54, { width: 300 - (nameX - MARGIN) });
-    doc
-      .fillColor(BRAND)
-      .font('Helvetica-Bold')
-      .fontSize(20)
-      .text(title, MARGIN, 54, { width: CONTENT_WIDTH, align: 'right' });
-    doc
-      .fillColor(MUTED)
-      .font('Helvetica')
-      .fontSize(10)
-      .text(`N° ${input.number}`, MARGIN, 80, { width: CONTENT_WIDTH, align: 'right' })
-      .text(input.issuedAt.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }), MARGIN, 94, {
-        width: CONTENT_WIDTH,
-        align: 'right',
-      });
 
-    const statusLabel = STATUS_LABEL_FR[input.status] ?? input.status;
-    const badgeWidth = doc.widthOfString(statusLabel.toUpperCase()) + 20;
+    // Right column flows top-down (title, N°, date, status badge) rather
+    // than fixed y positions — same layout as DocumentPdfService's header.
+    doc.font('Helvetica-Bold').fontSize(20);
+    const titleWidth = doc.widthOfString(title);
+    doc.fillColor(BRAND).text(title, MARGIN, top + 2, { width: CONTENT_WIDTH, align: 'right' });
     doc
-      .roundedRect(RIGHT_EDGE - badgeWidth, 112, badgeWidth, 18, 3)
+      .fillColor(INK)
+      .font('Helvetica-Bold')
+      .fontSize(22)
+      .text(input.seller.name, nameX, logoBuffer ? top + 12 : top, { width: Math.max(120, RIGHT_EDGE - titleWidth - 24 - nameX), height: 52, ellipsis: true });
+
+    let ry = top + 30;
+    doc.fillColor(MUTED).font('Helvetica').fontSize(10);
+    doc.text(`N° ${input.number}`, MARGIN, ry, { width: CONTENT_WIDTH, align: 'right' });
+    ry += 14;
+    doc.text(input.issuedAt.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }), MARGIN, ry, { width: CONTENT_WIDTH, align: 'right' });
+    ry += 14;
+
+    const statusLabel = (STATUS_LABEL_FR[input.status] ?? input.status).toUpperCase();
+    const badgeTop = ry + 4;
+    doc.font('Helvetica-Bold').fontSize(8);
+    const badgeWidth = doc.widthOfString(statusLabel) + 20;
+    doc
+      .roundedRect(RIGHT_EDGE - badgeWidth, badgeTop, badgeWidth, 18, 3)
       .fillAndStroke(input.status === 'paid' ? '#e3f5ef' : input.status === 'unpaid' ? '#fdecec' : PANEL_BG, HAIRLINE);
     doc
       .fillColor(input.status === 'paid' ? '#0f766e' : input.status === 'unpaid' ? '#b91c1c' : MUTED)
-      .font('Helvetica-Bold')
-      .fontSize(8)
-      .text(statusLabel.toUpperCase(), RIGHT_EDGE - badgeWidth, 117, { width: badgeWidth, align: 'center' });
+      .text(statusLabel, RIGHT_EDGE - badgeWidth, badgeTop + 5, { width: badgeWidth, align: 'center', lineBreak: false });
 
-    doc.moveTo(MARGIN, 142).lineTo(RIGHT_EDGE, 142).lineWidth(1.5).strokeColor(BRAND).stroke();
+    const ruleY = Math.max(badgeTop + 18, top + logoSize) + 12;
+    doc.moveTo(MARGIN, ruleY).lineTo(RIGHT_EDGE, ruleY).lineWidth(1.5).strokeColor(BRAND).stroke();
     doc.strokeColor(INK).lineWidth(1);
-    doc.y = 158;
+    doc.y = ruleY + 16;
   }
 
   private renderPartyCards(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     const top = doc.y;
     const cardWidth = (CONTENT_WIDTH - 20) / 2;
-    const cardHeight = 108;
-
-    this.drawCard(doc, MARGIN, top, cardWidth, cardHeight, 'ÉMETTEUR', [
+    const sellerLines: (string | null)[] = [
       input.seller.name,
       input.seller.address,
       input.seller.nif ? `NIF : ${input.seller.nif}` : null,
@@ -197,30 +199,54 @@ export class InvoicePdfService {
       input.seller.rc ? `RC : ${input.seller.rc}` : null,
       input.seller.taxArticle ? `Article d'imposition : ${input.seller.taxArticle}` : null,
       input.seller.phone,
-    ]);
-
-    this.drawCard(doc, MARGIN + cardWidth + 20, top, cardWidth, cardHeight, input.type === 'SUPPLIER' ? 'FOURNISSEUR' : 'CLIENT', [
+    ];
+    const buyerLabel = input.type === 'SUPPLIER' ? 'FOURNISSEUR' : 'CLIENT';
+    const buyerLines: (string | null)[] = [
       input.buyer ? input.buyer.name : 'Vente comptoir',
-      input.buyer ? `NIF : ${input.buyer.nif}` : 'Client sans compte (vente au comptant)',
-    ]);
+      // NIF/NIS are no longer required on a Partner (explicit user decision)
+      // — the label always prints, with an empty value when the partner has
+      // none on file, rather than being omitted.
+      input.buyer ? `NIF : ${input.buyer.nif ?? ''}` : 'Client sans compte (vente au comptant)',
+    ];
+
+    // Sized to the taller card's actual content (wrapped lines included) —
+    // a fixed height let a fully filled-in seller profile (address + NIF +
+    // NIS + RC + article + phone) spill its last line below the card.
+    const cardHeight = Math.max(108, this.cardContentHeight(doc, cardWidth, sellerLines), this.cardContentHeight(doc, cardWidth, buyerLines));
+    this.drawCard(doc, MARGIN, top, cardWidth, cardHeight, 'ÉMETTEUR', sellerLines);
+    this.drawCard(doc, MARGIN + cardWidth + 20, top, cardWidth, cardHeight, buyerLabel, buyerLines);
 
     doc.y = top + cardHeight + 26;
   }
 
+  /** Same layout maths as drawCard below, without drawing — the card's total height including its bottom padding. */
+  private cardContentHeight(doc: PDFKit.PDFDocument, width: number, lines: (string | null)[]): number {
+    const textWidth = width - 28;
+    let h = 28 + Math.max(16, doc.font('Helvetica-Bold').fontSize(10.5).heightOfString(lines[0] ?? '', { width: textWidth }) + 3);
+    doc.font('Helvetica').fontSize(9);
+    for (const line of lines.slice(1)) {
+      if (!line) continue;
+      h += Math.max(13, doc.heightOfString(line, { width: textWidth }) + 2);
+    }
+    return h + 12;
+  }
+
   private drawCard(doc: PDFKit.PDFDocument, x: number, y: number, width: number, height: number, label: string, lines: (string | null)[]): void {
+    const textWidth = width - 28;
     doc.roundedRect(x, y, width, height, 4).fillAndStroke(PANEL_BG, HAIRLINE);
-    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(8).text(label, x + 14, y + 12, { width: width - 28, characterSpacing: 0.5 });
+    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(8).text(label, x + 14, y + 12, { width: textWidth, characterSpacing: 0.5 });
 
     let ly = y + 28;
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(lines[0] ?? '', x + 14, ly, { width: width - 28 });
-    ly += 16;
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(lines[0] ?? '', x + 14, ly, { width: textWidth });
+    ly += Math.max(16, doc.heightOfString(lines[0] ?? '', { width: textWidth }) + 3);
     doc.font('Helvetica').fontSize(9).fillColor('#3a3a3a');
     for (const line of lines.slice(1)) {
       if (!line) continue;
-      doc.text(line, x + 14, ly, { width: width - 28 });
-      ly += 13;
+      doc.text(line, x + 14, ly, { width: textWidth });
+      ly += Math.max(13, doc.heightOfString(line, { width: textWidth }) + 2);
     }
   }
+
 
   private tableColumns() {
     // Sums to CONTENT_WIDTH (495): 195 + 45 + 65 + 55 + 40 + 95 = 495
