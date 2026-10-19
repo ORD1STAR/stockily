@@ -41,11 +41,8 @@ fail at migration time, only later as a confusing Prisma "column does not
 exist" error from `nx test api`. On Windows, stop `nx serve api` first, or
 the client-regeneration step fails with `EPERM`.
 
-**Demo login** — a real signed-up org (not `npm run db:seed:demo`'s generic
-wireframe-matching data, a separate thing): `contact@elwafa-grossiste.dz` /
-`Wafa2026!`, a grocery wholesaler with 3 sites, 12 products, and real
-stock/quality/invoicing history built up live during Milestone 7's
-walkthrough.
+**Demo data** — `npm run db:seed:demo` creates a generic demo organization
+for local development (see `README.md`). Never run it against production.
 
 **Live HTTPS deployment for phone/mobile testing**: https://stockily.ordi-tech.com/
 — reachable from a real phone (unlike `localhost:4200`), and already on
