@@ -1,139 +1,185 @@
 # Stockily
 
-Modular stock, quality &amp; invoicing platform. Full architecture, data model, and
-decision log: [`docs/Action Plan.md`](./docs/Action%20Plan.md). Brand system,
-wireframes, and pricing grid are also in `docs/`.
+**A modular, multi-tenant stock, quality and invoicing platform for Algerian wholesalers and retailers.** Built as an Nx monorepo with NestJS, React and Prisma, with Algerian invoice compliance (Decree 05-468, DZD, amount in words in French and Arabic) in the domain layer.
 
-**All 5 Phase 1 modules are built and verified**: Auth/Tenancy, Stock +
-Multi-Sites, Quality, Invoicing, and Scan — see `docs/MILESTONE_1.md`
-through `docs/MILESTONE_5.md` for what was implemented and every decision
-made along the way, milestone by milestone. A security-hardening pass
-(CORS, rate limiting, security headers, real email capability) is done —
-see `docs/MILESTONE_6.md` and "Production deployment" below. `docs/MILESTONE_7.md`
-covers everything since: fixes found by actually using the app as a real
-wholesaler, a fournisseurs/clients directory with a partner on every stock
-movement, Scan's "Vente rapide" retail-till mode (product sale price,
-paid/unpaid on the spot), flexible invoice payments (mark paid, undo a
-mistaken payment), searchable client/fournisseur/product pickers, real
-scannable label PDFs, an org logo (shown on invoices), and a mobile
-home/Scan experience. **Not yet done**: Postgres row-level security (RLS)
-— deliberately deferred, see that section for why.
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Nx](https://img.shields.io/badge/Nx-23-143055?logo=nx&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-4-010101?logo=socketdotio&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Quickstart
+![Stockily walkthrough: stock, quality, invoicing, multi-site transfers and scan](docs/screenshots/tour.gif)
 
-```bash
-docker compose up -d                 # Postgres on localhost:5432
-npm install
-cp .env.example .env                 # JWT_SECRET, DATABASE_URL, etc. — one root .env only
-                                      # (a second copy at packages/infra-db/prisma/.env used
-                                      # to be required; Milestone 2 removed that duplicate —
-                                      # the Prisma CLI reads the root one directly)
-npm run prisma:migrate               # creates the initial migration + tables
-npm run db:seed                      # seeds the 13-module registry + 5 system roles
-npm run db:seed:demo                 # seeds wireframe-matching demo data (Milestone 2+)
-npx nx serve api                     # http://localhost:3000/api
-npx nx serve web                     # Vite dev server, http://localhost:4200
+> Every screenshot below is captured from the real running app (NestJS API + Vite web app + PostgreSQL) loaded with the repo's own demo seed (`npm run db:seed:demo`), plus the design docs in `docs/`.
+
+## Features
+
+Phase 1 ships five modules, each gated by a per-organization entitlement (15-day trial on signup):
+
+- **Stock**: products and categories, append-only stock movements (receipt, sale, adjustment, transfer), weighted average cost, low-stock thresholds, per-batch remaining quantities derived from the ledger, quantities capped at available stock. Live updates over Socket.IO.
+- **Multi-site**: several warehouses or points of sale per organization, inter-site transfers with driver info. Stock moves when the transfer is delivered, not when it is created.
+- **Quality**: batches and lots, quality checks, non-conformities that quarantine stock, a scheduled expiry sweep that raises near-expiry alerts, and a resolve flow for quarantined lots.
+- **Invoicing**: gapless per-organization invoice numbering, multi-line invoices with tax rates, a partner directory (clients and suppliers, NIF), flexible payments (partial, mark-paid, undo), overdue reminder emails (SMTP or a logging no-op), amount in words in French and Arabic, PDF generation.
+- **Scan**: barcode/QR labels with printable label PDFs, scan-to-resolve a product or lot, and a "Vente rapide" retail-till mode (cart, paid or unpaid on the spot). Camera scanning uses `BarcodeDetector` with a manual / USB-scanner fallback; a mobile home screen is included.
+- **Platform**: signup/login with short-lived JWT access tokens and rotating refresh tokens (logout, logout-everywhere, silent refresh on the client), roles and permissions, an audit log written by an interceptor on mutating endpoints, org legal profile and logo.
+- **Hardening**: CORS allowlist, `helmet`, rate limiting (stricter on auth), a global exception filter that does not leak internals, queries scoped by `orgId`, and a Docker `HEALTHCHECK` backed by a real Postgres round-trip (`GET /health`).
+
+## Screenshots
+
+| Stock | Quality |
+| --- | --- |
+| ![Stock management with KPIs and per-site levels](docs/screenshots/stock.png) | ![Batches, expiry and non-conformities](docs/screenshots/quality.png) |
+
+| Invoicing | Invoice detail (FR + AR amount in words) |
+| --- | --- |
+| ![Invoice list with totals and status](docs/screenshots/invoicing.png) | ![Invoice detail with payments](docs/screenshots/invoice-detail.png) |
+
+| Multi-site | Scan: quick sale |
+| --- | --- |
+| ![Sites overview](docs/screenshots/sites.png) | ![Retail till mode](docs/screenshots/scan-quick-sale.png) |
+
+| Partners directory | Mobile home |
+| --- | --- |
+| ![Clients and suppliers](docs/screenshots/partners.png) | <img src="docs/screenshots/mobile-home.png" width="260" alt="Mobile home with Applications and Scan shortcuts"> |
+
+### Design docs
+
+The product was designed before it was built. The high-fidelity wireframes, brand system and pricing grid live in [`docs/`](docs) as standalone HTML, and the real app was built to match them.
+
+| Wireframe (design) | Brand system |
+| --- | --- |
+| ![Wireframe of the stock screen](docs/screenshots/wireframes.png) | ![Brand system](docs/screenshots/brand-system.png) |
+
+## Architecture
+
+The core idea is hexagonal modularity. Business logic lives in framework-agnostic `domain-*` packages that talk to the outside world only through ports. Prisma adapters implement those ports in `infra-db`, and NestJS controllers are a thin HTTP shell. The rule is enforced by ESLint (`no-restricted-imports` and `@nx/enforce-module-boundaries`), not just by convention, which keeps a future local/offline mode possible.
+
+```mermaid
+flowchart LR
+    subgraph Web["apps/web (React 19 + Vite)"]
+        UI[Pages: Stock, Quality, Invoicing, Sites, Scan]
+        UI --> API_CLIENT[API client + silent token refresh]
+    end
+
+    subgraph Api["apps/api (NestJS 11)"]
+        direction TB
+        GUARDS["Guard chain<br/>JWT auth, entitlement, permission, site scope"]
+        AUDIT[Audit interceptor]
+        CTRL[Controllers + DTO validation]
+        GW[Socket.IO gateway]
+        GUARDS --> CTRL
+        CTRL --> AUDIT
+        CTRL --> GW
+    end
+
+    subgraph Domain["packages/domain-* (pure TypeScript)"]
+        STOCK[domain-stock<br/>movements, avg cost, thresholds]
+        QUAL[domain-quality<br/>batches, checks, quarantine]
+        INV[domain-invoicing<br/>VAT math, amount in words]
+        TEN[domain-tenancy]
+    end
+
+    subgraph Infra["packages/infra-db"]
+        PORTS[Prisma data ports<br/>PrismaStockDataPort, PrismaQualityDataPort]
+        SCHEMA[(Prisma schema + migrations)]
+    end
+
+    API_CLIENT -- REST /api --> GUARDS
+    GW -. stock events .-> UI
+    CTRL --> STOCK & QUAL & INV & TEN
+    STOCK & QUAL -- ports --> PORTS
+    PORTS --> SCHEMA --> PG[(PostgreSQL 16)]
+    CTRL -. SMTP optional .-> MAIL[Invoice reminders]
 ```
 
-Sign up at `/signup` to try it — creates an org with a 15-day trial on all 5
-Phase 1 modules and lands on a dashboard calling the real `GET /me`.
+### Data model (simplified)
 
-## Layout
+```mermaid
+erDiagram
+    Organization ||--o{ Site : has
+    Organization ||--o{ User : has
+    Organization ||--o{ OrganizationModuleEntitlement : subscribes
+    Module ||--o{ OrganizationModuleEntitlement : gates
+    User ||--o{ UserRole : has
+    Role ||--o{ RolePermission : grants
+    Product ||--o{ StockLevel : "per site"
+    Product ||--o{ StockMovement : ledger
+    Product ||--o{ Batch : lots
+    Batch ||--o{ QualityCheck : inspected
+    Batch ||--o{ NonConformity : raises
+    Site ||--o{ StockTransfer : "from / to"
+    Partner ||--o{ Invoice : billed
+    Invoice ||--o{ InvoiceLine : contains
+    Invoice ||--o{ Payment : settled
+    Invoice ||--o{ InvoiceReminder : chased
+    Organization ||--o{ AuditLog : records
+```
+
+The full schema (26 models) is in [`packages/infra-db/prisma/schema.prisma`](packages/infra-db/prisma/schema.prisma).
+
+## Tech stack
+
+| Layer | Tools |
+| --- | --- |
+| Monorepo | Nx 23, module-boundary lint rules |
+| Backend | NestJS 11, Socket.IO, class-validator, pdfkit, nodemailer, bcryptjs, helmet, @nestjs/throttler |
+| Frontend | React 19, React Router 7, Vite 8 |
+| Data | PostgreSQL 16, Prisma 6 (migrations and seeds) |
+| Testing | Jest (api, plus e2e specs against a real Postgres), Vitest |
+| DevOps | Docker Compose (Postgres, api, web on nginx), GitHub Actions CI (lint, build, test) |
+
+## Getting started
+
+Prerequisites: Node 22+ and Docker (for Postgres).
+
+```bash
+docker compose up -d postgres        # Postgres on localhost:5432
+npm install
+cp .env.example .env                 # dev defaults; set a real JWT_SECRET for anything else
+npm run prisma:migrate               # create the schema
+npm run db:seed                      # module registry + system roles
+npm run db:seed:demo                 # demo organization with sample data
+npx nx serve api                     # http://localhost:3000/api
+npx nx serve web                     # http://localhost:4200
+```
+
+Log in with the demo account created by `db:seed:demo`: `demo@stockily.dz` / `Demo1234!`. Or sign up at `/signup` to create a fresh organization.
+
+Useful commands: `npx nx run-many -t lint build test`, `npx nx graph` (project dependency graph), `npm run test:e2e:db:setup` (test database for the e2e specs). Secondary-database migrations, the production checklist (secrets, CORS, SMTP, TLS) and the Postgres RLS discussion are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+## Project structure
 
 ```
 apps/
-  api/    NestJS backend
-  web/    React (Vite) frontend
+  api/                 NestJS backend: auth, tenancy guards, stock, sites, quality, invoicing, scan, realtime, audit
+  web/                 React (Vite) frontend
 packages/
-  domain-stock/ domain-quality/ domain-invoicing/ domain-tenancy/   framework-agnostic business logic
-  shared-types/ shared-ui/                                          shared across apps
-  infra-db/                                                          Prisma schema + repository implementations
+  domain-stock/        movement service, average cost, thresholds (framework-agnostic)
+  domain-quality/      batches, checks, quarantine, expiry logic
+  domain-invoicing/    VAT math, amount in words (FR/AR)
+  domain-tenancy/      tenancy primitives
+  shared-types/        contract types shared by api and web
+  shared-ui/           shared React components
+  infra-db/            Prisma schema, migrations, seeds, port implementations
+docs/                  Action Plan, 7 milestone logs, wireframes, brand system, pricing grid, operations notes
 ```
 
-`domain-*` packages must never import Nest/Express/HTTP code — enforced by
-`eslint.config.mjs` (`no-restricted-imports` + `@nx/enforce-module-boundaries`),
-not just convention. See Action Plan §6 for why this matters (Local-mode
-readiness).
+## Project history and notes
 
-## Common commands
+The repo keeps its real history (53 commits over about three days). Each `docs/MILESTONE_*.md` file is the build log for one unit of work: what was built, the decisions behind it, and how to verify it. Milestone 7 documents the bug-fix round found by using the app as a real wholesaler.
 
-- `npx nx run-many -t lint` / `-t build` / `-t test` — across every project
-- `npm run prisma:validate` / `prisma:generate` / `prisma:migrate`
-- `npm run db:seed` — seed the module registry + system roles (idempotent)
-- `npm run test:e2e:db:setup` — one-time setup of the `stockily_test`
-  database that `apps/api`'s e2e test runs against (re-run after a schema
-  change)
-- `npx nx graph` — visualize the project dependency graph
+- **Done:** auth and tenancy, Stock, Multi-site, Quality, Invoicing, Scan, the hardening pass, the mobile home and Scan experience.
+- **Not done (deliberately):** Postgres row-level security. Tenant isolation currently relies on `orgId` scoping in every query; the RLS design and the risks of rushing it are written up in `docs/OPERATIONS.md`.
+- **Roadmap:** Phase 2 modules (Purchasing, CRM) and Phase 3 (Accounting) appear locked in the UI. A local/offline mode is the reason the domain layer is kept framework-free.
+- **Known quirk:** `@org/api:typecheck` reports four errors in the e2e specs' dynamic `import()` (a tsconfig project-reference issue, documented in Milestone 7).
+- The UI copy is French (the target market); code and most docs are English or French.
 
-**`npm run prisma:migrate` only migrates the one database in the root
-`.env`.** Three more exist and are not kept in sync by that command:
-`stockily_test` and `stockily_invoicing_test` (hardcoded connection strings at
-the top of `apps/api/src/*.e2e.spec.ts`) and `stockily_invoicing_dev`. After
-any schema change, also run:
-```bash
-for db in stockily_test stockily_invoicing_test stockily_invoicing_dev; do
-  DATABASE_URL="postgresql://stockily:stockily@localhost:5432/${db}?schema=public" \
-    npx prisma migrate deploy --schema packages/infra-db/prisma/schema.prisma
-done
-```
-Skipping this doesn't fail loudly — it surfaces later as a confusing
-`PrismaClientKnownRequestError: column ... does not exist` the next time
-`nx test api` runs. On Windows specifically: stop whatever's running
-`nx serve api` first, or `prisma migrate dev`'s own client-regeneration
-step fails with `EPERM` (the dev server holds a lock on the query engine
-binary).
+## Author
 
-## Production deployment
+**Hannoun Amine Amar**, AI Engineer / Fullstack Developer, Algeria.
+[LinkedIn](https://www.linkedin.com/in/hannoun-amine/) | hannoun.amine25@gmail.com
 
-`docker compose up -d` builds and runs all three services (Postgres, api,
-web) — see `apps/api/Dockerfile`/`apps/web/Dockerfile` for how. Before
-pointing this at real customer data:
-
-1. **Set real secrets** — `JWT_SECRET` (generate with `openssl rand -hex 32`;
-   `JwtConfigModule` refuses to boot without one once `NODE_ENV=production`),
-   and real Postgres credentials (the compose file's `stockily`/`stockily`
-   are dev-only defaults).
-2. **Set `CORS_ORIGIN`** to your actual web origin(s) (comma-separated for
-   more than one) — it defaults to `http://localhost:4200`, which is correct
-   for local dev but wrong for any real deployment.
-3. **Set the `SMTP_*` variables** if you want invoice-overdue reminder
-   emails actually sent, rather than only logged (`NoOpEmailSender`) — any
-   provider's SMTP credentials work, see `.env.example`.
-4. **Run migrations and seed the module/role registry** against the
-   production database before first use: `npm run prisma:migrate && npm run
-   db:seed` (this second one is idempotent — safe to re-run after every
-   deploy that adds new permission actions). Do **not** run
-   `db:seed:demo` in production — it creates a fake demo organization with
-   sample data.
-5. **Put a reverse proxy with TLS in front of both services** (Caddy, nginx,
-   your cloud provider's load balancer, ...) — neither container terminates
-   HTTPS itself. This also matters functionally, not just for security: the
-   Scan module's camera access (`getUserMedia`/`BarcodeDetector`) only works
-   in a secure context (HTTPS or `localhost`) per the browsers' own APIs.
-6. **`GET /health`** (outside the `/api` prefix) is a real Postgres
-   round-trip check, wired into the `api` container's own Docker
-   `HEALTHCHECK` already — point your orchestrator's health/readiness probe
-   at it too if you're not using Compose directly (Kubernetes, ECS, ...).
-
-**What's already hardened**: CORS allowlist (not wide-open), `helmet()`
-security headers, rate limiting (5/min on signup/login/refresh, 300/min
-elsewhere), a global exception filter (unexpected errors are logged
-server-side and never leak raw internals to the client), and — verified by
-reading every single query in every service file, not assumed — every
-database read, update, and delete across the entire backend is correctly
-scoped by `orgId`, either directly or via a preceding ownership check.
-
-**What's flagged, not done — Postgres RLS**: the Action Plan flagged this
-since Milestone 1 as needing a dedicated technical spike (Prisma's
-`SET LOCAL`/transaction-pooling interaction is a known tricky area), not a
-quick bolt-on. Implementing it carelessly under time pressure — getting the
-transaction composition wrong around the app's existing `$transaction`
-call sites (invoice finalization, payment recording) — risks silently
-breaking either tenant isolation or transactional atomicity, which is worse
-than the current state. The recommended path for whoever picks this up:
-an `AsyncLocalStorage`-based request-scoped tenant context populated right
-after `JwtAuthGuard`, a Prisma Client Extension that wraps each tenant-
-scoped query in `$transaction` to issue `SET LOCAL app.tenant_id` before
-it runs, and — critically — thorough testing against every existing
-`$transaction` call site to confirm nested transaction semantics behave as
-expected, not just against simple single-query reads.
+Licensed under the [MIT License](LICENSE).
