@@ -26,6 +26,18 @@
 //     `role.name === 'Super Admin'` check in the relevant service code
 //     rather than inventing a pseudo-module — revisit if this needs to
 //     become more granular later.
+//   - Cash (Caisse) and Stats were built (cash/counters/inventory/stats/
+//     trade modules) reusing other modules' entitlement keys instead of
+//     getting their own: Cash was gated behind 'invoicing' even though its
+//     ledger stands on its own (CashEntry rows need nothing else), and
+//     Stats had no @RequiresModule at all — so entitlement never actually
+//     gated it server-side, only the (wrong) frontend nav key pretended it
+//     needed 'invoicing'. Both are registered here as independent modules
+//     with no dependencies, matching the explicit requirement that Caisse
+//     must work standalone, not piggyback on Invoicing. Counters and
+//     Inventory stay bundled under 'scan'/'stock' respectively — that one
+//     really is intentional (see each controller's own header comment),
+//     not the same bug.
 
 import { PrismaClient } from '@prisma/client';
 
@@ -37,6 +49,16 @@ const MODULES = [
   { key: 'invoicing', name: 'Factures', phase: 1, dependencies: [] },
   { key: 'sites', name: 'Multi-Entrepôts / Multi-Sites', phase: 1, dependencies: [] },
   { key: 'scan', name: 'Codes-barres / QR / Scan mobile', phase: 1, dependencies: ['stock'] },
+
+  // Caisse: encaissements/décaissements, with or without anything else
+  // active (manual CashEntry rows need no other module; it additionally
+  // surfaces payments from Invoicing/Achats/Ventes/Comptoirs when those
+  // are active, but never requires them).
+  { key: 'cash', name: 'Caisse', phase: 2, dependencies: [] },
+  // Statistiques: read-only figures over whichever of Stock/Achats/
+  // Ventes/Factures/Caisse happen to be active — degrades to empty
+  // sections rather than requiring any one of them.
+  { key: 'stats', name: 'Statistiques', phase: 2, dependencies: [] },
 
   // Milestone 10 — purchasing now also needs invoicing (facture
   // fournisseur orchestration, see PurchasingService.createSupplierInvoice).
@@ -96,6 +118,11 @@ const ACTIONS: Record<string, string[]> = {
   ],
   sites: ['sites.site.read', 'sites.site.write', 'sites.transfer.create', 'sites.transfer.read', 'sites.transfer.update'],
   scan: ['scan.label.generate', 'scan.label.print', 'scan.label.read', 'scan.resolve.read'],
+  // Caisse — journal/open-documents read vs. recording/cancelling a
+  // movement, the same two-permission split CashController already used
+  // under the borrowed 'invoicing' key.
+  cash: ['cash.journal.read', 'cash.entry.write'],
+  stats: ['stats.overview.read'],
   // Milestone 9 (Achats/Purchasing) — the first Phase 2 module built. Kept
   // in the same ACTIONS map as the 5 Phase 1 ones (the seeding loop below
   // iterates Object.keys(ACTIONS) generically, no special-casing needed);
@@ -160,15 +187,19 @@ const ROLES: { name: string; actions: string[] }[] = [
   {
     name: 'Commercial',
     // Milestone 10 — this is squarely the sales-rep role: full sales.*,
-    // plus the existing read-only visibility into stock/invoicing.
-    actions: [...ACTIONS.sales, ...READ_ONLY(['stock', 'invoicing'])],
+    // plus the existing read-only visibility into stock/invoicing. Cash
+    // and stats read access mirrors what READ_ONLY(['invoicing']) already
+    // implied before those two had their own keys (invoicing.partner.read
+    // used to double as "can see the caisse journal").
+    actions: [...ACTIONS.sales, ...READ_ONLY(['stock', 'invoicing', 'cash', 'stats'])],
   },
   {
     name: 'Comptable / Finance',
     // Milestone 10 — finance visibility on both sides of the ledger now
     // that purchasing/sales exist, in addition to the existing full
-    // invoicing set.
-    actions: [...ACTIONS.invoicing, ...READ_ONLY(['stock', 'quality', 'purchasing', 'sales'])],
+    // invoicing set. Full cash.* (recording/cancelling encaissements and
+    // décaissements is squarely a finance action) and stats read access.
+    actions: [...ACTIONS.invoicing, ...ACTIONS.cash, ...ACTIONS.stats, ...READ_ONLY(['stock', 'quality', 'purchasing', 'sales'])],
   },
 ];
 

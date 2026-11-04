@@ -1,0 +1,120 @@
+/* Full-screen phone layouts (home, launcher, Scan) */
+.mobile-home {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: calc(10px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--bg);
+  animation: page-in 0.22s var(--ease);
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.mobile-home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+.mobile-home-header-left,
+.mobile-home-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-home-header-left .shell-icon-btn {
+  margin-left: -8px;
+  color: var(--text);
+}
+
+.mobile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mobile-section-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+.mobile-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.mobile-tile {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  min-height: 128px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-xs);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s var(--ease), border-color 0.12s ease;
+}
+.mobile-tile:active {
+  transform: scale(0.98);
+  border-color: var(--brand-200);
+}
+.mobile-tile .mod-chip {
+  margin-bottom: auto;
+}
+.mobile-tile-label {
+  margin-top: 12px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.mobile-tile-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.mobile-tile.locked {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.mobile-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+.mobile-list-item {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--gray-400);
+}
+.mobile-list-item + .mobile-list-item {
+  border-top: 1px solid var(--gray-100);
+}
+.mobile-list-item:active {
+  background: var(--gray-50);
+}
+.mobile-list-text {
+  flex: 1;
+  font-size: 0.92rem;
+  font-weight: 550;
+  color: var(--text);
+}

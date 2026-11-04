@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
-import './auth-pages.css';
+import { AuthLayout } from './AuthLayout';
 
 export function SignupPage() {
   const { me, signup } = useAuth();
@@ -30,14 +30,8 @@ export function SignupPage() {
   }
 
   return (
-    <div className="auth-shell">
-      <form className="auth-card" onSubmit={handleSubmit}>
-        <div>
-          <div className="auth-wordmark">
-            Stock<span className="ily">ily</span>
-          </div>
-          <p className="auth-subtitle">Essai gratuit de 15 jours — sans carte bancaire.</p>
-        </div>
+    <AuthLayout title="Créer votre compte" subtitle="Essai gratuit de 15 jours, sans carte bancaire.">
+      <form className="auth-card-form" onSubmit={handleSubmit}>
 
         {error && <div className="error-banner">{error}</div>}
 
@@ -56,6 +50,8 @@ export function SignupPage() {
           <input
             id="email"
             type="email"
+            autoComplete="email"
+            placeholder="vous@entreprise.dz"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -66,6 +62,7 @@ export function SignupPage() {
           <input
             id="password"
             type="password"
+            autoComplete="new-password"
             required
             minLength={8}
             value={password}
@@ -81,7 +78,7 @@ export function SignupPage() {
           Déjà un compte ? <Link to="/login">Se connecter</Link>
         </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }
 

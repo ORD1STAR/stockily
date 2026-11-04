@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
-import './auth-pages.css';
+import { AuthLayout } from './AuthLayout';
 
 export function LoginPage() {
   const { me, login } = useAuth();
@@ -29,23 +29,21 @@ export function LoginPage() {
   }
 
   return (
-    <div className="auth-shell">
-      <form className="auth-card" onSubmit={handleSubmit}>
-        <div className="auth-wordmark">
-          Stock<span className="ily">ily</span>
-        </div>
+    <AuthLayout title="Connexion" subtitle="Content de vous revoir. Connectez-vous à votre espace.">
+      <form className="auth-card-form" onSubmit={handleSubmit}>
 
         {error && <div className="error-banner">{error}</div>}
 
         <div className="field-row">
           <label htmlFor="email">Email</label>
-          <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input id="email" type="email" autoComplete="email" placeholder="vous@entreprise.dz" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
         <div className="field-row">
           <label htmlFor="password">Mot de passe</label>
           <input
             id="password"
             type="password"
+            autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -60,7 +58,7 @@ export function LoginPage() {
           Pas encore de compte ? <Link to="/signup">Créer un compte</Link>
         </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }
 

@@ -1,13 +1,16 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
-import { ApiError, Batch, Partner, ProductCategory, ProductDetail, ProductUsage, Site, StockRow, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { ApiError, Batch, InventoryReminderStatus, Partner, ProductCategory, ProductDetail, ProductUsage, Site, StockRow, inventoryApi, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
+import { ReminderBanner } from '../lib/InventoryReminder';
 import { useDataChangeListener } from '../lib/data-events';
 import { toast } from '../lib/toast';
 import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useStockRealtime } from '../lib/realtime';
 import { SearchableSelect } from '../lib/SearchableSelect';
+import { useListControls } from '../lib/ListControls';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<StockRow['status'], string> = { ok: 'OK', low: 'Bas', out: 'Rupture' };
@@ -17,12 +20,35 @@ const STATUS_LABEL: Record<StockRow['status'], string> = { ok: 'OK', low: 'Bas',
 // re-initializes on every mount, there's nothing else backing it), which is
 // disruptive on a real multi-site org where you're usually working one
 // warehouse at a time. Found by actually switching pages and back.
-const SITE_FILTER_STORAGE_KEY = 'stockily.stock.siteFilter';
+
+const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtyFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 });
+function fmtMoney(v: number | null | undefined) {
+  return v == null ? '—' : moneyFmt.format(v);
+}
+function fmtQty(v: number) {
+  return qtyFmt.format(v);
+}
+function marginClass(v: number | null) {
+  return v == null ? 'muted' : v < 0 ? 'bad' : 'good';
+}
 
 export function StockPage() {
   const { accessToken } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState(() => localStorage.getItem(SITE_FILTER_STORAGE_KEY) ?? 'all');
+  // No product list until a dépôt is chosen ('' = none). With a single
+  // dépôt it's selected automatically; with several, the page always opens
+  // on "Choisir un dépôt".
+  const [siteId, setSiteId] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const [reminder, setReminder] = useState<InventoryReminderStatus | null>(null);
   const [rows, setRows] = useState<StockRow[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +60,6 @@ export function StockPage() {
 
   function changeSite(next: string) {
     setSiteId(next);
-    localStorage.setItem(SITE_FILTER_STORAGE_KEY, next);
   }
 
   const load = useCallback(async () => {
@@ -44,12 +69,13 @@ export function StockPage() {
     try {
       const [siteList, productRows, categoryList] = await Promise.all([
         sitesApi.list(accessToken),
-        stockApi.listProducts(accessToken, siteId),
+        siteId ? stockApi.listProducts(accessToken, siteId, true) : Promise.resolve([] as StockRow[]),
         stockApi.listCategories(accessToken),
       ]);
       setSites(siteList);
       setRows(productRows);
       setCategories(categoryList);
+      inventoryApi.reminder(accessToken).then(setReminder).catch(() => setReminder(null));
       // Partners come from the Invoicing module — if it isn't entitled for
       // this org, this simply fails silently and the movement form's
       // fournisseur/client picker stays empty (falls back to "non
@@ -73,23 +99,75 @@ export function StockPage() {
   useDataChangeListener('partners', load);
   useDataChangeListener('sites', load);
 
-  // A site id persisted from a previous session that no longer exists
-  // (deleted site, different org) falls back to "Tous les sites" instead of
-  // silently filtering on a dangling id.
+  // A stored dépôt that no longer exists is dropped; a single dépôt is
+  // selected automatically.
   useEffect(() => {
-    if (sites.length > 0 && siteId !== 'all' && !sites.some((s) => s.id === siteId)) changeSite('all');
+    if (sites.length === 0) return;
+    if (siteId && !sites.some((s) => s.id === siteId)) changeSite('');
+    else if (!siteId && sites.length === 1) changeSite(sites[0].id);
   }, [sites, siteId]);
 
   // Real-time: a movement posted elsewhere (another tab, another user)
   // refreshes this view — proves the Milestone 2 websocket seam works from
   // the browser, not just the server-side smoke test.
-  useStockRealtime(accessToken, siteId === 'all' ? null : siteId, () => load());
+  useStockRealtime(accessToken, siteId || null, () => load());
+
+  // Variants are listed under their modèle: filters and sort apply to the
+  // top-level rows; a search hit on a variant shows its modèle unfolded.
+  const childrenOf = new Map<string, StockRow[]>();
+  for (const r of rows) if (r.parentId) childrenOf.set(r.parentId, [...(childrenOf.get(r.parentId) ?? []), r]);
+  const topRows = rows.filter((r) => !r.parentId);
+  const list = useListControls(topRows, {
+    id: 'stock',
+    noun: ['produit', 'produits'],
+    searchPlaceholder: 'Produit, référence, code-barres…',
+    search: (r) => [r.name, r.sku, r.barcode, ...(childrenOf.get(r.productId) ?? []).flatMap((c) => [c.sku, c.barcode, c.color, c.size])],
+    filters: [
+      {
+        key: 'status',
+        label: 'État',
+        type: 'select',
+        value: (r) => r.status,
+        options: [
+          { value: 'ok', label: 'En stock' },
+          { value: 'low', label: 'Seuil bas' },
+          { value: 'out', label: 'Rupture' },
+        ],
+      },
+      { key: 'category', label: 'Catégorie', type: 'select', value: (r) => r.category },
+      { key: 'qty', label: 'Quantité', type: 'range', value: (r) => r.quantityOnHand },
+      { key: 'price', label: 'Prix 1', type: 'range', unit: 'DA', value: (r) => r.sellPrice },
+      { key: 'reserved', label: 'Avec quantité réservée', type: 'flag', test: (r) => r.quantityReserved > 0 },
+      { key: 'noprice', label: 'Sans prix de vente', type: 'flag', test: (r) => r.sellPrice == null },
+      { key: 'negmargin', label: 'Marge négative', type: 'flag', test: (r) => (r.margin1 ?? 0) < 0 || (r.margin2 ?? 0) < 0 },
+      { key: 'variants', label: 'Avec tailles / couleurs', type: 'flag', test: (r) => r.isVariantParent },
+      { key: 'lots', label: 'Suivi par lot', type: 'flag', test: (r) => r.isLotTracked },
+    ],
+    sorts: [
+      { key: 'sku', label: 'Référence', value: (r) => r.sku },
+      { key: 'name', label: 'Produit', value: (r) => r.name },
+      { key: 'qty', label: 'Quantité', value: (r) => r.quantityOnHand, desc: true },
+      { key: 'reserved', label: 'Qté réservée', value: (r) => r.quantityReserved, desc: true },
+      { key: 'price1', label: 'Prix 1', value: (r) => r.sellPrice, desc: true },
+      { key: 'price2', label: 'Prix 2', value: (r) => r.sellPrice2, desc: true },
+      { key: 'cost', label: 'Prix d’achat', value: (r) => (r.isVariantParent ? null : r.averageCost), desc: true },
+      { key: 'margin1', label: 'Marge 1', value: (r) => (r.isVariantParent ? null : r.margin1), desc: true },
+      { key: 'margin2', label: 'Marge 2', value: (r) => (r.isVariantParent ? null : r.margin2), desc: true },
+      { key: 'carton', label: 'Nb / carton', value: (r) => r.unitsPerCarton ?? 0, desc: true },
+      { key: 'status', label: 'État', value: (r) => ({ out: 0, low: 1, ok: 2 })[r.status] },
+    ],
+  });
+  const q = list.query;
+  const matches = (r: StockRow) => [r.name, r.sku, r.barcode, r.color, r.size].some((v) => (v ?? '').toLowerCase().includes(q));
+  const visibleRows = list.rows;
+  const isOpen = (id: string) => expanded.has(id) || (!!q && (childrenOf.get(id) ?? []).some(matches));
+  const sellable = rows.filter((r) => !r.isVariantParent);
 
   const stats = {
-    total: new Set(rows.map((r) => r.productId)).size,
-    low: rows.filter((r) => r.status === 'low').length,
-    out: rows.filter((r) => r.status === 'out').length,
-    quarantined: rows.filter((r) => r.quantityQuarantined > 0).length,
+    total: new Set(sellable.map((r) => r.productId)).size,
+    low: sellable.filter((r) => r.status === 'low').length,
+    out: sellable.filter((r) => r.status === 'out').length,
+    quarantined: sellable.filter((r) => r.quantityQuarantined > 0).length,
   };
 
   async function openDetail(productId: string) {
@@ -104,29 +182,31 @@ export function StockPage() {
         <div>
           <h2>Gestion de Stock</h2>
           <div className="sub">
-            Site :{' '}
+            Dépôt :{' '}
             <select className="site-select" value={siteId} onChange={(e) => changeSite(e.target.value)}>
+              {!siteId && <option value="">Choisir un dépôt…</option>}
               {sites.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
-              <option value="all">Tous les sites</option>
             </select>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowProductForm(true)}>
-            + Nouveau produit
+            <Icon name="plus" size={16} /> Nouveau produit
           </button>
           <button className="btn-primary" onClick={() => setShowMovementForm(true)} disabled={rows.length === 0}>
-            + Nouveau mouvement
+            <Icon name="plus" size={16} /> Mouvement de stock
           </button>
         </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {reminder && <ReminderBanner reminder={reminder} withLink />}
 
+      {siteId && (
       <div className="stat-strip">
         <div className="stat-card">
           <div className="num">{stats.total}</div>
@@ -145,60 +225,110 @@ export function StockPage() {
           <div className="label">Lignes avec quarantaine</div>
         </div>
       </div>
+      )}
 
-      {loading ? (
-        <p className="sub">Chargement…</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Référence</th>
-                <th>Produit</th>
-                <th>Famille</th>
-                {siteId === 'all' && <th>Site</th>}
-                <th className="num">Qté dispo.</th>
-                <th className="num">Quarantaine</th>
-                <th className="num">Seuil min</th>
-                <th className="num">Coût moyen</th>
-                <th>État</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.productId}-${r.site.id}`} className="clickable" onClick={() => openDetail(r.productId)}>
-                  <td className="mono">{r.sku}</td>
-                  <td>{r.name}</td>
-                  <td className="muted">{r.category ?? '—'}</td>
-                  {siteId === 'all' && <td className="muted">{r.site.name}</td>}
-                  <td className="num">{r.quantityOnHand}</td>
-                  <td className="num" style={r.quantityQuarantined > 0 ? { color: 'var(--danger)' } : undefined}>
-                    {r.quantityQuarantined}
-                  </td>
-                  <td className="num muted">{r.minThreshold ?? '—'}</td>
-                  <td className="num">{r.averageCost.toFixed(2)}</td>
-                  <td>
-                    <span className={`pill ${r.status === 'ok' ? 'success' : r.status === 'low' ? 'warning' : 'danger'}`}>
-                      {STATUS_LABEL[r.status]}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
-                    Aucun produit pour ce site.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {!siteId ? (
+        <div className="center-message">
+          <span className="center-message-icon">
+            <Icon name="warehouse" size={26} />
+          </span>
+          <div className="center-message-title">{sites.length === 0 ? 'Aucun dépôt pour le moment' : 'Choisir un dépôt pour voir les produits'}</div>
+          <div className="center-message-sub">
+            {sites.length === 0 ? 'Créez un dépôt dans Multi-sites pour commencer.' : 'Sélectionnez un dépôt dans la liste en haut de la page.'}
+          </div>
         </div>
+      ) : loading ? (
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+      ) : (
+        <>
+          {list.toolbar()}
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  {list.th('sku', 'Référence')}
+                  {list.th('name', 'Produit')}
+                  {list.th('qty', 'Qté', 'num')}
+                  {list.th('reserved', 'Qté réservée', 'num')}
+                  {list.th('price1', 'Prix 1', 'num')}
+                  {list.th('price2', 'Prix 2', 'num')}
+                  {list.th('cost', 'Prix d’achat', 'num')}
+                  {list.th('margin1', 'Marge 1', 'num')}
+                  {list.th('margin2', 'Marge 2', 'num')}
+                  {list.th('carton', 'Nb / carton', 'num')}
+                  {list.th('status', 'État')}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.flatMap((parentRow) => [parentRow, ...(parentRow.isVariantParent && isOpen(parentRow.productId) ? childrenOf.get(parentRow.productId) ?? [] : [])]).map((r) => (
+                  <tr key={`${r.productId}-${r.site.id}`} className={`clickable${r.parentId ? ' variant-row' : ''}`} onClick={() => openDetail(r.productId)}>
+                    <td className="mono">{r.sku}</td>
+                    <td>
+                      {r.isVariantParent ? (
+                        <span className="variant-parent">
+                          <button
+                            type="button"
+                            className="variant-toggle"
+                            aria-label={isOpen(r.productId) ? 'Replier' : 'Déplier'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggle(r.productId);
+                            }}
+                          >
+                            <Icon name={isOpen(r.productId) ? 'chevronDown' : 'chevronRight'} size={15} />
+                          </button>
+                          {r.name}
+                          <span className="chip">{(childrenOf.get(r.productId) ?? []).length} variantes</span>
+                        </span>
+                      ) : r.parentId ? (
+                        <span className="variant-child">{[r.color, r.size].filter(Boolean).join(' / ')}</span>
+                      ) : (
+                        r.name
+                      )}
+                    </td>
+                    <td className="num">{fmtQty(r.quantityOnHand)}</td>
+                    <td className={`num${r.quantityReserved > 0 ? '' : ' muted'}`}>{fmtQty(r.quantityReserved)}</td>
+                    <td className="num">{fmtMoney(r.sellPrice)}</td>
+                    <td className="num">{fmtMoney(r.sellPrice2)}</td>
+                    {/* A modèle has no cost of its own: cost and margins are per variant. */}
+                    <td className="num muted">{r.isVariantParent ? '—' : fmtMoney(r.averageCost)}</td>
+                    <td className={`num ${r.isVariantParent ? 'muted' : marginClass(r.margin1)}`}>{r.isVariantParent ? '—' : fmtMoney(r.margin1)}</td>
+                    <td className={`num ${r.isVariantParent ? 'muted' : marginClass(r.margin2)}`}>{r.isVariantParent ? '—' : fmtMoney(r.margin2)}</td>
+                    <td className="num muted">{r.unitsPerCarton ?? 0}</td>
+                    <td>
+                      <span className={`pill ${r.status === 'ok' ? 'success' : r.status === 'low' ? 'warning' : 'danger'}`}>
+                        {STATUS_LABEL[r.status]}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {visibleRows.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                      {list.filtered ? (
+                        <>
+                          Aucun produit ne correspond.{' '}
+                          <button type="button" className="btn-link" onClick={list.reset}>
+                            Effacer les filtres
+                          </button>
+                        </>
+                      ) : (
+                        'Aucun produit pour ce dépôt.'
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {detail && (
         <SkuDetailModal
+          key={detail.id}
           detail={detail}
+          onOpenProduct={openDetail}
           categories={categories}
           onClose={() => setDetail(null)}
           onChanged={() => {
@@ -242,12 +372,14 @@ function SkuDetailModal({
   onClose,
   onChanged,
   onDeleted,
+  onOpenProduct,
 }: {
   detail: ProductDetail;
   categories: ProductCategory[];
   onClose: () => void;
   onChanged: () => void;
   onDeleted: () => void;
+  onOpenProduct: (productId: string) => void;
 }) {
   const { accessToken } = useAuth();
   const [detail, setDetail] = useState(initialDetail);
@@ -262,37 +394,33 @@ function SkuDetailModal({
   // simulation were created before a sale price meant anything (Scan's
   // "Vente rapide" needs one to auto-fill a line), so there was no way to
   // go back and set one on an existing SKU.
+  const isModel = initialDetail.variantSizes.length > 0 || initialDetail.variantColors.length > 0;
+  const [tab, setTab] = useState<'stock' | 'variants' | 'settings'>(isModel ? 'variants' : 'stock');
+  // The three editable attributes share one form and one save — they used
+  // to be three mini-forms with three "Enregistrer" buttons.
   const [sellPriceInput, setSellPriceInput] = useState(detail.sellPrice != null ? String(detail.sellPrice) : '');
-  const [savingPrice, setSavingPrice] = useState(false);
-  const [priceSaved, setPriceSaved] = useState(false);
-  const [priceError, setPriceError] = useState<string | null>(null);
-  // Same after-the-fact editability rationale as sellPrice above — most
-  // products in a real catalog get their manufacturer barcode added once
-  // someone's actually holding the box, not at initial product creation.
   const [barcodeInput, setBarcodeInput] = useState(detail.barcode ?? '');
-  const [savingBarcode, setSavingBarcode] = useState(false);
-  const [barcodeSaved, setBarcodeSaved] = useState(false);
-  const [barcodeError, setBarcodeError] = useState<string | null>(null);
   const [cartonInput, setCartonInput] = useState(detail.unitsPerCarton != null ? String(detail.unitsPerCarton) : '');
-  const [savingCarton, setSavingCarton] = useState(false);
-  const [cartonSaved, setCartonSaved] = useState(false);
-  const [cartonError, setCartonError] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingLotTracked, setSavingLotTracked] = useState(false);
   const [lotTrackedError, setLotTrackedError] = useState<string | null>(null);
+
+  const [sellPrice2Input, setSellPrice2Input] = useState(detail.sellPrice2 != null ? String(detail.sellPrice2) : '');
+  // Lots already exist → the API refuses to turn lot tracking off, so the switch is locked.
+  const lotLocked = detail.isLotTracked && batches !== null && batches.length > 0;
+  const priceDirty = sellPriceInput !== (detail.sellPrice != null ? String(detail.sellPrice) : '');
+  const price2Dirty = sellPrice2Input !== (detail.sellPrice2 != null ? String(detail.sellPrice2) : '');
+  const cartonDirty = cartonInput !== (detail.unitsPerCarton != null ? String(detail.unitsPerCarton) : '');
+  const barcodeDirty = barcodeInput.trim() !== (detail.barcode ?? '');
+  const settingsDirty = priceDirty || price2Dirty || cartonDirty || barcodeDirty;
 
   useEffect(() => {
     if (!accessToken || !detail.isLotTracked) return;
     qualityApi.listBatches(accessToken, detail.id).then(setBatches);
   }, [accessToken, detail.id, detail.isLotTracked]);
 
-  // Was structurally uneditable ("cascading implications once batches
-  // exist" per the old UpdateProductDto comment) — but nothing actually
-  // reads this flag to gate domain logic, only what the UI chooses to show
-  // (see StockService.updateProduct's own comment). The real case this
-  // exists for: a product created with the "Suivi par lot" toggle left
-  // off by mistake, with no way to turn it back on afterward. Saves
-  // immediately on tap (no separate "Enregistrer" step) — it's a binary
-  // flag, not free text worth a confirm step.
+  // A binary flag — saves immediately on toggle, no separate confirm step.
   async function saveLotTracked(next: boolean) {
     if (!accessToken || next === detail.isLotTracked) return;
     setSavingLotTracked(true);
@@ -307,59 +435,30 @@ function SkuDetailModal({
     }
   }
 
-  async function saveUnitsPerCarton() {
-    if (!accessToken) return;
-    setSavingCarton(true);
-    setCartonSaved(false);
-    setCartonError(null);
+  async function saveSettings() {
+    if (!accessToken || !settingsDirty) return;
+    setSavingSettings(true);
+    setSettingsError(null);
     try {
-      // Empty clears it (null), unlike sellPrice — "no carton" is a real state.
-      const updated = await stockApi.updateProduct(accessToken, detail.id, { unitsPerCarton: cartonInput === '' ? null : Number(cartonInput) });
-      setDetail((d) => ({ ...d, unitsPerCarton: updated.unitsPerCarton }));
-      setCartonSaved(true);
+      const patch: Parameters<typeof stockApi.updateProduct>[2] = {};
+      // sellPrice can't be cleared (empty = leave unchanged); "no carton" is
+      // a real state (empty = null); barcode always sends the trimmed value
+      // so emptying the field really clears it.
+      if (priceDirty && sellPriceInput !== '') patch.sellPrice = Number(sellPriceInput);
+      if (price2Dirty && sellPrice2Input !== '') patch.sellPrice2 = Number(sellPrice2Input);
+      if (cartonDirty) patch.unitsPerCarton = cartonInput === '' ? null : Number(cartonInput);
+      if (barcodeDirty) patch.barcode = barcodeInput.trim();
+      const updated = await stockApi.updateProduct(accessToken, detail.id, patch);
+      setDetail((d) => ({ ...d, sellPrice: updated.sellPrice, sellPrice2: updated.sellPrice2, unitsPerCarton: updated.unitsPerCarton, barcode: updated.barcode }));
+      setSellPriceInput(updated.sellPrice != null ? String(updated.sellPrice) : '');
+      setSellPrice2Input(updated.sellPrice2 != null ? String(updated.sellPrice2) : '');
+      setCartonInput(updated.unitsPerCarton != null ? String(updated.unitsPerCarton) : '');
+      setBarcodeInput(updated.barcode ?? '');
+      toast.success('Produit mis à jour.');
     } catch (err) {
-      setCartonError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+      setSettingsError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
     } finally {
-      setSavingCarton(false);
-    }
-  }
-
-  async function saveSellPrice() {
-    if (!accessToken) return;
-    setSavingPrice(true);
-    setPriceSaved(false);
-    setPriceError(null);
-    try {
-      const updated = await stockApi.updateProduct(accessToken, detail.id, {
-        sellPrice: sellPriceInput === '' ? undefined : Number(sellPriceInput),
-      });
-      setDetail((d) => ({ ...d, sellPrice: updated.sellPrice }));
-      setPriceSaved(true);
-    } catch (err) {
-      setPriceError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
-    } finally {
-      setSavingPrice(false);
-    }
-  }
-
-  async function saveBarcode() {
-    if (!accessToken) return;
-    setSavingBarcode(true);
-    setBarcodeSaved(false);
-    setBarcodeError(null);
-    try {
-      // Always send the (possibly empty) trimmed value, never `undefined` —
-      // this is a dedicated "save this field" button, and `undefined` would
-      // vanish from the JSON body entirely (JSON.stringify drops it),
-      // which the API reads as "leave barcode unchanged" rather than
-      // "clear it" when the field was emptied on purpose.
-      const updated = await stockApi.updateProduct(accessToken, detail.id, { barcode: barcodeInput.trim() });
-      setDetail((d) => ({ ...d, barcode: updated.barcode }));
-      setBarcodeSaved(true);
-    } catch (err) {
-      setBarcodeError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
-    } finally {
-      setSavingBarcode(false);
+      setSavingSettings(false);
     }
   }
 
@@ -409,18 +508,29 @@ function SkuDetailModal({
       ].filter((x): x is string => x !== null)
     : [];
 
+  const totalOnHand =
+    detail.variants.length > 0 ? detail.variants.reduce((sum, v) => sum + v.quantityOnHand, 0) : detail.levels.reduce((sum, l) => sum + l.quantityOnHand, 0);
+  const totalQuarantined = detail.levels.reduce((sum, l) => sum + l.quantityQuarantined, 0);
+
   return (
     <div className="modal-backdrop open">
       <div className="modal wide">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{detail.name}</h3>
-            <p className="modal-sub">
-              Référence {detail.sku} · {detail.isLotTracked ? 'suivi par lot' : 'non suivi par lot'}
-            </p>
+            <div className="modal-meta">
+              <span className="chip mono">{detail.sku}</span>
+              {detail.parent && (
+                <button type="button" className="chip chip-link" onClick={() => onOpenProduct(detail.parent!.id)}>
+                  Variante de {detail.parent.name} →
+                </button>
+              )}
+              {detail.category && <span className="chip">{detail.category}</span>}
+              {detail.isLotTracked && <span className="chip">Suivi par lot</span>}
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button type="button" className="btn-secondary" onClick={() => setShowEdit(true)}>
+          <div className="modal-header-actions">
+            <button type="button" className="btn-secondary btn-sm" onClick={() => setShowEdit(true)}>
               Modifier
             </button>
             <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
@@ -428,164 +538,208 @@ function SkuDetailModal({
             </button>
           </div>
         </div>
-        <div className="stat-strip">
-          <div className="stat-card">
-            <div className="num">{detail.averageCost.toFixed(2)}</div>
-            <div className="label">Coût moyen (DZD)</div>
+
+        <div className="fact-grid">
+          <div className="fact">
+            <span className="fact-label">En stock</span>
+            <span className="fact-value">{totalOnHand}</span>
+            {totalQuarantined > 0 && <span className="fact-note bad">{totalQuarantined} en quarantaine</span>}
           </div>
-          <div className="stat-card">
-            <div className="num">{detail.minThreshold ?? '—'}</div>
-            <div className="label">Seuil min</div>
+          <div className="fact">
+            <span className="fact-label">Prix d'achat</span>
+            <span className="fact-value">{fmtMoney(detail.averageCost)}</span>
+            <span className="fact-note">coût moyen</span>
+          </div>
+          <div className="fact">
+            <span className="fact-label">Prix 1 · détail</span>
+            <span className="fact-value">{fmtMoney(detail.sellPrice)}</span>
+            {detail.sellPrice != null && <span className={`fact-note ${detail.sellPrice - detail.averageCost < 0 ? 'bad' : 'good'}`}>marge {fmtMoney(detail.sellPrice - detail.averageCost)}</span>}
+          </div>
+          <div className="fact">
+            <span className="fact-label">Prix 2 · gros</span>
+            <span className="fact-value">{fmtMoney(detail.sellPrice2)}</span>
+            {detail.sellPrice2 != null && <span className={`fact-note ${detail.sellPrice2 - detail.averageCost < 0 ? 'bad' : 'good'}`}>marge {fmtMoney(detail.sellPrice2 - detail.averageCost)}</span>}
           </div>
         </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Suivi par lot</div>
-          <div className="toggle-row">
-            <button
-              type="button"
-              className={`toggle-btn${detail.isLotTracked ? ' on' : ''}`}
-              onClick={() => saveLotTracked(true)}
-              disabled={savingLotTracked}
-            >
-              Oui
+
+        <div className="modal-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'stock'} className={tab === 'stock' ? 'on' : ''} onClick={() => setTab('stock')}>
+            {detail.isLotTracked ? 'Stock & lots' : 'Stock'}
+          </button>
+          {!detail.parent && (
+            <button type="button" role="tab" aria-selected={tab === 'variants'} className={tab === 'variants' ? 'on' : ''} onClick={() => setTab('variants')}>
+              Tailles & couleurs{detail.variants.length > 0 ? ` (${detail.variants.length})` : ''}
             </button>
-            <button
-              type="button"
-              className={`toggle-btn${!detail.isLotTracked ? ' on' : ''}`}
-              onClick={() => saveLotTracked(false)}
-              disabled={savingLotTracked}
-            >
-              Non
-            </button>
-          </div>
-          {lotTrackedError && <div className="error-banner">{lotTrackedError}</div>}
-          <p className="sub">Active la péremption et le contrôle qualité par lot — Scan » Entrée proposera alors un numéro de lot.</p>
-        </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Prix de vente</div>
-          <div className="inline-edit-row">
-            <input
-              type="number"
-              min={0}
-              step="any"
-              value={sellPriceInput}
-              onChange={(e) => setSellPriceInput(e.target.value)}
-              placeholder="Non défini"
-            />
-            <button type="button" className="btn-secondary" onClick={saveSellPrice} disabled={savingPrice}>
-              {savingPrice ? 'Enregistrement…' : 'Enregistrer'}
-            </button>
-            {priceSaved && <span className="sub">Enregistré.</span>}
-          </div>
-          {priceError && <div className="error-banner">{priceError}</div>}
-          <p className="sub">Utilisé pour pré-remplir le prix d&#39;une ligne dans Scan &raquo; Vente rapide.</p>
-        </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Unités par carton</div>
-          <div className="inline-edit-row">
-            <input type="number" min={1} step={1} value={cartonInput} onChange={(e) => setCartonInput(e.target.value)} placeholder="Non défini" />
-            <button type="button" className="btn-secondary" onClick={saveUnitsPerCarton} disabled={savingCarton}>
-              {savingCarton ? 'Enregistrement…' : 'Enregistrer'}
-            </button>
-            {cartonSaved && <span className="sub">Enregistré.</span>}
-          </div>
-          {cartonError && <div className="error-banner">{cartonError}</div>}
-          <p className="sub">Permet de saisir des cartons dans Ventes et Achats — la quantité est calculée automatiquement.</p>
-        </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Code-barres</div>
-          <div className="inline-edit-row">
-            <input className="mono" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} placeholder="Non défini" />
-            <BarcodeScanButton onScanned={setBarcodeInput} />
-            <button type="button" className="btn-secondary" onClick={saveBarcode} disabled={savingBarcode}>
-              {savingBarcode ? 'Enregistrement…' : 'Enregistrer'}
-            </button>
-            {barcodeSaved && <span className="sub">Enregistré.</span>}
-          </div>
-          {barcodeError && <div className="error-banner">{barcodeError}</div>}
-          <p className="sub">
-            Le code EAN/UPC imprimé sur le produit lui-même — une fois enregistré, Scan le reconnaît directement, sans passer par une
-            étiquette générée.
-          </p>
-        </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Stock par site</div>
-          <table className="lot-mini-table">
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Qté</th>
-                <th>Quarantaine</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.levels.map((l) => (
-                <tr key={l.site.id}>
-                  <td>{l.site.name}</td>
-                  <td className="mono">{l.quantityOnHand}</td>
-                  <td className="mono">{l.quantityQuarantined}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="modal-section">
-          <div className="modal-section-label">Qualité</div>
-          {!detail.isLotTracked ? (
-            <div className="note-box">
-              Ce produit n&#39;est pas suivi par lot (article non périssable) — la péremption ne s&#39;applique pas. Un contrôle qualité
-              ponctuel reste possible depuis le module Qualité.
-            </div>
-          ) : batches === null ? (
-            <p className="sub">Chargement…</p>
-          ) : batches.length === 0 ? (
-            <div className="note-box">Aucun lot actif pour ce produit pour le moment.</div>
-          ) : (
-            <table className="lot-mini-table">
-              <thead>
-                <tr>
-                  <th>N° de lot</th>
-                  <th>Qté</th>
-                  <th>Péremption</th>
-                  <th>État</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((b) => (
-                  <tr key={b.id}>
-                    <td className="mono">{b.lotNumber}</td>
-                    <td>{b.remainingQuantity}</td>
-                    <td className="mono">{b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('fr-FR') : '—'}</td>
-                    <td>
-                      <span className={`pill ${b.status === 'quarantined' ? 'danger' : b.status === 'depleted' ? 'info' : 'success'}`}>
-                        {b.status === 'quarantined' ? 'Quarantaine' : b.status === 'depleted' ? 'Épuisé' : 'OK'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           )}
-        </div>
-        <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
-          {confirmingDelete && (
-            <p className="sub" style={{ width: '100%', textAlign: 'left' }}>
-              {usageSummary.length > 0
-                ? `Ce produit a ${usageSummary.join(', ')} — la suppression le masquera de la liste mais l'historique existant restera visible sur les documents déjà créés.`
-                : "Ce produit n'est utilisé nulle part pour le moment."}
-            </p>
-          )}
-          {deleteError && <div className="error-banner">{deleteError}</div>}
-          <button
-            type="button"
-            className="btn-link danger"
-            disabled={checkingUsage || deleting}
-            onClick={handleDeleteClick}
-            onBlur={() => setConfirmingDelete(false)}
-          >
-            {checkingUsage ? 'Vérification…' : deleting ? 'Suppression…' : confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer le produit'}
+          <button type="button" role="tab" aria-selected={tab === 'settings'} className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>
+            Réglages
           </button>
         </div>
+
+        {tab === 'stock' && (
+          <>
+            <div className="modal-section">
+              <div className="modal-section-label">Par site</div>
+              <table className="lot-mini-table">
+                <thead>
+                  <tr>
+                    <th>Site</th>
+                    <th className="num">Disponible</th>
+                    <th className="num">Quarantaine</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.levels.map((l) => (
+                    <tr key={l.site.id}>
+                      <td>{l.site.name}</td>
+                      <td className="num">{l.quantityOnHand}</td>
+                      <td className={`num${l.quantityQuarantined > 0 ? ' bad' : ' muted'}`}>{l.quantityQuarantined}</td>
+                    </tr>
+                  ))}
+                  {detail.levels.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="muted">
+                        Aucun stock enregistré.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {detail.isLotTracked && (
+              <div className="modal-section">
+                <div className="modal-section-label">Lots</div>
+                {batches === null ? (
+                  <div className="page-loader"><span className="spinner" /> Chargement…</div>
+                ) : batches.length === 0 ? (
+                  <p className="sub">Aucun lot actif pour ce produit.</p>
+                ) : (
+                  <table className="lot-mini-table">
+                    <thead>
+                      <tr>
+                        <th>N° de lot</th>
+                        <th className="num">Qté</th>
+                        <th>Péremption</th>
+                        <th>État</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batches.map((b) => (
+                        <tr key={b.id}>
+                          <td className="mono">{b.lotNumber}</td>
+                          <td className="num">{b.remainingQuantity}</td>
+                          <td>{b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('fr-FR') : '—'}</td>
+                          <td>
+                            <span className={`pill ${b.status === 'quarantined' ? 'danger' : b.status === 'depleted' ? 'info' : 'success'}`}>
+                              {b.status === 'quarantined' ? 'Quarantaine' : b.status === 'depleted' ? 'Épuisé' : 'OK'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'variants' && (
+          <VariantsPanel
+            detail={detail}
+            onSaved={(d) => {
+              setDetail(d);
+              onChanged();
+            }}
+            onOpenProduct={onOpenProduct}
+          />
+        )}
+
+        {tab === 'settings' && (
+          <div className="settings-list">
+            <div className="setting-row">
+              <div className="setting-text">
+                <div className="setting-title">Suivi par lot</div>
+                <div className="setting-hint">
+                  {lotLocked ? 'Des lots existent déjà : impossible de désactiver.' : 'Péremption et contrôle qualité par lot.'}
+                </div>
+              </div>
+              <label className="switch" aria-label="Suivi par lot" title={lotLocked ? 'Des lots existent déjà pour ce produit : le suivi par lot ne peut plus être désactivé.' : undefined}>
+                <input type="checkbox" checked={detail.isLotTracked} disabled={savingLotTracked || lotLocked} onChange={(e) => saveLotTracked(e.target.checked)} />
+                <span />
+              </label>
+            </div>
+            {lotTrackedError && <div className="error-banner">{lotTrackedError}</div>}
+
+            <div className="setting-row">
+              <div className="setting-text">
+                <label className="setting-title" htmlFor="sku-price">
+                  Prix de vente
+                </label>
+                <div className="setting-hint">Prix 1 = détail, Prix 2 = gros (selon le tarif du client).</div>
+              </div>
+              <div className="setting-control wide">
+                <input id="sku-price" className="control" type="number" min={0} step="any" inputMode="decimal" value={sellPriceInput} onChange={(e) => setSellPriceInput(e.target.value)} placeholder="Prix 1" aria-label="Prix 1 (détail)" />
+                <input className="control" type="number" min={0} step="any" inputMode="decimal" value={sellPrice2Input} onChange={(e) => setSellPrice2Input(e.target.value)} placeholder="Prix 2" aria-label="Prix 2 (gros)" />
+                <span className="setting-unit">DZD</span>
+              </div>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting-text">
+                <label className="setting-title" htmlFor="sku-carton">
+                  Unités par carton
+                </label>
+                <div className="setting-hint">Saisie en cartons dans Achats et Ventes.</div>
+              </div>
+              <div className="setting-control">
+                <input id="sku-carton" className="control" type="number" min={1} step={1} inputMode="numeric" value={cartonInput} onChange={(e) => setCartonInput(e.target.value)} placeholder="—" />
+              </div>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting-text">
+                <label className="setting-title" htmlFor="sku-barcode">
+                  Code-barres
+                </label>
+                <div className="setting-hint">EAN/UPC imprimé sur l’emballage.</div>
+              </div>
+              <div className="setting-control wide">
+                <input id="sku-barcode" className="control mono" value={barcodeInput} onChange={(e) => setBarcodeInput(e.target.value)} placeholder="Non défini" />
+                <BarcodeScanButton onScanned={setBarcodeInput} />
+              </div>
+            </div>
+            {settingsError && <div className="error-banner">{settingsError}</div>}
+
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn-link danger"
+                style={{ marginRight: 'auto' }}
+                disabled={checkingUsage || deleting}
+                onClick={handleDeleteClick}
+                onBlur={() => setConfirmingDelete(false)}
+              >
+                {checkingUsage ? 'Vérification…' : deleting ? 'Suppression…' : confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer le produit'}
+              </button>
+              <button type="button" className="btn-primary" onClick={saveSettings} disabled={!settingsDirty || savingSettings}>
+                {savingSettings ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+              {confirmingDelete && (
+                <p className="sub" style={{ width: '100%', margin: 0 }}>
+                  {usageSummary.length > 0
+                    ? `Ce produit a ${usageSummary.join(', ')} — il sera masqué de la liste, l'historique reste visible sur les documents existants.`
+                    : "Ce produit n'est utilisé nulle part pour le moment."}
+                </p>
+              )}
+              {deleteError && (
+                <div className="error-banner" style={{ width: '100%' }}>
+                  {deleteError}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       {showEdit && (
         <ProductEditModal
@@ -598,6 +752,164 @@ function SkuDetailModal({
             onChanged();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+const SIZE_PRESETS: Record<string, string[]> = {
+  Vêtements: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
+  Pointures: ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45'],
+};
+const COLOR_PRESETS = ['Noir', 'Blanc', 'Gris', 'Bleu', 'Rouge', 'Vert', 'Beige', 'Marron'];
+
+function ChipsInput({ values, onChange, placeholder, presets }: { values: string[]; onChange: (v: string[]) => void; placeholder: string; presets?: Record<string, string[]> | string[] }) {
+  const [draft, setDraft] = useState('');
+  function add(raw: string) {
+    const parts = raw.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length) onChange(Array.from(new Set([...values, ...parts])));
+    setDraft('');
+  }
+  const presetGroups = Array.isArray(presets) ? { '': presets } : presets ?? {};
+  return (
+    <div>
+      <div className="multiselect-chips">
+        {values.map((v) => (
+          <span key={v} className="multiselect-chip">
+            {v}
+            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} aria-label={`Retirer ${v}`}>
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        className="control"
+        style={{ width: '100%' }}
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            add(draft);
+          }
+        }}
+        onBlur={() => draft.trim() && add(draft)}
+      />
+      {Object.entries(presetGroups).map(([label, list]) => (
+        <div key={label} className="preset-row">
+          {label && <span className="sub">{label} :</span>}
+          {list.map((x) => (
+            <button key={x} type="button" className={`preset${values.includes(x) ? ' on' : ''}`} onClick={() => onChange(values.includes(x) ? values.filter((v) => v !== x) : [...values, x])}>
+              {x}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VariantsPanel({ detail, onSaved, onOpenProduct }: { detail: ProductDetail; onSaved: (d: ProductDetail) => void; onOpenProduct: (id: string) => void }) {
+  const { accessToken } = useAuth();
+  const [sizesOn, setSizesOn] = useState(detail.variantSizes.length > 0);
+  const [colorsOn, setColorsOn] = useState(detail.variantColors.length > 0);
+  const [sizes, setSizes] = useState<string[]>(detail.variantSizes);
+  const [colors, setColors] = useState<string[]>(detail.variantColors);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const finalSizes = sizesOn ? sizes : [];
+  const finalColors = colorsOn ? colors : [];
+  const dirty = finalSizes.join('|') !== detail.variantSizes.join('|') || finalColors.join('|') !== detail.variantColors.join('|');
+  const comboCount = (finalSizes.length || 1) * (finalColors.length || 1) * (finalSizes.length || finalColors.length ? 1 : 0);
+
+  async function save() {
+    if (!accessToken) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const d = await stockApi.setVariants(accessToken, detail.id, { sizes: finalSizes, colors: finalColors });
+      toast.success(d.variants.length ? `${d.variants.length} variante(s) à jour.` : 'Tailles/couleurs désactivées.');
+      onSaved(d);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="settings-list">
+      <div className="setting-row">
+        <div className="setting-text">
+          <div className="setting-title">Tailles</div>
+          <div className="setting-hint">Une variante par taille (et par couleur si activé).</div>
+        </div>
+        <label className="switch" aria-label="Activer les tailles">
+          <input type="checkbox" checked={sizesOn} onChange={(e) => setSizesOn(e.target.checked)} />
+          <span />
+        </label>
+      </div>
+      {sizesOn && (
+        <div style={{ padding: '10px 0 14px' }}>
+          <ChipsInput values={sizes} onChange={setSizes} placeholder="Ajouter une taille (Entrée)…" presets={SIZE_PRESETS} />
+        </div>
+      )}
+      <div className="setting-row">
+        <div className="setting-text">
+          <div className="setting-title">Couleurs</div>
+          <div className="setting-hint">Chaque couleur a son propre stock et son code-barres.</div>
+        </div>
+        <label className="switch" aria-label="Activer les couleurs">
+          <input type="checkbox" checked={colorsOn} onChange={(e) => setColorsOn(e.target.checked)} />
+          <span />
+        </label>
+      </div>
+      {colorsOn && (
+        <div style={{ padding: '10px 0 14px' }}>
+          <ChipsInput values={colors} onChange={setColors} placeholder="Ajouter une couleur (Entrée)…" presets={COLOR_PRESETS} />
+        </div>
+      )}
+      {error && <div className="error-banner">{error}</div>}
+      {dirty && (
+        <div className="modal-footer" style={{ marginTop: 6 }}>
+          <span className="sub" style={{ marginRight: 'auto' }}>
+            {comboCount > 0 ? `${comboCount} variante(s) au total` : 'Le produit redeviendra un produit simple.'}
+          </span>
+          <button type="button" className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? 'Enregistrement…' : 'Enregistrer les variantes'}
+          </button>
+        </div>
+      )}
+
+      {detail.variants.length > 0 && (
+        <div className="modal-section">
+          <div className="modal-section-label">Variantes</div>
+          <table className="lot-mini-table">
+            <thead>
+              <tr>
+                <th>Variante</th>
+                <th>Réf.</th>
+                <th>Code-barres</th>
+                <th className="num">Stock</th>
+                <th className="num">Prix 1</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.variants.map((v) => (
+                <tr key={v.id} className="clickable-row" onClick={() => onOpenProduct(v.id)}>
+                  <td>{[v.color, v.size].filter(Boolean).join(' / ')}</td>
+                  <td className="mono muted">{v.sku}</td>
+                  <td className="mono muted">{v.barcode ?? '—'}</td>
+                  <td className="num">{fmtQty(v.quantityOnHand)}</td>
+                  <td className="num">{fmtMoney(v.sellPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="sub">Cliquez sur une variante pour définir son code-barres, ses prix ou voir son stock par dépôt.</p>
+        </div>
       )}
     </div>
   );
@@ -730,6 +1042,7 @@ function ProductFormModal({
   const [minThreshold, setMinThreshold] = useState<number | ''>('');
   const [maxThreshold, setMaxThreshold] = useState<number | ''>('');
   const [sellPrice, setSellPrice] = useState<number | ''>('');
+  const [sellPrice2, setSellPrice2] = useState<number | ''>('');
   const [unitsPerCarton, setUnitsPerCarton] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -753,6 +1066,7 @@ function ProductFormModal({
         ...(minThreshold !== '' ? { minThreshold: Number(minThreshold) } : {}),
         ...(maxThreshold !== '' ? { maxThreshold: Number(maxThreshold) } : {}),
         ...(sellPrice !== '' ? { sellPrice: Number(sellPrice) } : {}),
+        ...(sellPrice2 !== '' ? { sellPrice2: Number(sellPrice2) } : {}),
         ...(unitsPerCarton !== '' ? { unitsPerCarton: Number(unitsPerCarton) } : {}),
         ...(barcode.trim() !== '' ? { barcode: barcode.trim() } : {}),
       });
@@ -832,9 +1146,15 @@ function ProductFormModal({
           </div>
           <div className="field-grid">
             <div className="field-row">
-              <label>Prix de vente (optionnel)</label>
-              <input type="number" min={0} step="any" value={sellPrice} onChange={(e) => setSellPrice(e.target.value === '' ? '' : Number(e.target.value))} />
+              <label>Prix 1 · détail</label>
+              <input type="number" min={0} step="any" placeholder="Optionnel" value={sellPrice} onChange={(e) => setSellPrice(e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
+            <div className="field-row">
+              <label>Prix 2 · gros</label>
+              <input type="number" min={0} step="any" placeholder="Optionnel" value={sellPrice2} onChange={(e) => setSellPrice2(e.target.value === '' ? '' : Number(e.target.value))} />
+            </div>
+          </div>
+          <div className="field-grid">
             <div className="field-row">
               <label>Unités par carton (optionnel)</label>
               <input
@@ -1148,7 +1468,7 @@ function BarcodeScanButton({ onScanned }: { onScanned: (code: string) => void })
   return (
     <>
       <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
-        📷 Scanner
+        <Icon name="scan" size={16} /> Scanner
       </button>
       {open && (
         <div className="modal-backdrop open barcode-scan-backdrop">

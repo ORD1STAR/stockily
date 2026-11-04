@@ -1,5 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { useDataChangeListener } from '../lib/data-events';
 import { CartonInput } from '../lib/CartonInput';
@@ -13,11 +16,16 @@ import {
   Site,
   StockRow,
   TaxRate,
+  TradeDocumentType,
+  TradeDocumentView,
   invoicingApi,
   salesApi,
   sitesApi,
   stockApi,
+  tradeApi,
 } from '../lib/api';
+import { useListControls } from '../lib/ListControls';
+import { DocumentDetailModal, DocumentFormModal, DocumentTable } from '../lib/TradeDocuments';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -27,13 +35,15 @@ const STATUS_LABEL: Record<string, string> = {
   expired: 'Expiré',
   confirmed: 'Confirmée',
   partially_invoiced: 'Partiellement facturée',
+  partially_delivered: 'Partiellement livrée',
+  delivered: 'Livrée',
   invoiced: 'Facturée',
   cancelled: 'Annulé',
 };
 
 function statusPillClass(status: string): string {
-  if (status === 'invoiced' || status === 'accepted') return 'success';
-  if (status === 'partially_invoiced' || status === 'sent') return 'warning';
+  if (status === 'invoiced' || status === 'accepted' || status === 'delivered') return 'success';
+  if (status === 'partially_invoiced' || status === 'partially_delivered' || status === 'sent') return 'warning';
   if (status === 'cancelled' || status === 'expired') return 'danger';
   return 'info';
 }
@@ -51,6 +61,24 @@ export function SalesPage() {
   const [showFormKind, setShowFormKind] = useState<'quote' | 'order' | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<SalesOrderView | null>(null);
   const [showPricing, setShowPricing] = useState(false);
+  const [tab, setTab] = useState<'orders' | 'delivery_note' | 'customer_return'>('orders');
+  const [docs, setDocs] = useState<TradeDocumentView[]>([]);
+  const [docForm, setDocForm] = useState<TradeDocumentType | null>(null);
+  const [deliverOrder, setDeliverOrder] = useState<SalesOrderView | null>(null);
+  const [openDoc, setOpenDoc] = useState<{ id: string; type: TradeDocumentType } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [invoicing, setInvoicing] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from a facture: /sales?doc=<id> opens that bon de livraison.
+  useEffect(() => {
+    const docId = searchParams.get('doc');
+    if (!docId) return;
+    setTab('delivery_note');
+    setOpenDoc({ id: docId, type: 'delivery_note' });
+    setSearchParams({}, { replace: true });
+  }, [searchParams]);
   const [dashboard, setDashboard] = useState<{
     openQuotesCount: number;
     openOrdersCount: number;
@@ -63,15 +91,18 @@ export function SalesPage() {
     setLoading(true);
     setError(null);
     try {
-      const [orderList, siteList, partnerList, productRows, taxRows, dash] = await Promise.all([
+      const [orderList, siteList, partnerList, productRows, taxRows, dash, docList] = await Promise.all([
         salesApi.listOrders(accessToken),
         sitesApi.list(accessToken),
         invoicingApi.listPartners(accessToken),
         stockApi.listProducts(accessToken, 'all'),
         invoicingApi.listTaxRates(accessToken),
         salesApi.getDashboard(accessToken),
+        tradeApi.listSales(accessToken),
       ]);
       setOrders(orderList);
+      setDocs(docList);
+      setSelected(new Set());
       setSites(siteList);
       setPartners(partnerList);
       setProducts(productRows);
@@ -93,24 +124,68 @@ export function SalesPage() {
 
   const customers = partners.filter((p) => p.isCustomer);
   const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
-  const visibleOrders = kindFilter === 'all' ? orders : orders.filter((o) => o.kind === kindFilter);
+  const orderTotal = (o: (typeof orders)[number]) => o.lines.reduce((s, l) => s + l.unitPrice * l.quantityOrdered * (1 - (l.discountPercent ?? 0) / 100), 0);
+  const orderList = useListControls(kindFilter === 'all' ? orders : orders.filter((o) => o.kind === kindFilter), {
+    id: 'sales-orders',
+    noun: ['document', 'documents'],
+    searchPlaceholder: 'N°, client, produit…',
+    search: (o) => [o.number, o.customer.name, ...o.lines.map((l) => l.product?.name ?? l.description)],
+    filters: [
+      { key: 'customer', label: 'Client', type: 'select', value: (o) => o.customer.name },
+      { key: 'status', label: 'Statut', type: 'select', value: (o) => STATUS_LABEL[o.status] ?? o.status },
+      { key: 'date', label: 'Créé le', type: 'dates', value: (o) => o.createdAt },
+      { key: 'site', label: 'Dépôt', type: 'select', value: (o) => o.site.name },
+      { key: 'total', label: 'Total', type: 'range', unit: 'DA', value: orderTotal },
+    ],
+    sorts: [
+      { key: 'number', label: 'N°', value: (o) => o.number, desc: true },
+      { key: 'kind', label: 'Type', value: (o) => o.kind },
+      { key: 'customer', label: 'Client', value: (o) => o.customer.name },
+      { key: 'site', label: 'Dépôt', value: (o) => o.site.name },
+      { key: 'status', label: 'Statut', value: (o) => STATUS_LABEL[o.status] ?? o.status },
+      { key: 'total', label: 'Total', value: orderTotal, desc: true },
+      { key: 'date', label: 'Créé le', value: (o) => o.createdAt, desc: true },
+    ],
+  });
+  const visibleOrders = orderList.rows;
+  const deliveryNotes = docs.filter((d) => d.type === 'delivery_note');
+  const customerReturns = docs.filter((d) => d.type === 'customer_return');
+  const selectedDocs = deliveryNotes.filter((d) => selected.has(d.id));
+  const canInvoiceDoc = (d: TradeDocumentView) =>
+    d.status === 'validated' && !d.invoice && (selectedDocs.length === 0 || (selectedDocs[0].partner?.id ?? '') === (d.partner?.id ?? ''));
+
+  async function invoiceSelection() {
+    if (!accessToken || selectedDocs.length === 0) return;
+    setInvoicing(true);
+    try {
+      const inv = await tradeApi.invoice(accessToken, selectedDocs.map((d) => d.id));
+      toast.success(`Facture ${inv.number ?? ''} créée.`);
+      navigate(`/invoicing?open=${inv.id}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Échec de la facturation.');
+    } finally {
+      setInvoicing(false);
+    }
+  }
 
   return (
     <AppShell>
       <div className="panel-head">
         <div>
           <h2>Ventes</h2>
-          <div className="sub">{orders.length} devis/commande(s)</div>
+          <div className="sub">Devis, commandes, livraisons et retours clients</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => setShowPricing(true)}>
-            Tarifs négociés
-          </button>
-          <button className="btn-secondary" onClick={() => setShowFormKind('quote')} disabled={sites.length === 0 || customers.length === 0}>
-            + Devis
-          </button>
+          <ActionMenu
+            items={[
+              { label: 'Bon de livraison', hint: 'Sortie de stock, avec ou sans commande', icon: 'truck', onClick: () => setDocForm('delivery_note'), disabled: sites.length === 0 },
+              { label: 'Retour client', hint: 'Marchandise rendue par un client', icon: 'chevronLeft', onClick: () => setDocForm('customer_return'), disabled: sites.length === 0 },
+              { label: 'Nouveau devis', hint: 'Proposition de prix au client', icon: 'receipt', onClick: () => setShowFormKind('quote'), disabled: sites.length === 0 || customers.length === 0 },
+              { label: 'Tarifs négociés', hint: 'Prix et remises par client', icon: 'handshake', onClick: () => setShowPricing(true) },
+            ]}
+          />
           <button className="btn-primary" onClick={() => setShowFormKind('order')} disabled={sites.length === 0 || customers.length === 0}>
-            + Commande
+            <Icon name="plus" size={16} /> Bon de commande
           </button>
         </div>
       </div>
@@ -142,51 +217,111 @@ export function SalesPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        {(['all', 'quote', 'order'] as const).map((k) => (
-          <button key={k} className={`toggle-btn ${kindFilter === k ? 'on' : ''}`} onClick={() => setKindFilter(k)} type="button">
-            {k === 'all' ? 'Tous' : k === 'quote' ? 'Devis' : 'Commandes'}
+      <div className="page-tabs" role="tablist">
+        {(
+          [
+            ['orders', 'Devis & commandes', orders.length],
+            ['delivery_note', 'Bons de livraison', deliveryNotes.length],
+            ['customer_return', 'Retours clients', customerReturns.length],
+          ] as const
+        ).map(([k, label, count]) => (
+          <button key={k} type="button" role="tab" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            {label}
+            <span className="tab-count">{count}</span>
           </button>
         ))}
       </div>
 
+      {tab === 'delivery_note' && (
+        <>
+          {selectedDocs.length > 0 && (
+            <div className="selection-bar">
+              <span>
+                {selectedDocs.length} bon(s) sélectionné(s) · {selectedDocs[0].partner?.name ?? 'Client comptoir'}
+              </span>
+              <button type="button" className="btn-primary btn-sm" disabled={invoicing} onClick={invoiceSelection}>
+                {invoicing ? 'Facturation…' : 'Générer la facture'}
+              </button>
+            </div>
+          )}
+          <DocumentTable
+            listId="bl"
+            docs={deliveryNotes}
+            partnerLabel="Client"
+            onOpen={(d) => setOpenDoc({ id: d.id, type: d.type })}
+            selectable={canInvoiceDoc}
+            selected={selected}
+            onToggle={(id) =>
+              setSelected((cur) => {
+                const next = new Set(cur);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+          />
+        </>
+      )}
+      {tab === 'customer_return' && <DocumentTable listId="customer-returns" docs={customerReturns} partnerLabel="Client" onOpen={(d) => setOpenDoc({ id: d.id, type: d.type })} />}
+
+      {tab === 'orders' && (
+      <>
+      {orderList.toolbar(
+        <div className="toggle-row">
+          {(['all', 'quote', 'order'] as const).map((k) => (
+            <button key={k} className={`toggle-btn ${kindFilter === k ? 'on' : ''}`} onClick={() => setKindFilter(k)} type="button">
+              {k === 'all' ? 'Tous' : k === 'quote' ? 'Devis' : 'Commandes'}
+            </button>
+          ))}
+        </div>,
+      )}
+
       {loading ? (
-        <p className="sub">Chargement…</p>
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>N°</th>
-                <th>Type</th>
-                <th>Client</th>
-                <th>Site</th>
-                <th>Statut</th>
-                <th>Total</th>
-                <th>Créé le</th>
+                {orderList.th('number', 'N°')}
+                {orderList.th('kind', 'Type')}
+                {orderList.th('customer', 'Client')}
+                {orderList.th('site', 'Dépôt')}
+                {orderList.th('status', 'Statut')}
+                {orderList.th('total', 'Total', 'num')}
+                {orderList.th('date', 'Créé le')}
               </tr>
             </thead>
             <tbody>
               {visibleOrders.map((o) => {
-                const total = o.lines.reduce((s, l) => s + l.unitPrice * l.quantityOrdered * (1 - (l.discountPercent ?? 0) / 100), 0);
+                const total = orderTotal(o);
                 return (
                   <tr key={o.id} className="clickable" onClick={() => setSelectedOrder(o)}>
                     <td className="mono">{o.number ?? '—'}</td>
-                    <td>{o.kind === 'quote' ? 'Devis' : 'Commande'}</td>
+                    <td>{o.kind === 'quote' ? 'Devis' : 'Bon de commande'}</td>
                     <td>{o.customer.name}</td>
                     <td>{o.site.name}</td>
                     <td>
                       <span className={`pill ${statusPillClass(o.status)}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
                     </td>
-                    <td>{total.toFixed(2)} DZD</td>
+                    <td className="num">{total.toFixed(2)} DZD</td>
                     <td>{new Date(o.createdAt).toLocaleDateString('fr-FR')}</td>
                   </tr>
                 );
               })}
               {visibleOrders.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="sub">
-                    Aucun document pour le moment.
+                  <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                    {orderList.filtered ? (
+                  <>
+                    Aucun résultat pour ces filtres.{' '}
+                    <button type="button" className="btn-link" onClick={orderList.reset}>
+                      Effacer les filtres
+                    </button>
+                  </>
+                ) : (
+                  'Aucun document pour le moment.'
+                )}
                   </td>
                 </tr>
               )}
@@ -194,6 +329,32 @@ export function SalesPage() {
           </table>
         </div>
       )}
+
+      </>
+      )}
+
+      {(docForm || deliverOrder) && (
+        <DocumentFormModal
+          type={deliverOrder ? 'delivery_note' : (docForm as TradeDocumentType)}
+          order={deliverOrder ?? undefined}
+          partners={partners}
+          sites={sites}
+          products={products}
+          taxRates={taxRates}
+          onClose={() => {
+            setDocForm(null);
+            setDeliverOrder(null);
+          }}
+          onCreated={(doc) => {
+            setDocForm(null);
+            setDeliverOrder(null);
+            setTab(doc.type === 'customer_return' ? 'customer_return' : 'delivery_note');
+            setOpenDoc({ id: doc.id, type: doc.type });
+            load();
+          }}
+        />
+      )}
+      {openDoc && <DocumentDetailModal docId={openDoc.id} type={openDoc.type} onClose={() => setOpenDoc(null)} onChanged={load} />}
 
       {showFormKind && (
         <OrderFormModal
@@ -212,6 +373,10 @@ export function SalesPage() {
       {selectedOrder && (
         <OrderDetailModal
           order={selectedOrder}
+          onDeliver={() => {
+            setDeliverOrder(selectedOrder);
+            setSelectedOrder(null);
+          }}
           onClose={() => setSelectedOrder(null)}
           onChanged={() => {
             setSelectedOrder(null);
@@ -340,23 +505,26 @@ function OrderFormModal({
               placeholder="Rechercher un client…"
             />
           </div>
-          <div className="field-row">
-            <label>Site</label>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field-row">
-            <label>Date prévue (optionnel)</label>
-            <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Site</label>
+              <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field-row">
+              <label>Date prévue</label>
+              <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+            </div>
           </div>
 
-          <div className="sub" style={{ marginTop: 4 }}>
-            Lignes
+          <div className="lines-head">
+            <span className="modal-section-label">Articles</span>
+            <span className="lines-count">{lines.length}</span>
           </div>
           <div className="line-items">
             <div className="line-item line-item-head">
@@ -465,7 +633,7 @@ function OrderFormModal({
             })}
           </div>
           <button type="button" className="btn-link" onClick={() => setLines((ls) => [...ls, blankLine(defaultTaxRateId)])}>
-            + Ajouter une ligne
+            + Ajouter un article
           </button>
 
           {kind === 'order' && (
@@ -499,7 +667,7 @@ function OrderFormModal({
   );
 }
 
-function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView; onClose: () => void; onChanged: () => void }) {
+function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: SalesOrderView; onClose: () => void; onChanged: () => void; onDeliver: () => void }) {
   const { accessToken } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -513,7 +681,8 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
   const canCancel = order.status !== 'cancelled' && order.status !== 'invoiced' && !order.lines.some((l) => l.quantityInvoiced > 0);
   const remainingToInvoice = order.lines.reduce((s, l) => s + remainingToInvoiceOn(l), 0);
   const canInvoice = order.kind === 'order' && order.status !== 'cancelled' && remainingToInvoice > 0;
-  const canDelete = !order.lines.some((l) => l.quantityInvoiced > 0 || l.quantityInDraft > 0);
+  const canDeliver = canInvoice;
+  const canDelete = !order.lines.some((l) => l.quantityInvoiced > 0 || l.quantityInDraft > 0 || l.quantityDelivered > 0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function handleDelete() {
@@ -628,7 +797,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
             <p className="modal-sub">
               {order.customer.name} · {order.site.name} · <span className={`pill ${statusPillClass(order.status)}`}>{STATUS_LABEL[order.status] ?? order.status}</span>
             </p>
-            {order.promotedFromQuoteNumber && <p className="modal-sub">Promue depuis le devis {order.promotedFromQuoteNumber}</p>}
+            {order.promotedFromQuoteNumber && <p className="modal-sub">Issue du devis {order.promotedFromQuoteNumber}</p>}
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -638,31 +807,36 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
           <table className="data">
             <thead>
               <tr>
-                <th>Produit / Description</th>
-                <th>Commandé</th>
-                <th>Facturé</th>
-                <th>Prix unitaire</th>
-                <th>Remise</th>
+                <th>Produit</th>
+                <th className="num">Commandé</th>
+                <th className="num">Livré</th>
+                <th className="num">Facturé</th>
+                <th className="num">Prix unitaire</th>
+                <th className="num">Remise</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {order.lines.map((l) => (
                 <tr key={l.id}>
-                  <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</td>
-                  <td>{l.quantityOrdered}</td>
                   <td>
-                    {l.quantityInvoiced}
-                    {l.quantityInDraft > 0 && <span className="sub"> (+{l.quantityInDraft} en brouillon)</span>}
+                    <div className="cell-title">{l.product ? l.product.name : l.description}</div>
+                    {l.product && <div className="cell-sub mono">{l.product.sku}</div>}
                   </td>
-                  <td>{l.unitPrice.toFixed(2)} DZD</td>
-                  <td>{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
+                  <td className="num">{l.quantityOrdered}</td>
+                  <td className="num">{l.quantityDelivered || '—'}</td>
+                  <td className="num">
+                    {l.quantityInvoiced}
+                    {l.quantityInDraft > 0 && <div className="cell-sub">+{l.quantityInDraft} en brouillon</div>}
+                  </td>
+                  <td className="num">{l.unitPrice.toFixed(2)} DZD</td>
+                  <td className="num">{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
                   <td>
                     <button
                       type="button"
                       className="btn-link danger"
-                      disabled={l.quantityInvoiced > 0 || deletingLineId === l.id}
-                      title={l.quantityInvoiced > 0 ? 'Cette ligne a déjà été facturée, elle ne peut plus être supprimée.' : undefined}
+                      disabled={l.quantityInvoiced > 0 || l.quantityDelivered > 0 || deletingLineId === l.id}
+                      title={l.quantityInvoiced > 0 || l.quantityDelivered > 0 ? 'Cette ligne a déjà été facturée ou livrée, elle ne peut plus être supprimée.' : undefined}
                       onClick={() => (confirmingLineId === l.id ? handleDeleteLine(l.id) : setConfirmingLineId(l.id))}
                       onBlur={() => setConfirmingLineId((c) => (c === l.id ? null : c))}
                     >
@@ -675,7 +849,7 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
           </table>
         </div>
         {order.invoices && order.invoices.length > 0 && (
-          <div className="sub" style={{ marginTop: 8 }}>
+          <div className="sub" style={{ marginTop: 10 }}>
             Factures liées : {order.invoices.map((inv) => inv.number ?? `#${inv.id.slice(0, 8)} (${inv.status})`).join(', ')}
           </div>
         )}
@@ -718,17 +892,19 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
                 {busy ? 'Annulation…' : 'Annuler'}
               </button>
             )}
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Fermer
-            </button>
             {canPromote && (
               <button type="button" className="btn-primary" onClick={() => handlePromote(false)} disabled={busy}>
                 {busy ? 'Promotion…' : 'Promouvoir en commande'}
               </button>
             )}
             {canInvoice && (
-              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
+              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)} title="Facture directe (le stock sort à la finalisation)">
                 Facturer
+              </button>
+            )}
+            {canDeliver && (
+              <button type="button" className="btn-primary" onClick={onDeliver}>
+                Livrer (bon de livraison)
               </button>
             )}
           </div>
@@ -751,11 +927,12 @@ function OrderDetailModal({ order, onClose, onChanged }: { order: SalesOrderView
 // Quantities sitting on draft factures aren't in quantityInvoiced until they
 // are finalized, but they're spoken for — the API refuses to draft them twice.
 function remainingToInvoiceOn(l: SalesOrderView['lines'][number]): number {
-  return Math.max(0, l.quantityOrdered - l.quantityInvoiced - l.quantityInDraft);
+  return Math.max(0, l.quantityOrdered - l.quantityInvoiced - l.quantityDelivered - l.quantityInDraft);
 }
 
 function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderView; onClose: () => void; onInvoiced: () => void }) {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const invoiceableLines = order.lines.filter((l) => remainingToInvoiceOn(l) > 0);
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries(invoiceableLines.map((l) => [l.id, remainingToInvoiceOn(l)])),
@@ -769,11 +946,17 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
     setSubmitting(true);
     setError(null);
     try {
-      await salesApi.invoiceOrder(accessToken, order.id, {
+      const draft = await salesApi.invoiceOrder(accessToken, order.id, {
         lines: invoiceableLines.filter((l) => quantities[l.id] > 0).map((l) => ({ salesOrderLineId: l.id, quantity: quantities[l.id] })),
       });
-      toast.success('Facture créée.');
+      try {
+        const inv = await invoicingApi.finalizeInvoice(accessToken, draft.id);
+        toast.success(`Facture ${inv.number ?? ''} créée.`);
+      } catch (err) {
+        toast.error(`Facture gardée en brouillon : ${err instanceof ApiError ? err.message : 'finalisation impossible.'}`);
+      }
       onInvoiced();
+      navigate(`/invoicing?open=${draft.id}`);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Erreur lors de la facturation.';
       setError(message);
@@ -789,7 +972,7 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Facturer {order.number}</h3>
-            <p className="modal-sub">Génère une facture client brouillon — à finaliser depuis le module Factures.</p>
+            <p className="modal-sub">Facture numérotée directement · le stock sort à la validation.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -898,7 +1081,7 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Tarifs négociés par client</h3>
-            <p className="modal-sub">Prix ou remise fixe appliqué automatiquement sur une ligne de commande pour ce client/produit.</p>
+            <p className="modal-sub">Appliqués automatiquement aux commandes du client.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕

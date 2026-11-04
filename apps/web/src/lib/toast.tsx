@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { Icon } from './Icon';
 import './toast.css';
 
 // A lightweight toast system — no toast/notification library exists
@@ -58,7 +59,9 @@ export function ToastContainer() {
     <div className="toast-stack" role="status" aria-live="polite">
       {current.map((t) => (
         <div key={t.id} className={`toast toast-${t.kind}`} onClick={() => dismiss(t.id)}>
-          <span className="toast-icon">{t.kind === 'success' ? '✓' : '✕'}</span>
+          <span className="toast-icon">
+            <Icon name={t.kind === 'success' ? 'check' : 'x'} size={12} strokeWidth={3} />
+          </span>
           <span className="toast-message">{t.message}</span>
         </div>
       ))}

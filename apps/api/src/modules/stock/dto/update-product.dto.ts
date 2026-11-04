@@ -51,4 +51,9 @@ export class UpdateProductDto {
   @IsInt()
   @Min(1)
   unitsPerCarton?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sellPrice2?: number;
 }

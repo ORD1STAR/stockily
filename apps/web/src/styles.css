@@ -1,35 +1,111 @@
-/* Brand tokens from docs/Brand System.html — kept in sync manually for now;
-   a shared-ui package export is the natural home once more than one app
-   consumes these (packages/shared-ui is currently an empty stub). */
+/* Stockily design tokens.
+   One neutral, slightly cool grey ramp for surfaces and text, the brand
+   violet as the single action color, teal kept as the brand accent (the
+   "ily" of the wordmark, positive states). Older token names (--ink,
+   --purple, --surface-alt, --text-muted…) are kept as aliases because
+   page-level inline styles still reference them. */
 :root {
-  --ink: #17111f;
-  --purple: #4b2e83;
-  --teal: #189885;
-  --teal-bright: #1fbfa0;
+  /* Brand */
+  --brand-50: #f4f1fe;
+  --brand-100: #ebe5fd;
+  --brand-200: #d6cbfb;
+  --brand-300: #b7a3f6;
+  --brand-500: #6d4fe0;
+  --brand-600: #5a3bcc;
+  --brand-700: #4a2fab;
+  --brand-800: #3b2687;
+  --accent: #12a58c;
+  --accent-bright: #22c5a6;
 
-  --bg: #f6f4fb;
-  --surface: #ffffff;
-  --surface-alt: #efeaf7;
-  --border: #e1dbef;
-  --text: #241c33;
-  --text-muted: #6b6478;
+  /* Neutrals */
+  --gray-0: #ffffff;
+  --gray-25: #fbfbfc;
+  --gray-50: #f6f6f8;
+  --gray-100: #eeeef2;
+  --gray-150: #e6e6eb;
+  --gray-200: #dcdce3;
+  --gray-300: #c4c4cf;
+  --gray-400: #9b9aab;
+  --gray-500: #747386;
+  --gray-600: #5a596b;
+  --gray-700: #403f50;
+  --gray-800: #28273a;
+  --gray-900: #16151f;
 
-  --danger: #b42318;
-  --danger-bg: #fbe7e5;
-  --success: #1c7a4c;
-  --success-bg: #e4f5ea;
-  --warning: #a45a08;
-  --warning-bg: #fbeedc;
-  --info: #2554c7;
-  --info-bg: #e8eefc;
+  /* Semantic surfaces & text */
+  --bg: var(--gray-50);
+  --surface: var(--gray-0);
+  --surface-alt: var(--gray-50);
+  --surface-hover: #f3f3f6;
+  --border: var(--gray-150);
+  --border-strong: var(--gray-200);
+  --text: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+  --text-subtle: var(--gray-400);
 
-  --f-display: 'Sora', 'Segoe UI', sans-serif;
-  --f-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
-  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* Status */
+  --success: #15803d;
+  --success-bg: #ecfdf3;
+  --success-border: #bbf0cf;
+  --warning: #b45309;
+  --warning-bg: #fffaeb;
+  --warning-border: #fde4a8;
+  --danger: #d92d20;
+  --danger-bg: #fef3f2;
+  --danger-border: #fecdca;
+  --info: #1d5bd8;
+  --info-bg: #eff5ff;
+  --info-border: #c9dafd;
+
+  /* Module accents (tiles & icon chips) */
+  --mod-violet: #6d4fe0;
+  --mod-violet-bg: #f1edfd;
+  --mod-teal: #0f9a83;
+  --mod-teal-bg: #e7f8f4;
+  --mod-amber: #c2620a;
+  --mod-amber-bg: #fff4e5;
+  --mod-blue: #1d5bd8;
+  --mod-blue-bg: #ebf2ff;
+  --mod-rose: #d1366a;
+  --mod-rose-bg: #fdedf2;
+  --mod-green: #15803d;
+  --mod-green-bg: #e9f9ef;
+  --mod-slate: #475467;
+  --mod-slate-bg: #eef0f4;
+
+  /* Legacy aliases */
+  --ink: var(--gray-900);
+  --purple: var(--brand-600);
+  --teal: var(--accent);
+  --teal-bright: var(--accent-bright);
+
+  /* Type */
+  --f-display: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Shape & depth */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --shadow-xs: 0 1px 2px rgba(22, 21, 31, 0.05);
+  --shadow-sm: 0 1px 3px rgba(22, 21, 31, 0.07), 0 1px 2px rgba(22, 21, 31, 0.04);
+  --shadow-md: 0 6px 16px -4px rgba(22, 21, 31, 0.1), 0 2px 4px -2px rgba(22, 21, 31, 0.05);
+  --shadow-lg: 0 24px 48px -12px rgba(22, 21, 31, 0.22);
+  --ring: 0 0 0 3px rgba(109, 79, 224, 0.2);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -37,34 +113,49 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--f-body);
+  font-size: 14px;
   line-height: 1.5;
-  /* Safety net, not a fix for any specific layout — a wide table or an ad
-     hoc flex row that doesn't wrap on a narrow phone should scroll inside
-     its own container (`.table-wrap` etc. already do), never push the
-     whole page sideways. Deliberately just `overflow-x`, not `max-width`:
-     this catches accidental overflow without silently clipping content
-     that's supposed to be wide. */
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Safety net: accidental overflow scrolls inside its own container
+     (`.table-wrap` etc.), never pushes the whole page sideways. */
   overflow-x: hidden;
 }
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   font-family: var(--f-display);
   margin: 0;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+a {
+  color: var(--brand-600);
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font-family: inherit;
 }
 
-/* A form control's intrinsic minimum width doesn't automatically respect
-   its container — an `<input>`/`<select>` with a long placeholder/option
-   can be wider than the flex row (or modal, or phone screen) it's sitting
-   in even when marked `flex: 1`, because a flex item's default
-   `min-width: auto` still won't shrink it below that intrinsic size. Global
-   floor: no form control alone can force something wider than its parent. */
+::selection {
+  background: var(--brand-200);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* No form control alone can force something wider than its parent —
+   a flex item's default `min-width: auto` won't shrink an input below its
+   intrinsic size otherwise. */
 input,
 select,
 textarea,
@@ -72,18 +163,85 @@ button {
   max-width: 100%;
 }
 
-/* Mobile Safari/Chrome auto-zoom the page when a focused form field's
-   effective font-size is under 16px — every field in this app renders
-   smaller than that (0.82-0.88rem elsewhere), so focusing any input on a
-   phone used to zoom the whole viewport in. 16px sidesteps the browser
-   heuristic entirely; scoped to mobile widths (matches useIsMobile's
-   breakpoint) so desktop keeps its smaller, denser field text. `!important`
-   is deliberate here — this overrides per-component font-sizes across the
-   whole app on purpose, not fighting an unrelated style. */
+/* Native selects get the same chevron everywhere instead of each OS's. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23747386' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px !important;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--brand-600);
+  width: 16px;
+  height: 16px;
+}
+
+/* Scrollbars that don't shout */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-200) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--gray-200);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--gray-300);
+}
+
+/* Mobile Safari/Chrome auto-zoom on focus when a field's font-size is
+   under 16px — scoped to the app's mobile breakpoint (useIsMobile, 800px). */
 @media (max-width: 800px) {
   input,
   select,
   textarea {
     font-size: 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Route-level Suspense fallback & generic page loader */
+.page-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 60vh;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+.page-loader.full {
+  min-height: 100vh;
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--gray-150);
+  border-top-color: var(--brand-500);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

@@ -8,12 +8,14 @@ import { SmtpEmailSender } from './email/smtp-email-sender';
 import { InvoicePdfService } from './pdf/invoice-pdf.service';
 import { InvoicingController } from './invoicing.controller';
 import { InvoicingService } from './invoicing.service';
+import { LedgerService } from './ledger.service';
 
 @Module({
   imports: [TenancyModule, AuditModule, StockModule],
   controllers: [InvoicingController],
   providers: [
     InvoicingService,
+    LedgerService,
     InvoicePdfService,
     // Real SMTP once SMTP_HOST is set (any provider — Postmark/SendGrid/SES/
     // a plain mailbox), NoOpEmailSender (logs only) otherwise. A factory,
@@ -31,6 +33,6 @@ import { InvoicingService } from './invoicing.service';
   // is a one-directional dependency only: InvoicingModule itself must
   // never import Purchasing/SalesModule back, or Nest's DI graph would
   // have a cycle.
-  exports: [InvoicingService],
+  exports: [InvoicingService, LedgerService, EMAIL_SENDER],
 })
 export class InvoicingModule {}

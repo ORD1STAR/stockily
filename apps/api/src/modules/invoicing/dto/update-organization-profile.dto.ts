@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsOptional, IsString, IsNumber, Min, Max } from 'class-validator';
 
 // Backs the wireframe's "⚙ Paramètres du Business" screen (docs/Wireframes.html)
 // — the org's own legal identity, required on Organization before a
@@ -46,4 +46,11 @@ export class UpdateOrganizationProfileDto {
   @IsOptional()
   @IsString()
   logo?: string;
+
+  /** Droit de timbre on cash invoices, in percent; null disables it. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10)
+  stampDutyRate?: number | null;
 }

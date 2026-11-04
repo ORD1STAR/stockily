@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class CreatePartnerDto {
   @IsString()
@@ -52,4 +52,16 @@ export class CreatePartnerDto {
   @IsInt()
   @Min(0)
   paymentTermsNetDays?: number;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsNumber()
+  openingBalance?: number;
+
+  @IsOptional()
+  @IsIn([1, 2])
+  priceTier?: number;
 }

@@ -87,6 +87,16 @@ export class CreateInvoiceDto {
   @IsString()
   salesOrderId?: string;
 
+  /** Mode de paiement: cash ("especes") triggers the droit de timbre. */
+  @IsOptional()
+  @IsEnum(['especes', 'cheque', 'virement', 'terme'])
+  paymentMode?: 'especes' | 'cheque' | 'virement' | 'terme';
+
+  /** "proforma" = numbered PF-…, no stock movement, never in a balance (CUSTOMER only). */
+  @IsOptional()
+  @IsEnum(['invoice', 'proforma'])
+  kind?: 'invoice' | 'proforma';
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

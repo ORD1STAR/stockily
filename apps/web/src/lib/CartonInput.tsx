@@ -13,13 +13,9 @@ export function CartonInput({
 }) {
   if (!unitsPerCarton) {
     return (
-      <input
-        className="control li-num"
-        disabled
-        placeholder="—"
-        aria-label="Cartons"
-        title="Renseignez « Unités par carton » sur la fiche produit pour saisir en cartons."
-      />
+      <span className="li-num li-empty" title="Renseignez « Unités par carton » sur la fiche produit pour saisir en cartons.">
+        —
+      </span>
     );
   }
   const cartons = Math.round((quantity / unitsPerCarton) * 100) / 100;

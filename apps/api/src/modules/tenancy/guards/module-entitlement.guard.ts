@@ -20,7 +20,10 @@ export class ModuleEntitlementGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const moduleKey = this.reflector.get<string | undefined>(REQUIRES_MODULE_KEY, context.getHandler());
+    // Method-level @RequiresModule wins; otherwise the controller's class-level one
+    // (most controllers declare it once on the class — reading only the handler
+    // used to skip the check entirely for them).
+    const moduleKey = this.reflector.getAllAndOverride<string | undefined>(REQUIRES_MODULE_KEY, [context.getHandler(), context.getClass()]);
     if (!moduleKey) return true; // route doesn't declare @RequiresModule
 
     const req = context.switchToHttp().getRequest();

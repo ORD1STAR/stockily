@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { CloseSessionModal, OpenSessionModal, openPdf } from '../lib/CounterModals';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
+import { MobileHeader } from '../lib/MobileChrome';
 import { useAuth } from '../lib/auth-context';
 import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -22,11 +25,11 @@ import {
   scanApi,
   sitesApi,
   stockApi,
+  CounterView,
+  countersApi,
 } from '../lib/api';
 import { SearchableSelect } from '../lib/SearchableSelect';
 import { useDataChangeListener } from '../lib/data-events';
-import '../lib/data-views.css';
-import './DashboardPage.css';
 import './ScanPage.css';
 
 type Step = 'scan' | 'action' | 'in' | 'out' | 'transfer' | 'confirm';
@@ -102,7 +105,44 @@ export function ScanPage() {
   // (a tab, a delivery invoiced now but collected later).
   const [checkoutPaid, setCheckoutPaid] = useState(true);
   const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
-  const [checkoutConfirm, setCheckoutConfirm] = useState<{ number: string | null; total: number; paid: boolean } | null>(null);
+  const [checkoutConfirm, setCheckoutConfirm] = useState<CheckoutConfirm | null>(null);
+  // Comptoir (caisse): every Vente rapide is recorded in the open session of the chosen counter.
+  const [counters, setCounters] = useState<CounterView[]>([]);
+  const [counterId, setCounterId] = useState(() => {
+    try {
+      return localStorage.getItem('stockily.scan.counter') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [paymentMethod, setPaymentMethod] = useState<'especes' | 'carte' | 'cheque'>('especes');
+  const [amountReceived, setAmountReceived] = useState('');
+  const [counterModal, setCounterModal] = useState<'open' | 'close' | null>(null);
+  const loadCounters = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      setCounters(await countersApi.list(accessToken));
+    } catch {
+      setCounters([]);
+    }
+  }, [accessToken]);
+  useEffect(() => {
+    loadCounters();
+  }, [loadCounters]);
+  const activeCounters = counters.filter((c) => c.isActive);
+  const counter = activeCounters.find((c) => c.id === counterId) ?? (activeCounters.length === 1 ? activeCounters[0] : undefined);
+  const chooseCounter = (id: string) => {
+    setCounterId(id);
+    try {
+      localStorage.setItem('stockily.scan.counter', id);
+    } catch {
+      /* ignore */
+    }
+  };
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('mode') === 'checkout') setMode('checkout');
+  }, [searchParams]);
 
   // "Réception rapide" (receiving) — the Achats-side mirror of Vente
   // rapide: same running-cart UX, but each scan adds a line to a
@@ -461,41 +501,35 @@ export function ScanPage() {
 
   async function finalizeSale() {
     if (!accessToken || cart.length === 0) return;
+    const session = counter?.openSession;
+    if (!session) {
+      setError('Ouvrez d’abord une caisse pour enregistrer la vente.');
+      return;
+    }
+    if (!checkoutPaid && !checkoutPartnerId) {
+      setError('Une vente à crédit doit avoir un client.');
+      return;
+    }
+    if (checkoutPaid && paymentMethod === 'especes' && amountReceived !== '' && Number(amountReceived) + 0.001 < cartTotal) {
+      setError('Le montant remis est inférieur au total.');
+      return;
+    }
     setCheckoutSubmitting(true);
     setError(null);
     try {
-      const defaultTax = taxRates.find((t) => t.isDefault);
-      const created = await invoicingApi.createInvoice(accessToken, {
-        type: 'CUSTOMER',
-        siteId,
+      const result = await countersApi.sale(accessToken, session.id, {
+        lines: cart.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, taxRateId: taxRates.find((t) => t.isDefault)?.id })),
         partnerId: checkoutPartnerId || undefined,
-        lines: cart.map((l) => ({
-          productId: l.productId,
-          description: `${l.sku} — ${l.name}`,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          taxRateId: defaultTax?.id,
-        })),
+        paid: checkoutPaid,
+        paymentMethod: checkoutPaid ? paymentMethod : undefined,
+        amountReceived: checkoutPaid && paymentMethod === 'especes' && amountReceived !== '' ? Number(amountReceived) : undefined,
       });
-      let finalized;
-      try {
-        finalized = await invoicingApi.finalizeInvoice(accessToken, created.id);
-      } catch (finalizeErr) {
-        // Vente rapide is a single click standing in for two API calls — a
-        // reservation-caused shortage (or any other finalize failure) must
-        // not leave an invisible draft invoice behind that the cashier
-        // never intended to create. Best-effort: the sale itself already
-        // failed, so a void failure here isn't worth surfacing over it.
-        await invoicingApi.voidInvoice(accessToken, created.id).catch(() => undefined);
-        throw finalizeErr;
-      }
-      if (checkoutPaid) {
-        await invoicingApi.recordPayment(accessToken, finalized.id, { amount: finalized.totals.totalTtc });
-      }
-      setCheckoutConfirm({ number: finalized.number, total: finalized.totals.totalTtc, paid: checkoutPaid });
+      setCheckoutConfirm({ documentId: result.document.id, number: result.document.number, total: result.document.total, paid: checkoutPaid, change: result.change });
       setCart([]);
       setCheckoutPartnerId('');
       setCheckoutPaid(true);
+      setAmountReceived('');
+      loadCounters();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Échec de la vente.');
     } finally {
@@ -665,6 +699,26 @@ export function ScanPage() {
 
         {mode === 'labels' && <LabelsPanel />}
 
+        {counterModal === 'open' && counter && (
+          <OpenSessionModal
+            counter={counter}
+            onClose={() => setCounterModal(null)}
+            onOpened={() => {
+              setCounterModal(null);
+              loadCounters();
+            }}
+          />
+        )}
+        {counterModal === 'close' && counter?.openSession && (
+          <CloseSessionModal
+            session={counter.openSession}
+            onClose={() => setCounterModal(null)}
+            onClosed={() => {
+              setCounterModal(null);
+              loadCounters();
+            }}
+          />
+        )}
         {mode === 'checkout' && (
           <CheckoutPanel
             code={code}
@@ -681,6 +735,16 @@ export function ScanPage() {
             setCheckoutPaid={setCheckoutPaid}
             checkoutSubmitting={checkoutSubmitting}
             checkoutConfirm={checkoutConfirm}
+            counters={activeCounters}
+            counter={counter}
+            onChooseCounter={chooseCounter}
+            onOpenCounter={() => setCounterModal('open')}
+            onCloseCounter={() => setCounterModal('close')}
+            paymentMethod={paymentMethod}
+            setPaymentMethod={setPaymentMethod}
+            amountReceived={amountReceived}
+            setAmountReceived={setAmountReceived}
+            onPrintTicket={(id) => accessToken && openPdf(countersApi.ticketPdf(accessToken, id))}
             onFinalize={finalizeSale}
             onClearCart={() => {
               setCart([]);
@@ -1003,19 +1067,14 @@ export function ScanPage() {
   if (isMobile) {
     return (
       <div className="mobile-home scan-mobile-home">
-        <div className="mobile-home-header">
-          <div className="mobile-home-header-left">
-            <button className="mobile-home-back" onClick={() => navigate('/dashboard')} aria-label="Accueil">
-              ←
+        <MobileHeader
+          back={() => navigate('/dashboard')}
+          right={
+            <button className="shell-icon-btn" onClick={() => logout()} aria-label="Se déconnecter">
+              <Icon name="logout" size={19} />
             </button>
-            <div className="dashboard-wordmark">
-              Stock<span className="ily">ily</span>
-            </div>
-          </div>
-          <button className="btn-secondary" onClick={() => logout()}>
-            Se déconnecter
-          </button>
-        </div>
+          }
+        />
         {body}
       </div>
     );
@@ -1029,6 +1088,14 @@ export function ScanPage() {
 // scanned so far into one finalized CUSTOMER invoice (stock deduction and
 // all, via the same createInvoice + finalizeInvoice pair the desktop
 // Invoicing page uses) and the cart resets, ready for the next customer.
+interface CheckoutConfirm {
+  documentId: string;
+  number: string;
+  total: number;
+  paid: boolean;
+  change: number;
+}
+
 function CheckoutPanel({
   code,
   setCode,
@@ -1044,6 +1111,16 @@ function CheckoutPanel({
   setCheckoutPaid,
   checkoutSubmitting,
   checkoutConfirm,
+  counters,
+  counter,
+  onChooseCounter,
+  onOpenCounter,
+  onCloseCounter,
+  paymentMethod,
+  setPaymentMethod,
+  amountReceived,
+  setAmountReceived,
+  onPrintTicket,
   onFinalize,
   onClearCart,
 }: {
@@ -1060,7 +1137,17 @@ function CheckoutPanel({
   checkoutPaid: boolean;
   setCheckoutPaid: (v: boolean) => void;
   checkoutSubmitting: boolean;
-  checkoutConfirm: { number: string | null; total: number; paid: boolean } | null;
+  checkoutConfirm: CheckoutConfirm | null;
+  counters: CounterView[];
+  counter: CounterView | undefined;
+  onChooseCounter: (id: string) => void;
+  onOpenCounter: () => void;
+  onCloseCounter: () => void;
+  paymentMethod: 'especes' | 'carte' | 'cheque';
+  setPaymentMethod: (m: 'especes' | 'carte' | 'cheque') => void;
+  amountReceived: string;
+  setAmountReceived: (v: string) => void;
+  onPrintTicket: (documentId: string) => void;
   onFinalize: () => void;
   onClearCart: () => void;
 }) {
@@ -1069,10 +1156,54 @@ function CheckoutPanel({
   return (
     <div className="scan-card">
       <h3>Vente rapide</h3>
+      <div className="till-bar">
+        {counters.length === 0 ? (
+          <span className="sub">
+            Aucun comptoir — créez une caisse dans <a href="/counters">Comptoirs</a>.
+          </span>
+        ) : (
+          <>
+            <select className="control" value={counter?.id ?? ''} onChange={(e) => onChooseCounter(e.target.value)}>
+              {!counter && <option value="">Choisir une caisse…</option>}
+              {counters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.site.name}
+                </option>
+              ))}
+            </select>
+            {counter &&
+              (counter.openSession ? (
+                <>
+                  <span className="pill success">Ouverte</span>
+                  <span className="sub">
+                    {counter.openSession.salesCount} vente(s) · {counter.openSession.salesTotal.toFixed(2)} DZD
+                  </span>
+                  <button type="button" className="btn-link" onClick={onCloseCounter}>
+                    Clôturer
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-primary btn-sm" onClick={onOpenCounter}>
+                  Ouvrir la caisse
+                </button>
+              ))}
+          </>
+        )}
+      </div>
       {checkoutConfirm && (
-        <div className="note-box">
-          Vente enregistrée{checkoutConfirm.number ? ` — facture ${checkoutConfirm.number}` : ''} — {checkoutConfirm.total.toFixed(2)} DZD
-          TTC — {checkoutConfirm.paid ? 'payée.' : 'non payée (à encaisser plus tard).'}
+        <div className="link-banner">
+          <span>
+            Vente <b>{checkoutConfirm.number}</b> — {checkoutConfirm.total.toFixed(2)} DZD {checkoutConfirm.paid ? 'encaissés' : 'à crédit'}
+            {checkoutConfirm.change > 0 && (
+              <>
+                {' '}
+                · <b>Rendu : {checkoutConfirm.change.toFixed(2)} DZD</b>
+              </>
+            )}
+          </span>
+          <button type="button" className="btn-secondary btn-sm" onClick={() => onPrintTicket(checkoutConfirm.documentId)}>
+            Imprimer le ticket
+          </button>
         </div>
       )}
       <form
@@ -1147,15 +1278,43 @@ function CheckoutPanel({
           </div>
           <div className="field-row">
             <label>Paiement</label>
-            <div className="toggle-row">
-              <button type="button" className={`toggle-btn${checkoutPaid ? ' on' : ''}`} onClick={() => setCheckoutPaid(true)}>
-                Payée
-              </button>
+            <div className="toggle-row" style={{ margin: 0 }}>
+              {(
+                [
+                  ['especes', 'Espèces'],
+                  ['carte', 'Carte'],
+                  ['cheque', 'Chèque'],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`toggle-btn${checkoutPaid && paymentMethod === m ? ' on' : ''}`}
+                  onClick={() => {
+                    setCheckoutPaid(true);
+                    setPaymentMethod(m);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
               <button type="button" className={`toggle-btn${!checkoutPaid ? ' on' : ''}`} onClick={() => setCheckoutPaid(false)}>
-                Non payée
+                À crédit
               </button>
             </div>
+            {!checkoutPaid && <span className="sub">Le client doit être choisi : la vente s’ajoute à son solde.</span>}
           </div>
+          {checkoutPaid && paymentMethod === 'especes' && (
+            <div className="field-row">
+              <label>Montant remis</label>
+              <input type="number" min={0} step="any" inputMode="decimal" value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} placeholder={cartTotal.toFixed(2)} />
+              {amountReceived !== '' && Number(amountReceived) >= cartTotal && (
+                <span className="sub">
+                  Rendu : <b>{(Number(amountReceived) - cartTotal).toFixed(2)} DZD</b>
+                </span>
+              )}
+            </div>
+          )}
           <div className="cart-total">
             <span>Total</span>
             <span className="amount">{cartTotal.toFixed(2)} DZD</span>
@@ -1164,7 +1323,7 @@ function CheckoutPanel({
             <button type="button" className="btn-secondary" onClick={onClearCart} disabled={checkoutSubmitting}>
               Vider le panier
             </button>
-            <button type="button" className="btn-primary" onClick={onFinalize} disabled={checkoutSubmitting}>
+            <button type="button" className="btn-primary" onClick={onFinalize} disabled={checkoutSubmitting || !counter?.openSession}>
               {checkoutSubmitting ? 'Enregistrement…' : 'Terminer la vente'}
             </button>
           </div>
@@ -1384,7 +1543,7 @@ function LabelsPanel() {
       </button>
       {error && <div className="error-banner">{error}</div>}
       {loading ? (
-        <p className="sub">Chargement…</p>
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
         <table className="lot-mini-table">
           <thead>

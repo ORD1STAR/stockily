@@ -12,6 +12,8 @@ import { UpdateOrganizationProfileDto } from './dto/update-organization-profile.
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { EMAIL_SENDER, EmailSenderPort } from './email/email-sender.port';
 import { InvoicePdfService } from './pdf/invoice-pdf.service';
+import { nextDocumentNumber } from './document-numbering';
+import { LedgerService } from './ledger.service';
 
 type InvoiceWithLines = Invoice & { lines: (InvoiceLine & { taxRate: TaxRate | null })[] };
 
@@ -26,18 +28,25 @@ export class InvoicingService {
     private readonly prisma: PrismaService,
     private readonly stock: StockService,
     private readonly pdf: InvoicePdfService,
+    private readonly ledger: LedgerService,
     @Inject(EMAIL_SENDER) private readonly emailSender: EmailSenderPort,
   ) {}
 
   // ---------------- Partners ----------------
 
   async createPartner(orgId: string, dto: CreatePartnerDto) {
+    const isCustomer = dto.isCustomer ?? true;
+    const isSupplier = dto.isSupplier ?? false;
+    const code = dto.code?.trim() || (await this.nextPartnerCode(orgId, isCustomer ? 'C' : 'F'));
     return this.prisma.partner.create({
       data: {
         orgId,
         name: dto.name,
-        isCustomer: dto.isCustomer ?? true,
-        isSupplier: dto.isSupplier ?? false,
+        isCustomer,
+        isSupplier,
+        code,
+        openingBalance: dto.openingBalance ?? 0,
+        priceTier: dto.priceTier ?? 1,
         nif: dto.nif ?? null,
         nis: dto.nis ?? null,
         rc: dto.rc ?? null,
@@ -50,8 +59,35 @@ export class InvoicingService {
     });
   }
 
+  /** Next free C0001 / F0001-style code for this org (codes are per prefix, gaps allowed). */
+  private async nextPartnerCode(orgId: string, prefix: 'C' | 'F') {
+    const existing = await this.prisma.partner.findMany({
+      where: { orgId, code: { startsWith: prefix } },
+      select: { code: true },
+    });
+    const max = existing.reduce((m, p) => {
+      const n = Number((p.code ?? '').slice(1));
+      return Number.isFinite(n) && n > m ? n : m;
+    }, 0);
+    return `${prefix}${String(max + 1).padStart(4, '0')}`;
+  }
+
+  /**
+   * Every partner with its current balance — opening balance plus whatever
+   * is still outstanding on its finalized invoices (TTC − payments).
+   * Positive = money still owed between us and them (a customer owes us,
+   * we owe a supplier).
+   */
   async listPartners(orgId: string) {
-    return this.prisma.partner.findMany({ where: { orgId, deletedAt: null }, orderBy: { name: 'asc' } });
+    const [partners, balances] = await Promise.all([
+      this.prisma.partner.findMany({ where: { orgId, deletedAt: null }, orderBy: { name: 'asc' } }),
+      this.ledger.balances(orgId),
+    ]);
+    return partners.map((p) => ({
+      ...p,
+      openingBalance: Number(p.openingBalance),
+      ...(balances.get(p.id) ?? { customerBalance: 0, supplierBalance: 0, balance: 0 }),
+    }));
   }
 
   /**
@@ -82,6 +118,9 @@ export class InvoicingService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
         ...(dto.paymentTermsNetDays !== undefined ? { paymentTermsNetDays: dto.paymentTermsNetDays } : {}),
+        ...(dto.code !== undefined ? { code: dto.code.trim() || null } : {}),
+        ...(dto.openingBalance !== undefined ? { openingBalance: dto.openingBalance } : {}),
+        ...(dto.priceTier !== undefined ? { priceTier: dto.priceTier } : {}),
       },
     });
   }
@@ -115,8 +154,9 @@ export class InvoicingService {
         phone: true,
         email: true,
         logo: true,
+        stampDutyRate: true,
       },
-    });
+    }).then((o) => ({ ...o, stampDutyRate: o.stampDutyRate != null ? Number(o.stampDutyRate) : null }));
   }
 
   async updateOrganizationProfile(orgId: string, dto: UpdateOrganizationProfileDto) {
@@ -125,7 +165,12 @@ export class InvoicingService {
 
   // ---------------- Invoices ----------------
 
-  async createInvoice(orgId: string, dto: CreateInvoiceDto) {
+  /**
+   * `opts.fromDocuments` is internal only (set when invoicing bons de
+   * livraison): the stock already left with the BL, so finalizing must not
+   * move it again, and the bons already count in the customer balance.
+   */
+  async createInvoice(orgId: string, dto: CreateInvoiceDto, opts: { fromDocuments?: boolean } = {}) {
     let partner: { paymentTermsNetDays: number | null } | null = null;
     if (dto.partnerId) {
       partner = await this.prisma.partner.findFirst({ where: { id: dto.partnerId, orgId, deletedAt: null } });
@@ -159,12 +204,38 @@ export class InvoicingService {
           number: dto.number,
           partnerId: dto.partnerId ?? null,
           purchaseOrderId: dto.purchaseOrderId ?? null,
+          // A supplier invoice raised from a BC duplicates its bons de
+          // réception, which already count in the supplier balance.
+          fromDocuments: !!dto.purchaseOrderId || !!opts.fromDocuments,
           status: 'unpaid',
           finalizedAt,
           dueDate: this.computeDueDate(finalizedAt, partner?.paymentTermsNetDays ?? null),
           lines: { create: linesData },
         },
         include: { lines: true },
+      });
+    }
+
+    if (dto.kind === 'proforma') {
+      // Numbered immediately, never finalized, never touches stock or balances.
+      return this.prisma.$transaction(async (tx) => {
+        await setTenantOnTransaction(tx, orgId);
+        const number = await nextDocumentNumber(tx, orgId, 'proforma', 'PF');
+        return tx.invoice.create({
+          data: {
+            orgId,
+            siteId: dto.siteId,
+            type: 'CUSTOMER',
+            kind: 'proforma',
+            paymentMode: dto.paymentMode ?? null,
+            number,
+            partnerId: dto.partnerId ?? null,
+            status: 'proforma',
+            finalizedAt: new Date(),
+            lines: { create: linesData },
+          },
+          include: { lines: true },
+        });
       });
     }
 
@@ -176,10 +247,48 @@ export class InvoicingService {
         number: null,
         partnerId: dto.partnerId ?? null,
         salesOrderId: dto.salesOrderId ?? null,
+        fromDocuments: !!opts.fromDocuments,
+        paymentMode: dto.paymentMode ?? null,
         status: 'draft',
         lines: { create: linesData },
         // dueDate stays null until finalize — a draft has no finalizedAt
         // yet to compute it from (see finalizeInvoice).
+      },
+      include: { lines: true },
+    });
+  }
+
+  /** Droit de timbre for a cash-paid customer invoice: rate % of the TTC (0 otherwise). */
+  private stampDutyFor(invoice: InvoiceWithLines & { paymentMode: string | null; type: string }, rate: Prisma.Decimal | null): number {
+    if (invoice.type !== 'CUSTOMER' || invoice.paymentMode !== 'especes' || rate == null || Number(rate) <= 0) return 0;
+    const ttc = computeInvoiceTotals(this.toLineInputs(invoice)).totalTtc;
+    return Math.round(ttc * Number(rate)) / 100;
+  }
+
+  /** Turns a proforma into a new draft invoice with the same lines (the proforma itself stays as issued). */
+  async convertProforma(orgId: string, proformaId: string) {
+    const proforma = await this.prisma.invoice.findFirst({ where: { id: proformaId, orgId, deletedAt: null, kind: 'proforma' }, include: { lines: true } });
+    if (!proforma) throw new NotFoundException(`Proforma inconnue : ${proformaId}`);
+    return this.prisma.invoice.create({
+      data: {
+        orgId,
+        siteId: proforma.siteId,
+        type: 'CUSTOMER',
+        number: null,
+        partnerId: proforma.partnerId,
+        paymentMode: proforma.paymentMode,
+        status: 'draft',
+        lines: {
+          create: proforma.lines.map((l) => ({
+            productId: l.productId,
+            description: l.description,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discountPercent: l.discountPercent,
+            discountAmount: l.discountAmount,
+            taxRateId: l.taxRateId,
+          })),
+        },
       },
       include: { lines: true },
     });
@@ -204,22 +313,73 @@ export class InvoicingService {
     };
   }
 
-  async listInvoices(orgId: string, filters: { status?: string }) {
+  async listInvoices(orgId: string, filters: { status?: string; kind?: string }) {
     const invoices = await this.prisma.invoice.findMany({
-      where: { orgId, deletedAt: null, ...(filters.status ? { status: filters.status } : {}) },
-      include: { lines: { include: { taxRate: true } }, partner: { select: { name: true, nif: true } }, payments: true },
+      where: { orgId, deletedAt: null, ...(filters.kind ? { kind: filters.kind } : {}) },
+      include: {
+        lines: { include: { taxRate: true } },
+        partner: { select: { name: true, nif: true } },
+        payments: true,
+        tradeDocuments: { select: { id: true, number: true, type: true } },
+      },
       orderBy: { issuedAt: 'desc' },
     });
-    return invoices.map((inv) => this.assembleView(inv));
+    const docPaid = await this.documentPaymentsByInvoice(orgId, invoices.map((i) => i.id));
+    const views = invoices.map((inv) => this.assembleView(inv, docPaid.get(inv.id) ?? 0));
+    return filters.status ? views.filter((v) => v.status === filters.status) : views;
+  }
+
+  /**
+   * Versements made on the bons de livraison an invoice was generated from
+   * — the client already paid them, so they count towards that invoice.
+   */
+  private async documentPaymentsByInvoice(orgId: string, invoiceIds: string[]): Promise<Map<string, number>> {
+    const docs = await this.prisma.tradeDocument.findMany({
+      where: { orgId, invoiceId: { in: invoiceIds }, status: 'validated' },
+      select: { id: true, invoiceId: true },
+    });
+    const out = new Map<string, number>();
+    if (docs.length === 0) return out;
+    const payments = await this.prisma.partnerPayment.findMany({
+      where: { orgId, cancelledAt: null, documentId: { in: docs.map((d) => d.id) } },
+      select: { documentId: true, amount: true, direction: true },
+    });
+    const invoiceByDoc = new Map(docs.map((d) => [d.id, d.invoiceId as string]));
+    for (const p of payments) {
+      const invId = invoiceByDoc.get(p.documentId as string);
+      if (!invId) continue;
+      const signed = p.direction === 'in' ? Number(p.amount) : -Number(p.amount);
+      out.set(invId, (out.get(invId) ?? 0) + signed);
+    }
+    return out;
+  }
+
+  /** Keeps the stored status of an invoice generated from bons in line with the versements made on those bons. */
+  async syncDocumentInvoiceStatus(orgId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, orgId, deletedAt: null },
+      include: { lines: { include: { taxRate: true } }, payments: true },
+    });
+    if (!invoice || !['unpaid', 'partially_paid', 'paid'].includes(invoice.status)) return;
+    const docPaid = (await this.documentPaymentsByInvoice(orgId, [invoiceId])).get(invoiceId) ?? 0;
+    const view = this.assembleView(invoice, docPaid);
+    if (view.status !== invoice.status) await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: view.status } });
   }
 
   async getInvoiceDetail(orgId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, orgId, deletedAt: null },
-      include: { lines: { include: { taxRate: true, product: { select: { name: true } } } }, partner: true, payments: true, site: true },
+      include: {
+        lines: { include: { taxRate: true, product: { select: { name: true } } } },
+        partner: true,
+        payments: true,
+        site: true,
+        tradeDocuments: { select: { id: true, number: true, type: true } },
+      },
     });
     if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
-    return this.assembleView(invoice);
+    const docPaid = (await this.documentPaymentsByInvoice(orgId, [invoiceId])).get(invoiceId) ?? 0;
+    return this.assembleView(invoice, docPaid);
   }
 
   /**
@@ -232,6 +392,8 @@ export class InvoicingService {
   async softDeleteInvoice(orgId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, orgId, deletedAt: null } });
     if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
+    // Bons de livraison invoiced by it become invoiceable again.
+    await this.prisma.tradeDocument.updateMany({ where: { orgId, invoiceId }, data: { invoiceId: null } });
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { deletedAt: new Date() } });
   }
 
@@ -253,7 +415,11 @@ export class InvoicingService {
   // invoice detail view. Found by actually opening an invoice in the
   // browser, not by reading the code — normalize the same way toLineInputs
   // already does, so every numeric field in the response is a real number.
-  private assembleView<T extends InvoiceWithLines & { payments: { amount: Prisma.Decimal }[] }>(invoice: T) {
+  private assembleView<T extends InvoiceWithLines & { payments: { amount: Prisma.Decimal }[]; tradeDocuments?: { id: string; number: string; type: string }[] }>(
+    invoice: T,
+    /** Versements already made on the bons this invoice was generated from. */
+    documentPaid = 0,
+  ) {
     const rawTotals = computeInvoiceTotals(this.toLineInputs(invoice));
     // Décret 05-468 mention #10 (TTC in figures AND in words, FR + AR) is
     // already correctly rendered in the PDF export (invoice-pdf.service.ts),
@@ -261,12 +427,18 @@ export class InvoicingService {
     // which computeInvoiceTotals never set — the modal silently rendered an
     // empty line instead of erroring, so it went unnoticed until actually
     // opening an invoice and looking at that specific line.
+    // Droit de timbre (cash invoices) is frozen at finalization; net à payer = TTC + timbre.
+    const stampDuty = Number((invoice as { stampDuty?: unknown }).stampDuty ?? 0);
+    const netToPay = Math.round((rawTotals.totalTtc + stampDuty) * 100) / 100;
     const totals = {
       ...rawTotals,
-      totalInWordsFr: amountToFrenchWords(rawTotals.totalTtc),
-      totalInWordsAr: amountToArabicWords(rawTotals.totalTtc),
+      stampDuty,
+      netToPay,
+      totalInWordsFr: amountToFrenchWords(netToPay),
+      totalInWordsAr: amountToArabicWords(netToPay),
     };
-    const totalPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
+    const totalPaid = Math.round((invoice.payments.reduce((s, p) => s + Number(p.amount), 0) + documentPaid) * 100) / 100;
+    const status = ['unpaid', 'partially_paid', 'paid'].includes(invoice.status) ? deriveInvoiceStatus(netToPay, totalPaid) : invoice.status;
     const lines = invoice.lines.map((l) => ({
       ...l,
       quantity: Number(l.quantity),
@@ -275,7 +447,15 @@ export class InvoicingService {
       discountAmount: l.discountAmount != null ? Number(l.discountAmount) : null,
       taxRate: l.taxRate ? { ...l.taxRate, rate: Number(l.taxRate.rate) } : null,
     }));
-    return { ...invoice, lines, totals, totalPaid, balance: Math.round((totals.totalTtc - totalPaid) * 100) / 100 };
+    return {
+      ...invoice,
+      status,
+      lines,
+      totals,
+      totalPaid,
+      balance: Math.round((netToPay - totalPaid) * 100) / 100,
+      deliveryNotes: (invoice.tradeDocuments ?? []).map((d) => ({ id: d.id, number: d.number, type: d.type })),
+    };
   }
 
   // ---------------- Finalize (CUSTOMER only) ----------------
@@ -286,7 +466,7 @@ export class InvoicingService {
   async finalizeInvoice(orgId: string, invoiceId: string, performedBy: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, orgId, deletedAt: null },
-      include: { lines: true, partner: true },
+      include: { lines: { include: { taxRate: true } }, partner: true },
     });
     if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
     if (invoice.type !== 'CUSTOMER') {
@@ -294,6 +474,9 @@ export class InvoicingService {
     }
     if (invoice.status !== 'draft') {
       throw new ConflictException(`La facture ${invoice.number ?? invoice.id} n'est pas un brouillon (statut : ${invoice.status}).`);
+    }
+    if (invoice.kind === 'proforma') {
+      throw new BadRequestException('Une proforma ne se finalise pas — convertissez-la en facture.');
     }
     // NIF/NIS are no longer required on a Partner (explicit user decision —
     // see the PartnersModal form and CreatePartnerDto) — finalizing an
@@ -330,6 +513,8 @@ export class InvoicingService {
       const touchedSalesOrderIds = new Set<string>();
 
       for (const line of invoice.lines) {
+        // Invoiced from bons de livraison: the stock already left with the BL.
+        if (invoice.fromDocuments) continue;
         if (!line.productId) continue;
         try {
           const result = await this.stock.recordMovementInTransaction(tx, orgId, performedBy, {
@@ -387,7 +572,7 @@ export class InvoicingService {
           // Last line of defence against over-invoicing a commande: several
           // drafts can exist for the same line, and only finalization moves
           // quantityInvoiced, so this is the one place the total is certain.
-          const remaining = Number(soLine.quantityOrdered) - Number(soLine.quantityInvoiced);
+          const remaining = Number(soLine.quantityOrdered) - Number(soLine.quantityInvoiced) - Number(soLine.quantityDelivered);
           if (Number(line.quantity) > remaining) {
             throw new BadRequestException(
               `Impossible de finaliser : « ${line.description} » dépasserait la quantité commandée (${Number(soLine.quantityOrdered)} commandé(s), ${Number(soLine.quantityInvoiced)} déjà facturé(s)).`,
@@ -441,6 +626,7 @@ export class InvoicingService {
           number,
           status: 'unpaid',
           finalizedAt,
+          stampDuty: this.stampDutyFor(invoice, org.stampDutyRate),
           dueDate: this.computeDueDate(finalizedAt, invoice.partner?.paymentTermsNetDays ?? null),
         },
         include: { lines: { include: { taxRate: true } }, payments: true },
@@ -456,10 +642,20 @@ export class InvoicingService {
 
   /** Derives a SalesOrder (kind='order')'s status from its lines' cumulative quantityInvoiced — same shape as PurchasingService's own updatePurchaseOrderStatus, kept here (not in a shared helper) since it only ever runs from inside finalizeInvoice's own transaction. */
   private async recomputeSalesOrderStatusInTransaction(tx: Prisma.TransactionClient, salesOrderId: string): Promise<void> {
-    const lines = await tx.salesOrderLine.findMany({ where: { salesOrderId } });
+    const lines = await tx.salesOrderLine.findMany({ where: { salesOrderId, deletedAt: null } });
     const fullyInvoiced = lines.every((l) => Number(l.quantityInvoiced) >= Number(l.quantityOrdered));
     const anyInvoiced = lines.some((l) => Number(l.quantityInvoiced) > 0);
-    const status = fullyInvoiced ? 'invoiced' : anyInvoiced ? 'partially_invoiced' : 'confirmed';
+    const fullyDone = lines.every((l) => Number(l.quantityInvoiced) + Number(l.quantityDelivered) >= Number(l.quantityOrdered));
+    const anyDelivered = lines.some((l) => Number(l.quantityDelivered) > 0);
+    const status = fullyInvoiced
+      ? 'invoiced'
+      : fullyDone && anyDelivered
+        ? 'delivered'
+        : anyDelivered
+          ? 'partially_delivered'
+          : anyInvoiced
+            ? 'partially_invoiced'
+            : 'confirmed';
     await tx.salesOrder.update({ where: { id: salesOrderId }, data: { status } });
   }
 
@@ -476,6 +672,7 @@ export class InvoicingService {
       throw new BadRequestException('Impossible d\'annuler une facture fournisseur qui a déjà des paiements enregistrés.');
     }
 
+    await this.prisma.tradeDocument.updateMany({ where: { orgId, invoiceId }, data: { invoiceId: null } });
     return this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'void' } });
   }
 
@@ -491,9 +688,12 @@ export class InvoicingService {
       if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
       if (invoice.status === 'draft') throw new BadRequestException('Finalisez cette facture avant d\'y enregistrer un paiement.');
       if (invoice.status === 'void') throw new BadRequestException('Impossible d\'enregistrer un paiement sur une facture annulée.');
+      if (invoice.kind === 'proforma') throw new BadRequestException('Une proforma ne reçoit pas de paiement — convertissez-la d\'abord en facture.');
 
-      const totals = computeInvoiceTotals(this.toLineInputs(invoice));
-      const alreadyPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
+      const rawTotals = computeInvoiceTotals(this.toLineInputs(invoice));
+      const totals = { totalTtc: Math.round((rawTotals.totalTtc + Number(invoice.stampDuty)) * 100) / 100 };
+      const docPaid = (await this.documentPaymentsByInvoice(orgId, [invoiceId])).get(invoiceId) ?? 0;
+      const alreadyPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0) + docPaid;
       const newTotalPaid = Math.round((alreadyPaid + dto.amount) * 100) / 100;
 
       const EPSILON = 0.01;
@@ -530,7 +730,11 @@ export class InvoicingService {
         throw new BadRequestException('Aucun paiement à réinitialiser sur une facture brouillon ou annulée.');
       }
       await tx.payment.deleteMany({ where: { invoiceId } });
-      return tx.invoice.update({ where: { id: invoiceId }, data: { status: 'unpaid' } });
+      const updated = await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'unpaid' } });
+      return updated;
+    }).then(async (updated) => {
+      await this.syncDocumentInvoiceStatus(orgId, invoiceId);
+      return updated;
     });
   }
 
@@ -539,14 +743,20 @@ export class InvoicingService {
   async generatePdf(orgId: string, invoiceId: string): Promise<Buffer> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, orgId, deletedAt: null },
-      include: { lines: { include: { taxRate: true } }, partner: true, organization: true },
+      include: { lines: { include: { taxRate: true } }, partner: true, organization: true, payments: true },
     });
     if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
     if (invoice.status === 'draft') throw new BadRequestException('Finalisez la facture avant de générer son PDF.');
 
     const totals = computeInvoiceTotals(this.toLineInputs(invoice));
+    const docPaid = (await this.documentPaymentsByInvoice(orgId, [invoiceId])).get(invoiceId) ?? 0;
+    const totalPaid = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0) + docPaid;
 
     return this.pdf.generate({
+      title: invoice.kind === 'proforma' ? 'FACTURE PROFORMA' : undefined,
+      totalPaid,
+      stampDuty: Number(invoice.stampDuty),
+      paymentMode: invoice.paymentMode,
       number: invoice.number ?? '(brouillon)',
       issuedAt: invoice.finalizedAt ?? invoice.issuedAt,
       type: invoice.type,
@@ -561,7 +771,17 @@ export class InvoicingService {
         phone: invoice.organization.phone,
         logo: invoice.organization.logo,
       },
-      buyer: invoice.partner ? { name: invoice.partner.name, nif: invoice.partner.nif } : null,
+      buyer: invoice.partner
+        ? {
+            name: invoice.partner.name,
+            code: invoice.partner.code,
+            address: invoice.partner.address,
+            nif: invoice.partner.nif,
+            rc: invoice.partner.rc,
+            taxArticle: invoice.partner.taxArticle,
+            phone: invoice.partner.phone,
+          }
+        : null,
       lines: totals.lines.map((computed, i) => ({
         description: invoice.lines[i].description,
         quantity: Number(invoice.lines[i].quantity),

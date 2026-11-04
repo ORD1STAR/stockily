@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth-context';
-import { ApiError, OrganizationProfile, invoicingApi } from './api';
+import { ApiError, InventoryReminderStatus, OrganizationProfile, ReminderFrequency, inventoryApi, invoicingApi } from './api';
 import { toast } from './toast';
 
 const MAX_LOGO_DIMENSION = 240; // px — a logo printed at ~36pt on an invoice never needs more
@@ -47,6 +47,21 @@ function resizeToDataUrl(file: File): Promise<string> {
 // wireframe's placement at the very bottom of the sidebar.
 export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) {
   const { accessToken } = useAuth();
+  const [reminder, setReminder] = useState<InventoryReminderStatus | null>(null);
+  useEffect(() => {
+    if (!accessToken) return;
+    inventoryApi.reminder(accessToken).then(setReminder).catch(() => setReminder(null));
+  }, [accessToken]);
+
+  async function changeReminder(frequency: ReminderFrequency) {
+    if (!accessToken) return;
+    try {
+      setReminder(await inventoryApi.updateSettings(accessToken, frequency));
+      toast.success(frequency === 'off' ? 'Rappel d’inventaire désactivé.' : 'Rappel d’inventaire enregistré.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Échec de l’enregistrement.');
+    }
+  }
   const [profile, setProfile] = useState<OrganizationProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -87,6 +102,7 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         phone: profile.phone ?? undefined,
         email: profile.email ?? undefined,
         logo: profile.logo,
+        stampDutyRate: profile.stampDutyRate,
       });
       setProfile(updated);
       toast.success('Paramètres enregistrés.');
@@ -106,7 +122,7 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Paramètres du Business</h3>
-            <p className="modal-sub">Ces informations apparaissent sur toutes les factures émises.</p>
+            <p className="modal-sub">Affichées sur vos factures et bons.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -196,10 +212,49 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
               <input type="email" value={profile.email ?? ''} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
             </div>
           </div>
-          <div className="field-row">
-            <label>Devise</label>
-            <input value="DZD" disabled />
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Devise</label>
+              <input value="DZD" disabled />
+            </div>
+            <div className="field-row">
+              <label>Droit de timbre (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step="any"
+                placeholder="Désactivé"
+                value={profile.stampDutyRate ?? ''}
+                onChange={(e) => setProfile({ ...profile, stampDutyRate: e.target.value === '' ? null : Number(e.target.value) })}
+              />
+            </div>
           </div>
+          <p className="sub" style={{ margin: '-6px 0 12px' }}>Le timbre s’ajoute aux factures payées en espèces (calculé à la finalisation).</p>
+          {reminder && (
+            <div className="setting-row" style={{ borderTop: '1px solid var(--gray-100)', borderBottom: 'none', paddingTop: 14 }}>
+              <div className="setting-text">
+                <div className="setting-title">Rappel d’inventaire</div>
+                <div className="setting-hint">
+                  {reminder.frequency === 'off'
+                    ? 'Aucun rappel.'
+                    : reminder.dueAt
+                      ? `Prochain inventaire : ${new Date(reminder.dueAt).toLocaleDateString('fr-FR')}${reminder.isDue ? ' (à faire maintenant)' : ''} · rappel sur l’accueil et par email.`
+                      : ''}
+                </div>
+              </div>
+              <div className="setting-control" style={{ flexBasis: 200 }}>
+                <select className="control" value={reminder.frequency} onChange={(e) => changeReminder(e.target.value as ReminderFrequency)}>
+                  <option value="off">Désactivé</option>
+                  <option value="weekly">Toutes les semaines</option>
+                  <option value="monthly">Tous les mois</option>
+                  <option value="quarterly">Tous les 3 mois</option>
+                  <option value="semiannual">Tous les 6 mois</option>
+                  <option value="yearly">Une fois par an</option>
+                </select>
+              </div>
+            </div>
+          )}
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>

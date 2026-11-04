@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as path from 'node:path';
 import PDFDocument from 'pdfkit';
 import { amountToArabicWords, amountToFrenchWords } from '@org/domain-invoicing';
+import { PdfParty, partyLines, renderOrgName } from '../../shared-pdf/document-pdf.service';
 
 // Real PDF generation via pdfkit (not an HTML mock) — chosen over a
 // headless-browser HTML-to-PDF approach (Puppeteer/Playwright) for
@@ -54,11 +55,18 @@ export interface InvoicePdfInput {
     /** A data: URL (see OrganizationSettingsModal.tsx's upload handler), or null if the org never set one. */
     logo: string | null;
   };
-  buyer: { name: string; nif: string | null } | null; // null = vente comptoir
+  buyer: PdfParty | null; // null = vente comptoir
   lines: InvoicePdfLine[];
   totalHt: number;
   totalTax: number;
   totalTtc: number;
+  /** Already paid (invoice payments + versements on the bons it comes from). */
+  totalPaid: number;
+  /** Droit de timbre (cash invoices). */
+  stampDuty?: number;
+  paymentMode?: string | null;
+  /** "FACTURE PROFORMA" etc. — defaults from type. */
+  title?: string;
 }
 
 // Org logos are stored as data: URLs (see OrganizationSettingsModal.tsx) —
@@ -91,6 +99,7 @@ const STATUS_LABEL_FR: Record<string, string> = {
   partially_paid: 'Partiellement payée',
   paid: 'Payée',
   void: 'Annulée',
+  proforma: 'Proforma',
 };
 
 // A hand-rolled formatter, not n.toLocaleString('fr-FR', ...): that locale
@@ -141,7 +150,7 @@ export class InvoicePdfService {
   }
 
   private renderHeader(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
-    const title = input.type === 'SUPPLIER' ? 'FACTURE FOURNISSEUR' : 'FACTURE';
+    const title = input.title ?? (input.type === 'SUPPLIER' ? 'FACTURE FOURNISSEUR' : 'FACTURE');
     const top = 50;
 
     // Logo is optional (most orgs never set one) — when present it sits
@@ -158,11 +167,8 @@ export class InvoicePdfService {
     doc.font('Helvetica-Bold').fontSize(20);
     const titleWidth = doc.widthOfString(title);
     doc.fillColor(BRAND).text(title, MARGIN, top + 2, { width: CONTENT_WIDTH, align: 'right' });
-    doc
-      .fillColor(INK)
-      .font('Helvetica-Bold')
-      .fontSize(22)
-      .text(input.seller.name, nameX, logoBuffer ? top + 12 : top, { width: Math.max(120, RIGHT_EDGE - titleWidth - 24 - nameX), height: 52, ellipsis: true });
+    doc.fillColor(INK);
+    const nameBottom = renderOrgName(doc, input.seller.name, nameX, logoBuffer ? top + 8 : top, Math.max(160, RIGHT_EDGE - Math.max(titleWidth, 150) - 24 - nameX));
 
     let ry = top + 30;
     doc.fillColor(MUTED).font('Helvetica').fontSize(10);
@@ -182,7 +188,7 @@ export class InvoicePdfService {
       .fillColor(input.status === 'paid' ? '#0f766e' : input.status === 'unpaid' ? '#b91c1c' : MUTED)
       .text(statusLabel, RIGHT_EDGE - badgeWidth, badgeTop + 5, { width: badgeWidth, align: 'center', lineBreak: false });
 
-    const ruleY = Math.max(badgeTop + 18, top + logoSize) + 12;
+    const ruleY = Math.max(badgeTop + 18, top + logoSize, nameBottom) + 12;
     doc.moveTo(MARGIN, ruleY).lineTo(RIGHT_EDGE, ruleY).lineWidth(1.5).strokeColor(BRAND).stroke();
     doc.strokeColor(INK).lineWidth(1);
     doc.y = ruleY + 16;
@@ -191,23 +197,13 @@ export class InvoicePdfService {
   private renderPartyCards(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     const top = doc.y;
     const cardWidth = (CONTENT_WIDTH - 20) / 2;
-    const sellerLines: (string | null)[] = [
+    const sellerLines = partyLines(
+      { name: input.seller.name, address: input.seller.address, nif: input.seller.nif, rc: input.seller.rc, taxArticle: input.seller.taxArticle, phone: input.seller.phone },
       input.seller.name,
-      input.seller.address,
-      input.seller.nif ? `NIF : ${input.seller.nif}` : null,
-      input.seller.nis ? `NIS : ${input.seller.nis}` : null,
-      input.seller.rc ? `RC : ${input.seller.rc}` : null,
-      input.seller.taxArticle ? `Article d'imposition : ${input.seller.taxArticle}` : null,
-      input.seller.phone,
-    ];
+      { nis: input.seller.nis, withTaxArticle: true },
+    );
     const buyerLabel = input.type === 'SUPPLIER' ? 'FOURNISSEUR' : 'CLIENT';
-    const buyerLines: (string | null)[] = [
-      input.buyer ? input.buyer.name : 'Vente comptoir',
-      // NIF/NIS are no longer required on a Partner (explicit user decision)
-      // — the label always prints, with an empty value when the partner has
-      // none on file, rather than being omitted.
-      input.buyer ? `NIF : ${input.buyer.nif ?? ''}` : 'Client sans compte (vente au comptant)',
-    ];
+    const buyerLines = partyLines(input.buyer, 'Client comptoir');
 
     // Sized to the taller card's actual content (wrapped lines included) —
     // a fixed height let a fully filled-in seller profile (address + NIF +
@@ -354,15 +350,35 @@ export class InvoicePdfService {
       .strokeColor(HAIRLINE)
       .stroke();
     y += 8;
-    row('TOTAL TTC', money(input.totalTtc), { accent: true });
+    const stamp = input.stampDuty ?? 0;
+    const net = Math.round((input.totalTtc + stamp) * 100) / 100;
+    if (stamp > 0) {
+      row('Total TTC', money(input.totalTtc), { bold: true });
+      row('Droit de timbre', money(stamp));
+      row('NET À PAYER', money(net), { accent: true });
+    } else {
+      row('TOTAL TTC', money(input.totalTtc), { accent: true });
+    }
+    if (input.status !== 'proforma') {
+      y += 4;
+      row('Versé', money(input.totalPaid));
+      row('Reste à payer', money(Math.max(0, Math.round((net - input.totalPaid) * 100) / 100)), { bold: true });
+    }
+    if (input.paymentMode) {
+      const MODE: Record<string, string> = { especes: 'Espèces', cheque: 'Chèque', virement: 'Virement', terme: 'À terme' };
+      doc.fillColor(MUTED).font('Helvetica').fontSize(8.5).text(`Mode de paiement : ${MODE[input.paymentMode] ?? input.paymentMode}`, MARGIN, y + 6, { width: CONTENT_WIDTH - panelWidth - 20 });
+    }
 
     doc.fillColor(INK);
     doc.y = y + 14;
   }
 
   private renderAmountInWords(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
-    const fr = amountToFrenchWords(input.totalTtc);
-    const ar = amountToArabicWords(input.totalTtc);
+    const payable = Math.round((input.totalTtc + (input.stampDuty ?? 0)) * 100) / 100;
+    const fr = amountToFrenchWords(payable);
+    // PDFKit shapes Arabic letters but lays words out left-to-right, so the
+    // sentence read backwards — feed it the words in visual (reversed) order.
+    const ar = amountToArabicWords(payable).split(/\s+/).reverse().join('  '); // single spaces get swallowed between Arabic runs
 
     const boxTop = doc.y;
     const padding = 14;

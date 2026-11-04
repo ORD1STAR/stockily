@@ -13,7 +13,7 @@ import {
   StockMovementService,
   UnknownProductError,
 } from '@org/domain-stock';
-import { PrismaStockDataPort } from '@org/infra-db';
+import { PrismaStockDataPort, setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SiteAccessService } from '../tenancy/services/site-access.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -21,6 +21,7 @@ import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.
 import { CreateProductDto } from './dto/create-product.dto';
 import { RecordMovementDto } from './dto/record-movement.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SetVariantsDto } from './dto/set-variants.dto';
 
 // Thin NestJS wrapper around @org/domain-stock's StockMovementService — this
 // class is the ONLY thing in apps/api allowed to construct that service
@@ -81,6 +82,7 @@ export class StockService {
         minThreshold: dto.minThreshold ?? null,
         maxThreshold: dto.maxThreshold ?? null,
         sellPrice: dto.sellPrice ?? null,
+        sellPrice2: dto.sellPrice2 ?? null,
         unitsPerCarton: dto.unitsPerCarton ?? null,
         barcode,
       },
@@ -88,6 +90,24 @@ export class StockService {
   }
 
   async updateProduct(orgId: string, productId: string, dto: UpdateProductDto) {
+    const updated = await this.updateSingleProduct(orgId, productId, dto);
+    if (updated.variantSizes.length > 0 || updated.variantColors.length > 0) {
+      // Prices, famille, seuils and carton size set on the modèle apply to all its variants.
+      const shared = {
+        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId || null } : {}),
+        ...(dto.minThreshold !== undefined ? { minThreshold: dto.minThreshold } : {}),
+        ...(dto.maxThreshold !== undefined ? { maxThreshold: dto.maxThreshold } : {}),
+        ...(dto.sellPrice !== undefined ? { sellPrice: dto.sellPrice } : {}),
+        ...(dto.sellPrice2 !== undefined ? { sellPrice2: dto.sellPrice2 } : {}),
+        ...(dto.unitsPerCarton !== undefined ? { unitsPerCarton: dto.unitsPerCarton } : {}),
+        ...(dto.isLotTracked !== undefined ? { isLotTracked: dto.isLotTracked } : {}),
+      };
+      if (Object.keys(shared).length) await this.prisma.product.updateMany({ where: { orgId, parentId: productId, deletedAt: null }, data: shared });
+    }
+    return updated;
+  }
+
+  private async updateSingleProduct(orgId: string, productId: string, dto: UpdateProductDto) {
     const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId } });
     if (!existing) throw new NotFoundException(`Produit inconnu : ${productId}`);
 
@@ -121,6 +141,7 @@ export class StockService {
         ...(dto.minThreshold !== undefined ? { minThreshold: dto.minThreshold } : {}),
         ...(dto.maxThreshold !== undefined ? { maxThreshold: dto.maxThreshold } : {}),
         ...(dto.sellPrice !== undefined ? { sellPrice: dto.sellPrice } : {}),
+        ...(dto.sellPrice2 !== undefined ? { sellPrice2: dto.sellPrice2 } : {}),
         ...(dto.unitsPerCarton !== undefined ? { unitsPerCarton: dto.unitsPerCarton } : {}),
         ...(barcode !== undefined ? { barcode } : {}),
       },
@@ -175,7 +196,9 @@ export class StockService {
   async softDeleteProduct(orgId: string, productId: string) {
     const existing = await this.prisma.product.findFirst({ where: { id: productId, orgId, deletedAt: null } });
     if (!existing) throw new NotFoundException(`Produit inconnu : ${productId}`);
-    return this.prisma.product.update({ where: { id: productId }, data: { deletedAt: new Date() } });
+    const now = new Date();
+    await this.prisma.product.updateMany({ where: { orgId, parentId: productId, deletedAt: null }, data: { deletedAt: now } });
+    return this.prisma.product.update({ where: { id: productId }, data: { deletedAt: now } });
   }
 
   // A friendly ConflictException instead of letting the DB's raw P2002
@@ -196,7 +219,79 @@ export class StockService {
    * all-sites request is filtered down to what `userId` can actually see
    * (SiteAccessService), not the whole org, when the caller isn't org-wide.
    */
-  async listProducts(orgId: string, userId: string, siteId: string) {
+  /**
+   * Tailles / couleurs. Creates one variant (child product) per combination,
+   * re-activates previously removed ones, and removes combinations no longer
+   * listed — refused if such a variant still has stock. The modèle's prices,
+   * famille, seuils and carton size are copied onto new variants.
+   */
+  async setVariants(orgId: string, productId: string, dto: SetVariantsDto) {
+    const clean = (list: string[]) => Array.from(new Set(list.map((x) => x.trim()).filter(Boolean)));
+    const sizes = clean(dto.sizes);
+    const colors = clean(dto.colors);
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, orgId, deletedAt: null },
+      include: { stockLevels: true, variants: { include: { stockLevels: true } } },
+    });
+    if (!product) throw new NotFoundException(`Produit inconnu : ${productId}`);
+    if (product.parentId) throw new BadRequestException('Une variante ne peut pas avoir ses propres variantes.');
+    const wasParent = product.variantSizes.length > 0 || product.variantColors.length > 0;
+    if (!wasParent && (sizes.length || colors.length) && product.stockLevels.some((l) => Number(l.quantityOnHand) !== 0)) {
+      throw new BadRequestException('Ce produit a du stock : mettez-le à 0 (ou faites un inventaire) avant d’activer les tailles/couleurs.');
+    }
+
+    const combos: { size: string | null; color: string | null }[] = [];
+    if (sizes.length && colors.length) for (const c of colors) for (const z of sizes) combos.push({ size: z, color: c });
+    else if (sizes.length) for (const z of sizes) combos.push({ size: z, color: null });
+    else if (colors.length) for (const c of colors) combos.push({ size: null, color: c });
+    const key = (size: string | null, color: string | null) => `${color ?? ''}|${size ?? ''}`;
+    const wanted = new Set(combos.map((c) => key(c.size, c.color)));
+
+    const toRemove = product.variants.filter((v) => !v.deletedAt && !wanted.has(key(v.size, v.color)));
+    const blocked = toRemove.filter((v) => v.stockLevels.some((l) => Number(l.quantityOnHand) !== 0));
+    if (blocked.length) {
+      throw new BadRequestException(`Impossible de retirer ${blocked.map((v) => v.name).join(', ')} : il reste du stock.`);
+    }
+
+    const slug = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '').toUpperCase().slice(0, 12);
+    const label = (c: { size: string | null; color: string | null }) => [c.color, c.size].filter(Boolean).join(' / ');
+
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
+      for (const v of toRemove) await tx.product.update({ where: { id: v.id }, data: { deletedAt: new Date() } });
+      for (const c of combos) {
+        const existing = product.variants.find((v) => key(v.size, v.color) === key(c.size, c.color));
+        if (existing) {
+          if (existing.deletedAt) await tx.product.update({ where: { id: existing.id }, data: { deletedAt: null } });
+          continue;
+        }
+        let sku = [product.sku, c.color ? slug(c.color) : null, c.size ? slug(c.size) : null].filter(Boolean).join('-');
+        for (let n = 2; await tx.product.findUnique({ where: { orgId_sku: { orgId, sku } } }); n++) sku = `${sku.replace(/-\d+$/, '')}-${n}`;
+        await tx.product.create({
+          data: {
+            orgId,
+            parentId: product.id,
+            size: c.size,
+            color: c.color,
+            sku,
+            name: `${product.name} ${label(c)}`,
+            categoryId: product.categoryId,
+            unitOfMeasure: product.unitOfMeasure,
+            isLotTracked: product.isLotTracked,
+            minThreshold: product.minThreshold,
+            maxThreshold: product.maxThreshold,
+            sellPrice: product.sellPrice,
+            sellPrice2: product.sellPrice2,
+            unitsPerCarton: product.unitsPerCarton,
+          },
+        });
+      }
+      await tx.product.update({ where: { id: product.id }, data: { variantSizes: sizes, variantColors: colors } });
+    });
+    return this.getProductDetail(orgId, productId);
+  }
+
+  async listProducts(orgId: string, userId: string, siteId: string, includeParents = false) {
     const siteFilter =
       siteId === 'all'
         ? await this.resolveAllSitesFilter(orgId, userId)
@@ -217,8 +312,14 @@ export class StockService {
     // with an actual zero-valued StockLevel row already renders as.
     const sites = await this.prisma.site.findMany({ where: siteFilter, select: { id: true, name: true } });
 
+    // A "modèle" (product with tailles/couleurs) holds no stock: product
+    // pickers only get its variants; the Stock page asks for both and groups them.
     const products = await this.prisma.product.findMany({
-      where: { orgId, deletedAt: null },
+      where: {
+        orgId,
+        deletedAt: null,
+        ...(includeParents ? {} : { variantSizes: { isEmpty: true }, variantColors: { isEmpty: true } }),
+      },
       include: {
         category: { select: { name: true } },
         stockLevels: { where: { site: siteFilter }, include: { site: { select: { id: true, name: true } } } },
@@ -226,14 +327,37 @@ export class StockService {
       orderBy: { name: 'asc' },
     });
 
+    // A modèle's own row shows the total of its variants at that site.
+    const childTotals = new Map<string, { onHand: number; reserved: number; quarantined: number }>();
+    for (const p of products) {
+      if (!p.parentId) continue;
+      for (const level of p.stockLevels) {
+        const k = `${p.parentId}|${level.site.id}`;
+        const t = childTotals.get(k) ?? { onHand: 0, reserved: 0, quarantined: 0 };
+        t.onHand += Number(level.quantityOnHand);
+        t.reserved += Number(level.quantityReserved);
+        t.quarantined += Number(level.quantityQuarantined);
+        childTotals.set(k, t);
+      }
+    }
     return products.flatMap((p) => {
       const levelBySiteId = new Map(p.stockLevels.map((level) => [level.site.id, level]));
       return sites.map((site) => {
         const level = levelBySiteId.get(site.id);
-        const quantityOnHand = level ? Number(level.quantityOnHand) : 0;
-        const quantityQuarantined = level ? Number(level.quantityQuarantined) : 0;
+        const isModel = p.variantSizes.length > 0 || p.variantColors.length > 0;
+        const totals = isModel ? childTotals.get(`${p.id}|${site.id}`) : undefined;
+        const quantityOnHand = isModel ? (totals?.onHand ?? 0) : level ? Number(level.quantityOnHand) : 0;
+        const quantityQuarantined = isModel ? (totals?.quarantined ?? 0) : level ? Number(level.quantityQuarantined) : 0;
+        const quantityReserved = isModel ? (totals?.reserved ?? 0) : level ? Number(level.quantityReserved) : 0;
+        const averageCost = Number(p.averageCost);
+        const sellPrice = p.sellPrice != null ? Number(p.sellPrice) : null;
+        const sellPrice2 = p.sellPrice2 != null ? Number(p.sellPrice2) : null;
         return {
           productId: p.id,
+          parentId: p.parentId,
+          size: p.size,
+          color: p.color,
+          isVariantParent: p.variantSizes.length > 0 || p.variantColors.length > 0,
           sku: p.sku,
           name: p.name,
           barcode: p.barcode,
@@ -243,8 +367,14 @@ export class StockService {
           site,
           quantityOnHand,
           quantityQuarantined,
+          quantityReserved,
           minThreshold: p.minThreshold != null ? Number(p.minThreshold) : null,
-          averageCost: Number(p.averageCost),
+          averageCost,
+          sellPrice,
+          sellPrice2,
+          // Marge en DA = prix de vente − prix d'achat (coût moyen pondéré).
+          margin1: sellPrice != null ? Math.round((sellPrice - averageCost) * 100) / 100 : null,
+          margin2: sellPrice2 != null ? Math.round((sellPrice2 - averageCost) * 100) / 100 : null,
           status: computeThresholdStatus(quantityOnHand, p.minThreshold != null ? Number(p.minThreshold) : null),
         };
       });
@@ -261,12 +391,38 @@ export class StockService {
   async getProductDetail(orgId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, orgId, deletedAt: null },
-      include: { category: { select: { name: true } }, stockLevels: { include: { site: { select: { id: true, name: true } } } } },
+      include: {
+        category: { select: { name: true } },
+        stockLevels: { include: { site: { select: { id: true, name: true } } } },
+        parent: { select: { id: true, name: true, sku: true } },
+        variants: {
+          where: { deletedAt: null },
+          include: { stockLevels: { select: { quantityOnHand: true, quantityReserved: true } } },
+          orderBy: [{ color: 'asc' }, { size: 'asc' }],
+        },
+      },
     });
     if (!product) throw new NotFoundException(`Produit inconnu : ${productId}`);
 
     return {
       id: product.id,
+      parent: product.parent,
+      size: product.size,
+      color: product.color,
+      variantSizes: product.variantSizes,
+      variantColors: product.variantColors,
+      variants: product.variants.map((v) => ({
+        id: v.id,
+        sku: v.sku,
+        name: v.name,
+        size: v.size,
+        color: v.color,
+        barcode: v.barcode,
+        sellPrice: v.sellPrice != null ? Number(v.sellPrice) : null,
+        sellPrice2: v.sellPrice2 != null ? Number(v.sellPrice2) : null,
+        quantityOnHand: v.stockLevels.reduce((s, l) => s + Number(l.quantityOnHand), 0),
+        quantityReserved: v.stockLevels.reduce((s, l) => s + Number(l.quantityReserved), 0),
+      })),
       sku: product.sku,
       name: product.name,
       barcode: product.barcode,
@@ -278,6 +434,7 @@ export class StockService {
       minThreshold: product.minThreshold != null ? Number(product.minThreshold) : null,
       maxThreshold: product.maxThreshold != null ? Number(product.maxThreshold) : null,
       sellPrice: product.sellPrice != null ? Number(product.sellPrice) : null,
+      sellPrice2: product.sellPrice2 != null ? Number(product.sellPrice2) : null,
       levels: product.stockLevels.map((l) => ({
         site: l.site,
         quantityOnHand: Number(l.quantityOnHand),
@@ -293,6 +450,10 @@ export class StockService {
   }
 
   async recordMovement(orgId: string, performedBy: string, dto: RecordMovementDto) {
+    const target = await this.prisma.product.findFirst({ where: { id: dto.productId, orgId }, select: { variantSizes: true, variantColors: true } });
+    if (target && (target.variantSizes.length > 0 || target.variantColors.length > 0)) {
+      throw new BadRequestException('Ce produit a des tailles/couleurs : choisissez une variante.');
+    }
     const input: RecordMovementInput = { orgId, performedBy, ...dto };
     try {
       const result = await this.movementService().recordMovement(input);

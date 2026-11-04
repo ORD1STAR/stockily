@@ -1,5 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { PartnersModal } from '../lib/PartnersModal';
 import { useAuth } from '../lib/auth-context';
 import { useDataChangeListener } from '../lib/data-events';
@@ -16,7 +18,12 @@ import {
   purchasingApi,
   sitesApi,
   stockApi,
+  PurchaseReceiptView,
+  TradeDocumentView,
+  tradeApi,
 } from '../lib/api';
+import { useListControls } from '../lib/ListControls';
+import { AccountSummary, DocumentDetailModal, DocumentFormModal, DocumentTable, PAYMENT_METHODS, PaymentInline, PaymentList, fmt } from '../lib/TradeDocuments';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<PurchaseOrderView['status'], string> = {
@@ -52,6 +59,12 @@ export function PurchasingPage() {
   const [showReceiveFor, setShowReceiveFor] = useState<PurchaseOrderView | null>(null);
   const [rfqGroupId, setRfqGroupId] = useState<string | null>(null);
   const [showPartners, setShowPartners] = useState(false);
+  const [tab, setTab] = useState<'orders' | 'receipts' | 'returns'>('orders');
+  const [receipts, setReceipts] = useState<PurchaseReceiptView[]>([]);
+  const [returns, setReturns] = useState<TradeDocumentView[]>([]);
+  const [openReceiptId, setOpenReceiptId] = useState<string | null>(null);
+  const [openReturnId, setOpenReturnId] = useState<string | null>(null);
+  const [showReturnForm, setShowReturnForm] = useState(false);
   const [dashboard, setDashboard] = useState<{
     openOrdersCount: number;
     openOrdersValue: number;
@@ -64,14 +77,18 @@ export function PurchasingPage() {
     setLoading(true);
     setError(null);
     try {
-      const [orderList, siteList, partnerList, productRows, dash] = await Promise.all([
+      const [orderList, siteList, partnerList, productRows, dash, receiptList, returnList] = await Promise.all([
         purchasingApi.listOrders(accessToken),
         sitesApi.list(accessToken),
         invoicingApi.listPartners(accessToken),
         stockApi.listProducts(accessToken, 'all'),
         purchasingApi.getDashboard(accessToken),
+        purchasingApi.listReceipts(accessToken),
+        tradeApi.listSupplierReturns(accessToken),
       ]);
       setOrders(orderList);
+      setReceipts(receiptList);
+      setReturns(returnList);
       setSites(siteList);
       setPartners(partnerList);
       setProducts(productRows);
@@ -91,6 +108,31 @@ export function PurchasingPage() {
   useDataChangeListener('sites', load);
 
   const suppliers = partners.filter((p) => p.isSupplier);
+  const progress = (o: (typeof orders)[number]) => {
+    const ordered = o.lines.reduce((s, l) => s + l.quantityOrdered, 0);
+    return ordered ? o.lines.reduce((s, l) => s + l.quantityReceived, 0) / ordered : 0;
+  };
+  const poList = useListControls(orders, {
+    id: 'purchase-orders',
+    noun: ['bon', 'bons'],
+    searchPlaceholder: 'N°, fournisseur, produit…',
+    search: (o) => [o.number, o.supplier.name, ...o.lines.map((l) => l.product?.name)],
+    filters: [
+      { key: 'supplier', label: 'Fournisseur', type: 'select', value: (o) => o.supplier.name },
+      { key: 'status', label: 'Statut', type: 'select', value: (o) => STATUS_LABEL[o.status] },
+      { key: 'date', label: 'Créé le', type: 'dates', value: (o) => o.createdAt },
+      { key: 'site', label: 'Dépôt', type: 'select', value: (o) => o.site.name },
+      { key: 'pending', label: 'Reste à recevoir', type: 'flag', test: (o) => o.status !== 'cancelled' && o.status !== 'rfq_rejected' && progress(o) < 1 },
+    ],
+    sorts: [
+      { key: 'number', label: 'N°', value: (o) => o.number, desc: true },
+      { key: 'supplier', label: 'Fournisseur', value: (o) => o.supplier.name },
+      { key: 'site', label: 'Dépôt', value: (o) => o.site.name },
+      { key: 'status', label: 'Statut', value: (o) => STATUS_LABEL[o.status] },
+      { key: 'progress', label: 'Reçu (%)', value: progress, desc: true },
+      { key: 'date', label: 'Créé le', value: (o) => o.createdAt, desc: true },
+    ],
+  });
   const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
 
   return (
@@ -101,18 +143,15 @@ export function PurchasingPage() {
           <div className="sub">{orders.length} bon(s) de commande</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            className="btn-secondary"
-            onClick={() => setShowRfqForm(true)}
-            disabled={sites.length === 0}
-          >
-            + Comparer fournisseurs (RFQ)
-          </button>
-          <button className="btn-secondary" onClick={() => setShowFreeReceipt(true)} disabled={sites.length === 0}>
-            + Réception libre
-          </button>
+          <ActionMenu
+            items={[
+              { label: 'Comparer des fournisseurs', hint: 'Demande de prix (RFQ)', icon: 'users', onClick: () => setShowRfqForm(true), disabled: sites.length === 0 },
+              { label: 'Réception libre', hint: 'Bon de réception sans bon de commande', icon: 'truck', onClick: () => setShowFreeReceipt(true), disabled: sites.length === 0 },
+              { label: 'Retour fournisseur', hint: 'Marchandise renvoyée au fournisseur', icon: 'chevronLeft', onClick: () => setShowReturnForm(true), disabled: sites.length === 0 || suppliers.length === 0 },
+            ]}
+          />
           <button className="btn-primary" onClick={() => setShowOrderForm(true)} disabled={sites.length === 0 || suppliers.length === 0}>
-            + Bon de commande
+            <Icon name="plus" size={16} /> Bon de commande
           </button>
         </div>
       </div>
@@ -144,23 +183,43 @@ export function PurchasingPage() {
         </div>
       )}
 
-      {loading ? (
-        <p className="sub">Chargement…</p>
+      <div className="page-tabs" role="tablist">
+        {(
+          [
+            ['orders', 'Bons de commande', orders.length],
+            ['receipts', 'Bons de réception', receipts.length],
+            ['returns', 'Retours fournisseurs', returns.length],
+          ] as const
+        ).map(([k, label, count]) => (
+          <button key={k} type="button" role="tab" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            {label}
+            <span className="tab-count">{count}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === 'receipts' && <ReceiptTable receipts={receipts} onOpen={(r) => setOpenReceiptId(r.id)} />}
+      {tab === 'returns' && <DocumentTable listId="supplier-returns" docs={returns} partnerLabel="Fournisseur" onOpen={(d) => setOpenReturnId(d.id)} />}
+
+      {tab === 'orders' && (loading ? (
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
+        <>
+        {poList.toolbar()}
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>N°</th>
-                <th>Fournisseur</th>
-                <th>Site</th>
-                <th>Statut</th>
-                <th>Progression</th>
-                <th>Créé le</th>
+                {poList.th('number', 'N°')}
+                {poList.th('supplier', 'Fournisseur')}
+                {poList.th('site', 'Dépôt')}
+                {poList.th('status', 'Statut')}
+                {poList.th('progress', 'Reçu')}
+                {poList.th('date', 'Créé le')}
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => {
+              {poList.rows.map((o) => {
                 const ordered = o.lines.reduce((s, l) => s + l.quantityOrdered, 0);
                 const received = o.lines.reduce((s, l) => s + l.quantityReceived, 0);
                 return (
@@ -182,16 +241,44 @@ export function PurchasingPage() {
                   </tr>
                 );
               })}
-              {orders.length === 0 && (
+              {poList.rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="sub">
-                    Aucun bon de commande pour le moment.
+                  <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                    {poList.filtered ? (
+                  <>
+                    Aucun résultat pour ces filtres.{' '}
+                    <button type="button" className="btn-link" onClick={poList.reset}>
+                      Effacer les filtres
+                    </button>
+                  </>
+                ) : (
+                  'Aucun bon de commande pour le moment.'
+                )}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
+      ))}
+
+      {openReceiptId && <ReceiptDetailModal receiptId={openReceiptId} onClose={() => setOpenReceiptId(null)} onChanged={load} />}
+      {openReturnId && <DocumentDetailModal docId={openReturnId} type="supplier_return" onClose={() => setOpenReturnId(null)} onChanged={load} />}
+      {showReturnForm && (
+        <DocumentFormModal
+          type="supplier_return"
+          partners={partners}
+          sites={sites}
+          products={products}
+          onClose={() => setShowReturnForm(false)}
+          onCreated={(doc) => {
+            setShowReturnForm(false);
+            setTab('returns');
+            setOpenReturnId(doc.id);
+            load();
+          }}
+        />
       )}
 
       {showOrderForm && (
@@ -228,9 +315,12 @@ export function PurchasingPage() {
         <ReceiveModal
           order={showReceiveFor}
           products={uniqueProducts}
+          suppliers={suppliers}
           onClose={() => setShowReceiveFor(null)}
-          onSaved={() => {
+          onSaved={(receiptId) => {
             setShowReceiveFor(null);
+            setTab('receipts');
+            setOpenReceiptId(receiptId);
             load();
           }}
         />
@@ -240,9 +330,12 @@ export function PurchasingPage() {
           order={null}
           sites={sites}
           products={uniqueProducts}
+          suppliers={suppliers}
           onClose={() => setShowFreeReceipt(false)}
-          onSaved={() => {
+          onSaved={(receiptId) => {
             setShowFreeReceipt(false);
+            setTab('receipts');
+            setOpenReceiptId(receiptId);
             load();
           }}
         />
@@ -328,7 +421,7 @@ function OrderFormModal({
 
   return (
     <div className="modal-backdrop open">
-      <div className="modal xwide">
+      <div className="modal form-md">
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Nouveau bon de commande</h3>
@@ -338,28 +431,31 @@ function OrderFormModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="field-form">
-          <div className="field-row">
-            <label>Fournisseur</label>
-            <SearchableSelect
-              value={supplierId}
-              onChange={setSupplierId}
-              options={suppliers.map((s) => ({ value: s.id, label: s.name, sublabel: s.nif }))}
-              placeholder="Rechercher un fournisseur…"
-            />
-          </div>
-          <div className="field-row">
-            <label>Site de destination</label>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+          <div className="field-grid">
+            <div className="field-row">
+              <label>Fournisseur</label>
+              <SearchableSelect
+                value={supplierId}
+                onChange={setSupplierId}
+                options={suppliers.map((s) => ({ value: s.id, label: s.name, sublabel: s.nif }))}
+                placeholder="Rechercher un fournisseur…"
+              />
+            </div>
+            <div className="field-row">
+              <label>Livrer à</label>
+              <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="sub" style={{ marginTop: 4 }}>
-            Lignes
+          <div className="lines-head">
+            <span className="modal-section-label">Articles</span>
+            <span className="lines-count">{lines.length}</span>
           </div>
           <div className="line-items">
             <div className="line-item line-item-head">
@@ -427,8 +523,13 @@ function OrderFormModal({
             className="btn-link"
             onClick={() => setLines((ls) => [...ls, { productId: products[0]?.productId ?? '', quantityOrdered: 1, unitCost: 0 }])}
           >
-            + Ajouter une ligne
+            + Ajouter un article
           </button>
+
+          <div className="lines-total">
+            <span>Total estimé</span>
+            <strong>{lines.reduce((sum, l) => sum + (l.quantityOrdered || 0) * (l.unitCost || 0), 0).toFixed(2)} DZD</strong>
+          </div>
 
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
@@ -572,19 +673,22 @@ function OrderDetailModal({
             <thead>
               <tr>
                 <th>Produit</th>
-                <th>Commandé</th>
-                <th>Reçu</th>
-                <th>Coût unitaire</th>
+                <th className="num">Commandé</th>
+                <th className="num">Reçu</th>
+                <th className="num">Coût unitaire</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {order.lines.map((l) => (
                 <tr key={l.id}>
-                  <td>{l.product ? `${l.product.sku} — ${l.product.name}` : l.productId}</td>
-                  <td>{l.quantityOrdered}</td>
-                  <td>{l.quantityReceived}</td>
-                  <td>{l.unitCost.toFixed(2)} DZD</td>
+                  <td>
+                    <div className="cell-title">{l.product ? l.product.name : l.productId}</div>
+                    {l.product && <div className="cell-sub mono">{l.product.sku}</div>}
+                  </td>
+                  <td className="num">{l.quantityOrdered}</td>
+                  <td className="num">{l.quantityReceived}</td>
+                  <td className="num">{l.unitCost.toFixed(2)} DZD</td>
                   <td>
                     <button
                       type="button"
@@ -639,9 +743,6 @@ function OrderDetailModal({
                 {cancelling ? 'Annulation…' : 'Annuler le bon'}
               </button>
             )}
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Fermer
-            </button>
             {canInvoice && (
               <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)}>
                 Facture fournisseur
@@ -703,7 +804,7 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Facture fournisseur — {order.number}</h3>
-            <p className="modal-sub">Enregistre la facture du fournisseur pour les quantités reçues — à finaliser depuis le module Factures.</p>
+            <p className="modal-sub">Pour les quantités reçues · à finaliser dans Factures.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -760,6 +861,7 @@ interface ReceiveLineState {
   isLotTracked: boolean;
   quantity: number;
   unitCost: number;
+  discountPercent: string;
   newLotNumber: string;
   qualityResult: '' | 'conforme' | 'non_conforme';
 }
@@ -768,17 +870,23 @@ function ReceiveModal({
   order,
   sites,
   products,
+  suppliers,
   onClose,
   onSaved,
 }: {
   order: PurchaseOrderView | null;
   sites?: Site[];
   products: StockRow[];
+  suppliers: Partner[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (receiptId: string) => void;
 }) {
   const { accessToken } = useAuth();
   const [siteId, setSiteId] = useState(order?.siteId ?? sites?.[0]?.id ?? '');
+  const [supplierId, setSupplierId] = useState(order?.supplierId ?? '');
+  const [notes, setNotes] = useState('');
+  const [payment, setPayment] = useState('');
+  const [method, setMethod] = useState('especes');
   const [landedCostAmount, setLandedCostAmount] = useState('');
   const [landedCostNotes, setLandedCostNotes] = useState('');
   const [lines, setLines] = useState<ReceiveLineState[]>(() => {
@@ -794,6 +902,7 @@ function ReceiveModal({
             isLotTracked: p?.isLotTracked ?? false,
             quantity: l.quantityOrdered - l.quantityReceived,
             unitCost: l.unitCost,
+            discountPercent: '',
             newLotNumber: '',
             qualityResult: '',
           };
@@ -801,17 +910,18 @@ function ReceiveModal({
     }
     const first = products[0];
     return first
-      ? [{ productId: first.productId, productLabel: `${first.sku} — ${first.name}`, isLotTracked: first.isLotTracked, quantity: 1, unitCost: 0, newLotNumber: '', qualityResult: '' }]
+      ? [{ productId: first.productId, productLabel: `${first.sku} — ${first.name}`, isLotTracked: first.isLotTracked, quantity: 1, unitCost: 0, discountPercent: '', newLotNumber: '', qualityResult: '' }]
       : [];
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedReceiptId, setSavedReceiptId] = useState<string | null>(null);
-  const [printing, setPrinting] = useState(false);
 
   function updateLine(i: number, patch: Partial<ReceiveLineState>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
+  const lineTotal = (l: ReceiveLineState) => l.quantity * l.unitCost * (1 - (Number(l.discountPercent) || 0) / 100);
+  const total = lines.reduce((sum, l) => sum + lineTotal(l), 0);
+  const supplier = suppliers.find((x) => x.id === supplierId);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -821,6 +931,9 @@ function ReceiveModal({
     try {
       const receipt = await purchasingApi.receiveGoods(accessToken, {
         purchaseOrderId: order?.id,
+        supplierId: order ? undefined : supplierId || undefined,
+        payment: Number(payment) > 0 && supplierId ? { amount: Number(payment), method } : undefined,
+        notes: notes.trim() || undefined,
         siteId,
         landedCostAmount: landedCostAmount ? Number(landedCostAmount) : undefined,
         landedCostNotes: landedCostNotes || undefined,
@@ -831,12 +944,13 @@ function ReceiveModal({
             productId: l.productId,
             quantity: l.quantity,
             unitCost: l.unitCost,
+            discountPercent: Number(l.discountPercent) > 0 ? Number(l.discountPercent) : undefined,
             newLot: l.isLotTracked && l.newLotNumber ? { lotNumber: l.newLotNumber } : undefined,
             qualityResult: l.qualityResult || undefined,
           })),
       });
-      setSavedReceiptId(receipt.id);
-      toast.success('Réception enregistrée.');
+      toast.success(`Bon de réception ${receipt.number ?? ''} enregistré.`);
+      onSaved(receipt.id);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Erreur lors de la réception.';
       setError(message);
@@ -846,58 +960,47 @@ function ReceiveModal({
     }
   }
 
-  async function printReceipt() {
-    if (!accessToken || !savedReceiptId) return;
-    setPrinting(true);
-    setError(null);
-    try {
-      const blob = await purchasingApi.fetchReceiptPdf(accessToken, savedReceiptId);
-      window.open(URL.createObjectURL(blob), '_blank');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Impossible de générer le bon de livraison.");
-    } finally {
-      setPrinting(false);
-    }
-  }
-
   return (
     <div className="modal-backdrop open">
       <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
-            <h3>{order ? `Réceptionner — ${order.number ?? ''}` : 'Réception libre'}</h3>
-            {!order && <p className="modal-sub">Sans bon de commande — pour un fournisseur informel ou une livraison imprévue.</p>}
+            <h3>{order ? `Bon de réception — ${order.number ?? ''}` : 'Bon de réception (réception libre)'}</h3>
+            <p className="modal-sub">{order ? `${order.supplier.name} · le stock entre à la validation.` : 'Livraison sans bon de commande · le stock entre à la validation.'}</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
           </button>
         </div>
-        {savedReceiptId ? (
-          <div className="modal-section">
-            <p className="sub">Réception enregistrée.</p>
-            {error && <div className="error-banner">{error}</div>}
-            <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
-              <button type="button" className="btn-secondary" onClick={printReceipt} disabled={printing}>
-                {printing ? 'Génération…' : 'Imprimer le bon de livraison'}
-              </button>
-              <button type="button" className="btn-primary" onClick={onSaved}>
-                Terminé
-              </button>
-            </div>
-          </div>
-        ) : (
         <form onSubmit={handleSubmit} className="field-form">
           {!order && sites && (
-            <div className="field-row">
-              <label>Site de réception</label>
-              <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
-                {sites.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+            <div className="field-grid">
+              <div className="field-row">
+                <label>Fournisseur</label>
+                <SearchableSelect
+                  value={supplierId}
+                  onChange={setSupplierId}
+                  options={suppliers.map((x) => ({ value: x.id, label: x.name, sublabel: x.code ?? undefined }))}
+                  placeholder="Rechercher un fournisseur…"
+                  emptyLabel="Fournisseur non spécifié"
+                />
+              </div>
+              <div className="field-row">
+                <label>Dépôt de réception</label>
+                <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
+                  {sites.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+          )}
+          {supplier && (
+            <p className="sub" style={{ margin: '-4px 0 6px' }}>
+              Solde fournisseur actuel : <b className={supplier.supplierBalance > 0 ? 'bad' : ''}>{fmt(supplier.supplierBalance)} DZD</b>
+            </p>
           )}
 
           <div className="field-grid">
@@ -927,6 +1030,7 @@ function ReceiveModal({
               <span className="li-num">Cartons</span>
               <span className="li-num">Qté reçue</span>
               <span className="li-money">Coût unitaire</span>
+              <span className="li-num">Remise %</span>
               {lines.some((l) => l.isLotTracked) && <span className="li-text">N° de lot</span>}
               <span className="li-select">Contrôle qualité</span>
               {!order && <span className="li-remove" />}
@@ -974,6 +1078,17 @@ function ReceiveModal({
                     className="control li-money"
                     required
                   />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={l.discountPercent}
+                    onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
+                    placeholder="0"
+                    aria-label="Remise %"
+                    className="control li-num"
+                  />
                   {anyLotTracked &&
                     (l.isLotTracked ? (
                       <input
@@ -1015,13 +1130,46 @@ function ReceiveModal({
               onClick={() =>
                 setLines((ls) => [
                   ...ls,
-                  { productId: products[0]?.productId ?? '', productLabel: '', isLotTracked: products[0]?.isLotTracked ?? false, quantity: 1, unitCost: 0, newLotNumber: '', qualityResult: '' },
+                  { productId: products[0]?.productId ?? '', productLabel: '', isLotTracked: products[0]?.isLotTracked ?? false, quantity: 1, unitCost: 0, discountPercent: '', newLotNumber: '', qualityResult: '' },
                 ])
               }
             >
-              + Ajouter une ligne
+              + Ajouter un article
             </button>
           )}
+
+          <div className="doc-form-bottom">
+            <div className="field-row" style={{ flex: 1 }}>
+              <label>Observation</label>
+              <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optionnel" />
+            </div>
+            <div className="doc-form-pay">
+              <div className="lines-total" style={{ marginTop: 0 }}>
+                <span>Total</span>
+                <strong>{fmt(total)} DZD</strong>
+              </div>
+              {supplierId ? (
+                <div className="field-row" style={{ marginBottom: 0 }}>
+                  <label>Versement au fournisseur</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="control" style={{ flex: 1 }} inputMode="decimal" placeholder="0,00" value={payment} onChange={(e) => setPayment(e.target.value)} />
+                    <select className="control" value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: 120 }}>
+                      {PAYMENT_METHODS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="button" className="btn-link" style={{ alignSelf: 'flex-start', marginTop: 6 }} onClick={() => setPayment(total.toFixed(2))}>
+                    Payé comptant ({fmt(total)})
+                  </button>
+                </div>
+              ) : (
+                <p className="sub" style={{ margin: 0 }}>Choisissez le fournisseur pour suivre son solde.</p>
+              )}
+            </div>
+          </div>
 
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
@@ -1029,10 +1177,239 @@ function ReceiveModal({
               Annuler
             </button>
             <button type="submit" className="btn-primary" disabled={submitting || lines.length === 0}>
-              {submitting ? 'Réception…' : 'Confirmer la réception'}
+              {submitting ? 'Enregistrement…' : 'Valider le bon de réception'}
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function ReceiptTable({ receipts, onOpen }: { receipts: PurchaseReceiptView[]; onOpen: (r: PurchaseReceiptView) => void }) {
+  const list = useListControls(receipts, {
+    id: 'receipts',
+    noun: ['bon', 'bons'],
+    searchPlaceholder: 'N°, fournisseur, BC…',
+    search: (r) => [r.number, r.supplier?.name, r.supplier?.code, r.purchaseOrder?.number, r.notes],
+    filters: [
+      { key: 'supplier', label: 'Fournisseur', type: 'select', value: (r) => r.supplier?.name ?? 'Non spécifié' },
+      { key: 'date', label: 'Date', type: 'dates', value: (r) => r.receivedAt },
+      { key: 'site', label: 'Dépôt', type: 'select', value: (r) => r.site.name },
+      {
+        key: 'pay',
+        label: 'Paiement',
+        type: 'select',
+        value: (r) => (r.paid <= 0.004 ? 'none' : r.paid + 0.01 >= r.total ? 'paid' : 'partial'),
+        options: [
+          { value: 'paid', label: 'Payé' },
+          { value: 'partial', label: 'Payé en partie' },
+          { value: 'none', label: 'Rien versé' },
+        ],
+      },
+      { key: 'total', label: 'Total', type: 'range', unit: 'DA', value: (r) => r.total },
+      { key: 'cancelled', label: 'Annulés', type: 'flag', test: (r) => !!r.cancelledAt },
+      { key: 'fromPo', label: 'Liés à un bon de commande', type: 'flag', test: (r) => !!r.purchaseOrderId },
+    ],
+    sorts: [
+      { key: 'number', label: 'N°', value: (r) => r.number, desc: true },
+      { key: 'date', label: 'Date', value: (r) => r.receivedAt, desc: true },
+      { key: 'supplier', label: 'Fournisseur', value: (r) => r.supplier?.name },
+      { key: 'site', label: 'Dépôt', value: (r) => r.site.name },
+      { key: 'total', label: 'Total', value: (r) => r.total, desc: true },
+      { key: 'paid', label: 'Versé', value: (r) => r.paid, desc: true },
+      { key: 'rest', label: 'Reste à payer', value: (r) => (r.cancelledAt ? null : Math.max(0, r.total - r.paid)), desc: true },
+    ],
+  });
+  return (
+    <>
+    {list.toolbar()}
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            {list.th('number', 'N°')}
+            {list.th('date', 'Date')}
+            {list.th('supplier', 'Fournisseur')}
+            {list.th('site', 'Dépôt')}
+            {list.th('total', 'Total', 'num')}
+            {list.th('paid', 'Versé', 'num')}
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.rows.map((r) => (
+            <tr key={r.id} className="clickable" onClick={() => onOpen(r)}>
+              <td className="mono">{r.number ?? '—'}</td>
+              <td className="muted">{new Date(r.receivedAt).toLocaleDateString('fr-FR')}</td>
+              <td>
+                <div className="cell-title">{r.supplier?.name ?? 'Non spécifié'}</div>
+                {r.purchaseOrder?.number && <div className="cell-sub">BC {r.purchaseOrder.number}</div>}
+              </td>
+              <td className="muted">{r.site.name}</td>
+              <td className="num">{fmt(r.total)}</td>
+              <td className="num muted">{r.paid > 0 ? fmt(r.paid) : '—'}</td>
+              <td>{r.cancelledAt ? <span className="pill danger">Annulé</span> : <span className="pill success">Reçu</span>}</td>
+            </tr>
+          ))}
+          {list.rows.length === 0 && (
+            <tr>
+              <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                {list.filtered ? (
+                  <>
+                    Aucun résultat pour ces filtres.{' '}
+                    <button type="button" className="btn-link" onClick={list.reset}>
+                      Effacer les filtres
+                    </button>
+                  </>
+                ) : (
+                  'Aucun bon de réception pour le moment.'
+                )}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+    </>
+  );
+}
+
+function ReceiptDetailModal({ receiptId, onClose, onChanged }: { receiptId: string; onClose: () => void; onChanged: () => void }) {
+  const { accessToken } = useAuth();
+  const [r, setR] = useState<PurchaseReceiptView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      setR(await purchasingApi.getReceipt(accessToken, receiptId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erreur de chargement.');
+    }
+  }, [accessToken, receiptId]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function cancel() {
+    if (!accessToken || !r) return;
+    if (!confirming) return setConfirming(true);
+    setBusy(true);
+    try {
+      await purchasingApi.cancelReceipt(accessToken, r.id);
+      toast.success(`${r.number} annulé — stock retiré.`);
+      onChanged();
+      load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Échec de l’annulation.');
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  async function print() {
+    if (!accessToken || !r) return;
+    try {
+      const blob = await purchasingApi.fetchReceiptPdf(accessToken, r.id);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Impossible de générer le PDF.');
+    }
+  }
+
+  return (
+    <div className="modal-backdrop open">
+      <div className="modal wide">
+        <div className="modal-header">
+          <div className="modal-header-titles">
+            <h3>Bon de réception {r?.number ?? ''}</h3>
+            {r && (
+              <div className="modal-meta">
+                {r.cancelledAt ? <span className="pill danger">Annulé</span> : <span className="pill success">Reçu</span>}
+                <span className="chip">{r.supplier?.name ?? 'Fournisseur non spécifié'}</span>
+                <span className="chip">{r.site.name}</span>
+                <span className="chip">{new Date(r.receivedAt).toLocaleDateString('fr-FR')}</span>
+                {r.purchaseOrder?.number && <span className="chip">BC {r.purchaseOrder.number}</span>}
+              </div>
+            )}
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
+        {error && <div className="error-banner">{error}</div>}
+        {!r ? (
+          <div className="page-loader">
+            <span className="spinner" /> Chargement…
+          </div>
+        ) : (
+          <>
+            <table className="lot-mini-table">
+              <thead>
+                <tr>
+                  <th>Désignation</th>
+                  <th className="num">Qté</th>
+                  <th className="num">P.U.</th>
+                  <th className="num">Remise</th>
+                  <th className="num">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.lines.map((l) => (
+                  <tr key={l.id}>
+                    <td>
+                      <div>{l.product?.name ?? l.productId}</div>
+                      {l.product?.sku && <div className="cell-sub mono">{l.product.sku}</div>}
+                    </td>
+                    <td className="num">{l.quantityReceived}</td>
+                    <td className="num">{fmt(l.unitCost)}</td>
+                    <td className="num muted">{l.discountPercent ? `${l.discountPercent} %` : '—'}</td>
+                    <td className="num">{fmt(l.quantityReceived * l.unitCost * (1 - (l.discountPercent ?? 0) / 100))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="doc-bottom">
+              <div className="doc-bottom-left">
+                {r.notes && (
+                  <div className="doc-notes">
+                    <div className="modal-section-label">Observation</div>
+                    <p>{r.notes}</p>
+                  </div>
+                )}
+                {r.supplierId && !r.cancelledAt && (
+                  <div>
+                    <div className="modal-section-label">Versements</div>
+                    <PaymentList payments={r.payments ?? []} onCancelled={() => { load(); onChanged(); }} />
+                    <PaymentInline partnerId={r.supplierId} direction="out" documentType="purchase_receipt" documentId={r.id} onSaved={() => { load(); onChanged(); }} />
+                  </div>
+                )}
+              </div>
+              <div className="doc-bottom-right">
+                <div className="totals" style={{ margin: 0 }}>
+                  <div className="totals-row grand">
+                    <span>Total</span>
+                    <span>{fmt(r.total)} DZD</span>
+                  </div>
+                </div>
+                {r.account && <AccountSummary account={r.account} side="supplier" />}
+              </div>
+            </div>
+            <div className="modal-footer">
+              {!r.cancelledAt && (
+                <button type="button" className="btn-link danger" style={{ marginRight: 'auto' }} disabled={busy} onClick={cancel} onBlur={() => setConfirming(false)}>
+                  {confirming ? 'Confirmer l’annulation (le stock sera retiré) ?' : 'Annuler le bon'}
+                </button>
+              )}
+              <button type="button" className="btn-secondary" onClick={print}>
+                Imprimer
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1126,7 +1503,7 @@ function RfqFormModal({
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Comparer des fournisseurs (RFQ)</h3>
-            <p className="modal-sub">Crée un bon de commande brouillon par fournisseur sélectionné, pour comparer leurs prix avant de choisir.</p>
+            <p className="modal-sub">Un brouillon par fournisseur pour comparer les prix.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -1162,8 +1539,8 @@ function RfqFormModal({
             />
           </div>
 
-          <div className="sub" style={{ marginTop: 4 }}>
-            Produits à comparer
+          <div className="lines-head">
+            <span className="modal-section-label">Articles à comparer</span>
           </div>
           <div className="line-items">
             <div className="line-item line-item-head">
@@ -1212,7 +1589,7 @@ function RfqFormModal({
             className="btn-link"
             onClick={() => setProductLines((ls) => [...ls, { productId: products[0]?.productId ?? '', quantity: 1 }])}
           >
-            + Ajouter une ligne
+            + Ajouter un article
           </button>
 
           {products.length === 0 && <div className="error-banner">Aucun produit en stock — créez d'abord un produit pour pouvoir le comparer.</div>}
@@ -1339,7 +1716,7 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Comparaison fournisseurs</h3>
-            <p className="modal-sub">Choisissez le fournisseur gagnant — il obtient un numéro de bon de commande, les autres sont archivés.</p>
+            <p className="modal-sub">Le fournisseur retenu reçoit un n° de BC, les autres sont archivés.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -1347,7 +1724,7 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
         </div>
         {error && <div className="error-banner">{error}</div>}
         {candidates === null ? (
-          <p className="sub">Chargement…</p>
+          <div className="page-loader"><span className="spinner" /> Chargement…</div>
         ) : (
           <div className="table-wrap">
             <table className="data">

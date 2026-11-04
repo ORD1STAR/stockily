@@ -3,6 +3,12 @@ import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
 import { ProtectedRoute } from '../lib/ProtectedRoute';
 import { ToastContainer } from '../lib/toast';
+// The shared component layer is global, not per-page: otherwise a button
+// or modal could look different depending on which route loaded first.
+import '../lib/data-views.css';
+import { installResponsiveTables } from '../lib/responsiveTables';
+
+installResponsiveTables();
 
 // Route-level code splitting — every page becomes its own chunk, fetched
 // only when actually visited, instead of one ~850KB bundle every visitor
@@ -20,13 +26,17 @@ const InvoicingPage = lazy(() => import('../pages/InvoicingPage'));
 const ScanPage = lazy(() => import('../pages/ScanPage'));
 const PurchasingPage = lazy(() => import('../pages/PurchasingPage'));
 const SalesPage = lazy(() => import('../pages/SalesPage'));
+const InventoryPage = lazy(() => import('../pages/InventoryPage'));
+const CountersPage = lazy(() => import('../pages/CountersPage'));
+const StatsPage = lazy(() => import('../pages/StatsPage'));
+const CashPage = lazy(() => import('../pages/CashPage'));
 
 // A blank instant during a chunk fetch reads as broken more than a plain
 // "Chargement…" would — on a fast connection this never even paints.
 function RouteFallback() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
-      Chargement…
+    <div className="page-loader full" role="status">
+      <span className="spinner" /> Chargement…
     </div>
   );
 }
@@ -108,6 +118,38 @@ export function App() {
               element={
                 <ProtectedRoute>
                   <SalesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory"
+              element={
+                <ProtectedRoute>
+                  <InventoryPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/counters"
+              element={
+                <ProtectedRoute>
+                  <CountersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/stats"
+              element={
+                <ProtectedRoute>
+                  <StatsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cash"
+              element={
+                <ProtectedRoute>
+                  <CashPage />
                 </ProtectedRoute>
               }
             />

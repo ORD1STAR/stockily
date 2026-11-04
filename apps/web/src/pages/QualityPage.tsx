@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Batch, NonConformity, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { toast } from '../lib/toast';
@@ -131,7 +132,7 @@ export function QualityPage() {
           <div className="sub">Lots, péremption et non-conformités — toutes activités confondues</div>
         </div>
         <button className="btn-primary" onClick={() => setShowCheckForm(true)}>
-          + Contrôle qualité
+          <Icon name="plus" size={16} /> Contrôle qualité
         </button>
       </div>
 
@@ -159,7 +160,7 @@ export function QualityPage() {
       </div>
 
       {loading ? (
-        <p className="sub">Chargement…</p>
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -279,10 +280,7 @@ function ResolveNonConformityModal({
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Résoudre la non-conformité</h3>
-            <p className="modal-sub">
-              Marque cette non-conformité comme résolue. La quantité concernée reste en quarantaine — la remise en stock ou le rebut se
-              fait via un mouvement de stock séparé (le Retours/SAV du Phase 3 gérera ce flux plus finement).
-            </p>
+            <p className="modal-sub">La quantité reste en quarantaine jusqu’à un mouvement de stock.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
@@ -389,10 +387,7 @@ function QualityCheckModal({ products, onClose, onSaved }: { products: StockRow[
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Nouveau contrôle qualité</h3>
-            <p className="modal-sub">
-              Enregistre une inspection — à réception ou en cours de stockage. Un résultat &#34;Non conforme&#34; met automatiquement la
-              quantité concernée en quarantaine.
-            </p>
+            <p className="modal-sub">« Non conforme » met la quantité en quarantaine.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕

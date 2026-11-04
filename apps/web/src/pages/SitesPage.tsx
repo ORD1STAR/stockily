@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Site, StockRow, Transfer, sitesApi, stockApi } from '../lib/api';
 import { notifyDataChanged } from '../lib/data-events';
@@ -56,10 +57,10 @@ export function SitesPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => setShowSiteForm(true)}>
-            + Nouveau site
+            <Icon name="plus" size={16} /> Nouveau site
           </button>
           <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
-            + Transfert inter-site
+            <Icon name="plus" size={16} /> Transfert inter-site
           </button>
         </div>
       </div>
@@ -67,7 +68,7 @@ export function SitesPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <p className="sub">Chargement…</p>
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
         <>
           <div className="site-grid">
@@ -85,9 +86,7 @@ export function SitesPage() {
           </div>
 
           <div>
-            <div className="sub" style={{ marginBottom: 8 }}>
-              Transferts
-            </div>
+            <h3 className="section-title">Transferts</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {transfers.map((t) => (
                 <div className="transfer-item" key={t.id} onClick={() => setSelectedTransfer(t)}>
@@ -97,7 +96,9 @@ export function SitesPage() {
                   </span>
                 </div>
               ))}
-              {transfers.length === 0 && <p className="sub">Aucun transfert pour le moment.</p>}
+              {transfers.length === 0 && (
+                <div className="empty-state">Aucun transfert pour le moment. Utilisez « Transfert inter-site » pour déplacer du stock entre deux sites.</div>
+              )}
             </div>
           </div>
         </>

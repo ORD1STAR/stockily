@@ -50,6 +50,11 @@ model Organization {
   // write. Shown on the org settings screen and printed on every invoice
   // PDF next to the seller's name.
   logo          String?  @db.Text
+  // Inventory reminder: off | weekly | monthly | quarterly | semiannual | yearly
+  inventoryReminder String @default("off")
+  inventoryReminderLastSentAt DateTime?
+  // Droit de timbre on invoices paid in cash, in percent of the TTC (null = disabled).
+  stampDutyRate Decimal? @db.Decimal(5, 2)
 
   sites         Site[]
   users         User[]
@@ -75,6 +80,13 @@ model Organization {
   salesOrders SalesOrder[]
   salesOrderCounters SalesOrderCounter[]
   partnerProductPrices PartnerProductPrice[]
+  tradeDocuments TradeDocument[]
+  documentCounters DocumentCounter[]
+  partnerPayments PartnerPayment[]
+  inventoryCounts InventoryCount[]
+  counters Counter[]
+  counterSessions CounterSession[]
+  cashEntries CashEntry[]
 
   @@map("organizations")
 }
@@ -130,6 +142,9 @@ model Site {
   purchaseOrders  PurchaseOrder[]
   purchaseReceipts PurchaseReceipt[]
   salesOrders     SalesOrder[]
+  tradeDocuments  TradeDocument[]
+  inventoryCounts InventoryCount[]
+  counters Counter[]
 
   @@index([orgId])
   @@map("sites")
@@ -264,6 +279,19 @@ model Product {
   // editors to turn "N cartons" into a quantity. Stock stays counted in
   // units; this is not a second unit of measure.
   unitsPerCarton Int?
+  // Prix 2 (gros). `sellPrice` is Prix 1 (détail). A customer's priceTier
+  // picks which one pre-fills their order lines.
+  sellPrice2    Decimal? @db.Decimal(14, 2)
+  // Tailles / couleurs. A product with variant axes is a "modèle": it holds
+  // no stock itself; each combination is a child Product (parentId) with its
+  // own SKU, barcode, prices and stock — so every stock flow works unchanged.
+  variantSizes  String[] @default([])
+  variantColors String[] @default([])
+  parentId      String?
+  size          String?
+  color         String?
+  parent        Product?  @relation("productVariants", fields: [parentId], references: [id])
+  variants      Product[] @relation("productVariants")
 
   organization Organization     @relation(fields: [orgId], references: [id])
   category     ProductCategory? @relation(fields: [categoryId], references: [id])
@@ -277,6 +305,8 @@ model Product {
   purchaseReceiptLines PurchaseReceiptLine[]
   salesOrderLines SalesOrderLine[]
   partnerProductPrices PartnerProductPrice[]
+  tradeDocumentLines TradeDocumentLine[]
+  inventoryCountLines InventoryCountLine[]
 
   @@unique([orgId, sku])
   @@unique([orgId, barcode])
@@ -486,6 +516,7 @@ model TaxRate {
   organization    Organization     @relation(fields: [orgId], references: [id])
   invoiceLines    InvoiceLine[]
   salesOrderLines SalesOrderLine[]
+  tradeDocumentLines TradeDocumentLine[]
 
   @@index([orgId])
   @@map("tax_rates")
@@ -521,6 +552,12 @@ model Partner {
   // unified table per the "Partner stays unified" decision rather than
   // splitting Customer/Supplier).
   paymentTermsNetDays Int?
+  // Short human code shown on documents (C0001 / F0001) — auto-assigned at creation, editable.
+  code       String?
+  // Balance carried over from before the business started using Stockily (positive = they owe us / we owe them).
+  openingBalance Decimal @default(0) @db.Decimal(14, 2)
+  // 1 = détail (Product.sellPrice), 2 = gros (Product.sellPrice2).
+  priceTier  Int     @default(1)
 
   organization   Organization    @relation(fields: [orgId], references: [id])
   invoices       Invoice[]
@@ -528,6 +565,9 @@ model Partner {
   purchaseOrders PurchaseOrder[]
   salesOrders    SalesOrder[]
   productPrices  PartnerProductPrice[]
+  tradeDocuments TradeDocument[]
+  payments       PartnerPayment[]
+  purchaseReceipts PurchaseReceipt[]
 
   // Soft delete — never physically removed. See Product.deletedAt for the
   // reasoning; every list/get query filters `deletedAt: null`.
@@ -587,6 +627,18 @@ model Invoice {
   // Soft delete — never physically removed. See Product.deletedAt for the
   // rationale; same convention here.
   deletedAt DateTime?
+  // "invoice" | "proforma" — a proforma is numbered PF-…, never moves stock
+  // and never counts in a partner balance.
+  kind          String      @default("invoice")
+  // True when generated from bons (BL / BR) that already moved the stock and
+  // already count in the partner balance: finalizing skips stock movements
+  // and its TTC isn't added to the balance again (its payments still are).
+  fromDocuments Boolean     @default(false)
+  // especes | cheque | virement | terme — cash triggers the droit de timbre.
+  paymentMode   String?
+  // Droit de timbre, frozen at finalization; net à payer = TTC + timbre.
+  stampDuty     Decimal     @default(0) @db.Decimal(14, 2)
+  tradeDocuments TradeDocument[]
 
   organization Organization  @relation(fields: [orgId], references: [id])
   site         Site          @relation(fields: [siteId], references: [id])
@@ -769,6 +821,12 @@ model PurchaseReceipt {
   // before.
   landedCostAmount Decimal? @db.Decimal(14, 2)
   landedCostNotes  String?
+  // Bon de réception: BR-YYYY-NNNNNN, the supplier (from the BC, or chosen
+  // for a réception libre), and cancellation.
+  number          String?
+  supplierId      String?
+  cancelledAt     DateTime?
+  supplier        Partner?  @relation(fields: [supplierId], references: [id])
 
   organization  Organization          @relation(fields: [orgId], references: [id])
   purchaseOrder PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
@@ -797,6 +855,7 @@ model PurchaseReceiptLine {
   // recomputed on read. landedUnitCost (what StockService.recordMovement
   // actually receives) = unitCost + landedCostShare / quantityReceived.
   landedCostShare     Decimal? @db.Decimal(14, 2)
+  discountPercent     Decimal? @db.Decimal(5, 2)
 
   receipt           PurchaseReceipt   @relation(fields: [receiptId], references: [id])
   purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
@@ -842,6 +901,7 @@ model SalesOrder {
   customer     Partner          @relation(fields: [customerId], references: [id])
   lines        SalesOrderLine[]
   invoices     Invoice[]
+  tradeDocuments TradeDocument[]
 
   // Soft delete — never physically removed. See Product.deletedAt for the
   // reasoning; every list/get query filters `deletedAt: null`.
@@ -874,6 +934,9 @@ model SalesOrderLine {
   description      String   // needed when productId is null, same as InvoiceLine
   quantityOrdered  Decimal  @db.Decimal(14, 3)
   quantityInvoiced Decimal  @default(0) @db.Decimal(14, 3) // cumulative, mirrors PurchaseOrderLine.quantityReceived — the still-reserved amount is always (quantityOrdered - quantityInvoiced), not stored separately
+  // Delivered through bons de livraison (stock already out, reservation
+  // released). Still reserved = ordered − invoiced − delivered.
+  quantityDelivered Decimal @default(0) @db.Decimal(14, 3)
   unitPrice        Decimal  @db.Decimal(14, 2) // resolved from PartnerProductPrice or Product.sellPrice at line-build time, freely overridable
   discountPercent  Decimal? @db.Decimal(5, 2)
   taxRateId        String?
@@ -885,6 +948,7 @@ model SalesOrderLine {
   product       Product?      @relation(fields: [productId], references: [id])
   taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id])
   invoiceLines  InvoiceLine[]
+  tradeDocumentLines TradeDocumentLine[]
 
   @@map("sales_order_lines")
 }
@@ -933,4 +997,214 @@ model AuditLog {
 
   @@index([orgId, occurredAt])
   @@map("audit_log")
+}
+
+// Bons that are not orders: bon de livraison (delivery_note), retour client
+// (customer_return), retour fournisseur (supplier_return). Each one moves
+// stock when validated and counts in the partner's balance.
+model TradeDocument {
+  id              String    @id @default(uuid())
+  orgId           String
+  type            String    // delivery_note | customer_return | supplier_return
+  number          String    // BL-… / RC-… / RF-…
+  siteId          String
+  partnerId       String?   // null = client comptoir (BL only)
+  salesOrderId    String?   // BL issued from a commande client
+  invoiceId       String?   // set once the BL has been invoiced
+  status          String    @default("validated") // validated | cancelled
+  issuedAt        DateTime  @default(now())
+  notes           String?   // observation
+  createdBy       String?
+  cancelledAt     DateTime?
+  // Vente au comptoir: the caisse session, how it was paid and how much was cashed in.
+  counterSessionId String?
+  paymentMethod    String?
+  amountPaidAtCounter Decimal @default(0) @db.Decimal(14, 2)
+  counterSession   CounterSession? @relation(fields: [counterSessionId], references: [id])
+  organization Organization        @relation(fields: [orgId], references: [id])
+  site         Site                @relation(fields: [siteId], references: [id])
+  partner      Partner?            @relation(fields: [partnerId], references: [id])
+  salesOrder   SalesOrder?         @relation(fields: [salesOrderId], references: [id])
+  invoice      Invoice?            @relation(fields: [invoiceId], references: [id])
+  lines        TradeDocumentLine[]
+
+  @@unique([orgId, number])
+  @@index([orgId, type])
+  @@index([partnerId])
+  @@map("trade_documents")
+}
+
+model TradeDocumentLine {
+  id               String   @id @default(uuid())
+  documentId       String
+  productId        String?
+  description      String
+  quantity         Decimal  @db.Decimal(14, 3)
+  unitPrice        Decimal  @db.Decimal(14, 2) // HT
+  discountPercent  Decimal? @db.Decimal(5, 2)
+  taxRateId        String?
+  salesOrderLineId String?
+  document       TradeDocument   @relation(fields: [documentId], references: [id])
+  product        Product?        @relation(fields: [productId], references: [id])
+  taxRate        TaxRate?        @relation(fields: [taxRateId], references: [id])
+  salesOrderLine SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id])
+
+  @@map("trade_document_lines")
+}
+
+// Numbering for BL / RC / RF / BR / PF, per org, year and document type.
+model DocumentCounter {
+  orgId      String
+  year       Int
+  docType    String
+  lastNumber Int    @default(0)
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@id([orgId, year, docType])
+  @@map("document_counters")
+}
+
+// Versements — money between us and a partner that isn't tied to a single
+// invoice: paid with a bon, or standalone on the partner's account.
+// direction "in" = we receive money, "out" = we pay money.
+model PartnerPayment {
+  id           String    @id @default(uuid())
+  orgId        String
+  partnerId    String
+  direction    String    // in | out
+  amount       Decimal   @db.Decimal(14, 2)
+  method       String?   // especes | cheque | virement | autre
+  paidAt       DateTime  @default(now())
+  notes        String?
+  documentType String?   // delivery_note | customer_return | supplier_return | purchase_receipt
+  documentId   String?
+  createdBy    String?
+  cancelledAt  DateTime?
+  organization Organization @relation(fields: [orgId], references: [id])
+  partner      Partner      @relation(fields: [partnerId], references: [id])
+
+  @@index([orgId])
+  @@index([partnerId])
+  @@index([documentId])
+  @@map("partner_payments")
+}
+
+// Inventaire physique d'un dépôt: a snapshot of the expected quantities,
+// the quantities actually counted, and — once validated — one stock
+// ADJUSTMENT per discrepancy.
+model InventoryCount {
+  id          String    @id @default(uuid())
+  orgId       String
+  siteId      String
+  number      String    // INV-YYYY-NNNNNN
+  status      String    @default("draft") // draft | validated | cancelled
+  scope       String    @default("all") // all | category | selection
+  categoryId  String?
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  validatedAt DateTime?
+  validatedBy String?
+  organization Organization         @relation(fields: [orgId], references: [id])
+  site         Site                 @relation(fields: [siteId], references: [id])
+  lines        InventoryCountLine[]
+
+  @@unique([orgId, number])
+  @@index([orgId, siteId])
+  @@map("inventory_counts")
+}
+
+model InventoryCountLine {
+  id         String   @id @default(uuid())
+  countId    String
+  productId  String
+  // Expected (book) quantity: snapshot at creation, re-read and frozen at validation.
+  systemQty  Decimal  @db.Decimal(14, 3)
+  // null = not counted yet.
+  countedQty Decimal? @db.Decimal(14, 3)
+  // Average cost frozen at validation, to value the discrepancy.
+  unitCost   Decimal  @default(0) @db.Decimal(14, 2)
+  count   InventoryCount @relation(fields: [countId], references: [id])
+  product Product        @relation(fields: [productId], references: [id])
+
+  @@unique([countId, productId])
+  @@map("inventory_count_lines")
+}
+
+// Comptoir = une caisse rattachée à un dépôt.
+model Counter {
+  id        String   @id @default(uuid())
+  orgId     String
+  siteId    String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  organization Organization     @relation(fields: [orgId], references: [id])
+  site         Site             @relation(fields: [siteId], references: [id])
+  sessions     CounterSession[]
+
+  @@index([orgId])
+  @@map("counters")
+}
+
+// Session de caisse: ouverture (fond de caisse) → ventes → clôture (ticket Z).
+model CounterSession {
+  id           String    @id @default(uuid())
+  orgId        String
+  counterId    String
+  number       String    // Z-YYYY-NNNNNN
+  status       String    @default("open") // open | closed
+  openedBy     String?
+  openedAt     DateTime  @default(now())
+  openingCash  Decimal   @default(0) @db.Decimal(14, 2)
+  closedBy     String?
+  closedAt     DateTime?
+  countedCash  Decimal?  @db.Decimal(14, 2)
+  expectedCash Decimal?  @db.Decimal(14, 2)
+  notes        String?
+  organization Organization          @relation(fields: [orgId], references: [id])
+  counter      Counter               @relation(fields: [counterId], references: [id])
+  documents    TradeDocument[]
+  movements    CounterCashMovement[]
+
+  @@unique([orgId, number])
+  @@index([counterId, status])
+  @@map("counter_sessions")
+}
+
+// Entrées / sorties d'argent de la caisse hors ventes (dépense, retrait, apport).
+model CounterCashMovement {
+  id        String   @id @default(uuid())
+  sessionId String
+  direction String   // in | out
+  amount    Decimal  @db.Decimal(14, 2)
+  reason    String
+  createdBy String?
+  createdAt DateTime @default(now())
+  session CounterSession @relation(fields: [sessionId], references: [id])
+
+  @@map("counter_cash_movements")
+}
+
+// Caisse — encaissement / décaissement libre (hors bons et factures). The
+// optional partner / product / bon are references only; a versement that
+// must count on a partner's account is a PartnerPayment instead.
+model CashEntry {
+  id           String    @id @default(uuid())
+  orgId        String
+  siteId       String?
+  direction    String    // in | out
+  amount       Decimal   @db.Decimal(14, 2)
+  method       String    @default("especes") // especes | carte | cheque | virement | autre
+  occurredAt   DateTime  @default(now())
+  description  String?
+  partnerId    String?
+  productId    String?
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+  cancelledAt  DateTime?
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, occurredAt])
+  @@map("cash_entries")
 }

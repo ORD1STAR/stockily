@@ -19,6 +19,11 @@ import { SitesModule } from '../modules/sites/sites.module';
 import { ScanModule } from '../modules/scan/scan.module';
 import { PurchasingModule } from '../modules/purchasing/purchasing.module';
 import { SalesModule } from '../modules/sales/sales.module';
+import { TradeModule } from '../modules/trade/trade.module';
+import { InventoryModule } from '../modules/inventory/inventory.module';
+import { CountersModule } from '../modules/counters/counters.module';
+import { StatsModule } from '../modules/stats/stats.module';
+import { CashModule } from '../modules/cash/cash.module';
 import { AuditModule } from '../modules/audit/audit.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
 import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-context.middleware';
@@ -50,6 +55,11 @@ import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-co
     // Phase 2, Milestone 9/10 — Achats & Ventes.
     PurchasingModule,
     SalesModule,
+    TradeModule,
+    InventoryModule,
+    CountersModule,
+    StatsModule,
+    CashModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

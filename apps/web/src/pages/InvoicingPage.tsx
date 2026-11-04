@@ -1,5 +1,9 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { useListControls } from '../lib/ListControls';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, InvoiceView, Partner, Site, StockRow, TaxRate, invoicingApi, sitesApi, stockApi } from '../lib/api';
 import { useDataChangeListener } from '../lib/data-events';
@@ -14,6 +18,7 @@ const STATUS_LABEL: Record<InvoiceView['status'], string> = {
   partially_paid: 'Partielle',
   paid: 'Payée',
   void: 'Annulée',
+  proforma: 'Proforma',
 };
 const STATUS_PILL: Record<InvoiceView['status'], string> = {
   draft: 'info',
@@ -21,6 +26,7 @@ const STATUS_PILL: Record<InvoiceView['status'], string> = {
   partially_paid: 'warning',
   paid: 'success',
   void: 'danger',
+  proforma: 'info',
 };
 
 const FILTERS: { label: string; value: string | undefined }[] = [
@@ -28,6 +34,7 @@ const FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Impayées', value: 'unpaid' },
   { label: 'Partielles', value: 'partially_paid' },
   { label: 'Payées', value: 'paid' },
+  { label: 'Proformas', value: 'proforma' },
 ];
 
 export function InvoicingPage() {
@@ -41,7 +48,7 @@ export function InvoicingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<InvoiceView | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate, setShowCreate] = useState<false | 'invoice' | 'proforma'>(false);
   const [showTaxRateForm, setShowTaxRateForm] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
@@ -57,7 +64,7 @@ export function InvoicingPage() {
         invoicingApi.listTaxRates(accessToken),
         stockApi.listProducts(accessToken, 'all'),
       ]);
-      setInvoices(invoiceRows);
+      setInvoices(filter === 'proforma' ? invoiceRows : invoiceRows.filter((i) => i.kind !== 'proforma'));
       setPartners(partnerRows);
       setSites(siteRows);
       setTaxRates(taxRows);
@@ -83,6 +90,18 @@ export function InvoicingPage() {
     setSelected(detail);
   }
 
+  // Deep link: /invoicing?open=<id> (from a bon de livraison or a commande).
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('open');
+    if (!id || !accessToken) return;
+    invoicingApi
+      .getInvoice(accessToken, id)
+      .then(setSelected)
+      .catch(() => toast.error('Facture introuvable.'));
+    setSearchParams({}, { replace: true });
+  }, [searchParams, accessToken]);
+
   async function refreshSelected() {
     if (!accessToken || !selected) return;
     setSelected(await invoicingApi.getInvoice(accessToken, selected.id));
@@ -101,9 +120,44 @@ export function InvoicingPage() {
     }
   }
 
+  const PAY_MODE: Record<string, string> = { especes: 'Espèces', cheque: 'Chèque', virement: 'Virement', terme: 'À terme' };
+  const list = useListControls(invoices, {
+    id: 'invoices',
+    noun: ['facture', 'factures'],
+    searchPlaceholder: 'N°, client, NIF, produit…',
+    search: (i) => [i.number, i.partner?.name, i.partner?.nif, ...(i.deliveryNotes ?? []).map((d) => d.number), ...i.lines.map((l) => l.description)],
+    filters: [
+      {
+        key: 'type',
+        label: 'Type',
+        type: 'select',
+        value: (i) => i.type,
+        options: [
+          { value: 'CUSTOMER', label: 'Factures clients' },
+          { value: 'SUPPLIER', label: 'Factures fournisseurs' },
+        ],
+      },
+      { key: 'partner', label: 'Client / fournisseur', type: 'select', value: (i) => i.partner?.name ?? 'Client comptant' },
+      { key: 'date', label: 'Date', type: 'dates', value: (i) => i.finalizedAt ?? i.issuedAt },
+      { key: 'mode', label: 'Mode de paiement', type: 'select', value: (i) => (i.paymentMode ? PAY_MODE[i.paymentMode] : null) },
+      { key: 'total', label: 'Montant TTC', type: 'range', unit: 'DA', value: (i) => i.totals.totalTtc },
+      { key: 'rest', label: 'Avec reste à payer', type: 'flag', test: (i) => i.balance > 0.004 && i.status !== 'void' && i.kind !== 'proforma' },
+      { key: 'fromBl', label: 'Issues de bons de livraison', type: 'flag', test: (i) => i.fromDocuments },
+      { key: 'drafts', label: 'Brouillons', type: 'flag', test: (i) => i.status === 'draft' },
+    ],
+    sorts: [
+      { key: 'number', label: 'N°', value: (i) => i.number, desc: true },
+      { key: 'partner', label: 'Partenaire', value: (i) => i.partner?.name ?? 'Client comptant' },
+      { key: 'date', label: 'Date', value: (i) => i.finalizedAt ?? i.issuedAt, desc: true },
+      { key: 'total', label: 'Montant TTC', value: (i) => i.totals.totalTtc, desc: true },
+      { key: 'rest', label: 'Reste à payer', value: (i) => (i.kind === 'proforma' || i.status === 'void' ? null : i.balance), desc: true },
+      { key: 'status', label: 'Statut', value: (i) => STATUS_LABEL[i.status] },
+    ],
+  });
+
   const stats = {
     totalMonth: invoices
-      .filter((i) => i.status !== 'draft' && i.status !== 'void')
+      .filter((i) => i.status !== 'draft' && i.status !== 'void' && i.kind !== 'proforma')
       .reduce((s, i) => s + i.totals.totalTtc, 0),
     unpaid: invoices.filter((i) => i.status === 'unpaid' || i.status === 'partially_paid').reduce((s, i) => s + i.balance, 0),
     overdueCount: invoices.filter((i) => i.status === 'unpaid').length,
@@ -117,11 +171,14 @@ export function InvoicingPage() {
           <div className="sub">Numérotation séquentielle unique — organisation entière</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => setShowTaxRateForm(true)}>
-            + Taux de TVA
-          </button>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            + Nouvelle facture
+          <ActionMenu
+            items={[
+              { label: 'Nouvelle proforma', hint: 'Sans effet sur le stock ni le solde', icon: 'receipt', onClick: () => setShowCreate('proforma') },
+              { label: 'Ajouter un taux de TVA', icon: 'calculator', onClick: () => setShowTaxRateForm(true) },
+            ]}
+          />
+          <button className="btn-primary" onClick={() => setShowCreate('invoice')}>
+            <Icon name="plus" size={16} /> Nouvelle facture
           </button>
         </div>
       </div>
@@ -143,46 +200,61 @@ export function InvoicingPage() {
         </div>
       </div>
 
-      <div className="toggle-row" style={{ maxWidth: 420 }}>
-        {FILTERS.map((f) => (
-          <button key={f.label} className={`toggle-btn${filter === f.value ? ' on' : ''}`} onClick={() => setFilter(f.value)}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {list.toolbar(
+        <div className="toggle-row">
+          {FILTERS.map((f) => (
+            <button key={f.label} className={`toggle-btn${filter === f.value ? ' on' : ''}`} onClick={() => setFilter(f.value)}>
+              {f.label}
+            </button>
+          ))}
+        </div>,
+      )}
 
       {loading ? (
-        <p className="sub">Chargement…</p>
+        <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : (
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>N° Facture</th>
-                <th>Partenaire</th>
+                {list.th('number', 'N° Facture')}
+                {list.th('partner', 'Partenaire')}
                 <th>NIF</th>
-                <th>Date</th>
-                <th className="num">Montant TTC</th>
-                <th>Statut</th>
+                {list.th('date', 'Date')}
+                {list.th('total', 'Montant TTC', 'num')}
+                {list.th('rest', 'Reste', 'num')}
+                {list.th('status', 'Statut')}
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
+              {list.rows.map((inv) => (
                 <tr key={inv.id} className="clickable" onClick={() => openInvoice(inv.id)}>
                   <td className="mono">{inv.number ?? `(brouillon ${inv.id.slice(0, 8)})`}</td>
                   <td>{inv.partner?.name ?? 'Client comptant'}</td>
                   <td className="mono muted">{inv.partner?.nif ?? '—'}</td>
                   <td className="mono">{new Date(inv.finalizedAt ?? inv.issuedAt).toLocaleDateString('fr-FR')}</td>
                   <td className="num">{inv.totals.totalTtc.toFixed(2)}</td>
+                  <td className={`num ${inv.kind !== 'proforma' && inv.status !== 'void' && inv.balance > 0.004 ? 'bad' : 'muted'}`}>
+                    {inv.kind === 'proforma' || inv.status === 'void' || inv.balance <= 0.004 ? '—' : inv.balance.toFixed(2)}
+                  </td>
                   <td>
                     <span className={`pill ${STATUS_PILL[inv.status]}`}>{STATUS_LABEL[inv.status]}</span>
                   </td>
                 </tr>
               ))}
-              {invoices.length === 0 && (
+              {list.rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
-                    Aucune facture pour ce filtre.
+                  <td colSpan={7} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
+                    {list.filtered ? (
+                      <>
+                        Aucun résultat pour ces filtres.{' '}
+                        <button type="button" className="btn-link" onClick={list.reset}>
+                          Effacer les filtres
+                        </button>
+                      </>
+                    ) : (
+                      'Aucune facture pour ce filtre.'
+                    )}
                   </td>
                 </tr>
               )}
@@ -232,6 +304,20 @@ export function InvoicingPage() {
             }
           }}
           onOpenPdf={openPdf}
+          onConvert={async () => {
+            if (!accessToken) return;
+            try {
+              const draft = await invoicingApi.convertProforma(accessToken, selected.id);
+              toast.success('Facture brouillon créée depuis la proforma.');
+              setFilter(undefined);
+              setSelected(draft);
+              load();
+            } catch (err) {
+              const message = err instanceof ApiError ? err.message : 'Échec de la conversion.';
+              setPdfError(message);
+              toast.error(message);
+            }
+          }}
           onDelete={async () => {
             if (!accessToken) return;
             try {
@@ -251,6 +337,7 @@ export function InvoicingPage() {
 
       {showCreate && (
         <CreateInvoiceModal
+          initialKind={showCreate}
           partners={partners}
           sites={sites}
           taxRates={taxRates}
@@ -354,10 +441,12 @@ function InvoiceModal({
   onResetPayments,
   onOpenPdf,
   onDelete,
+  onConvert,
   pdfError,
 }: {
   invoice: InvoiceView;
   onClose: () => void;
+  onConvert: () => void;
   onFinalize: () => void;
   onRecordPayment: (amount: number) => void;
   onResetPayments: () => void;
@@ -366,6 +455,7 @@ function InvoiceModal({
   pdfError: string | null;
 }) {
   const [paymentAmount, setPaymentAmount] = useState('');
+  const navigate = useNavigate();
   // A second click is required before actually resetting — this deletes
   // every payment row against the invoice, so a stray click on "reset"
   // itself shouldn't be able to wipe out a real payment as easily as the
@@ -381,7 +471,7 @@ function InvoiceModal({
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>
-              Facture {invoice.number ?? '(brouillon)'}{' '}
+              {invoice.kind === 'proforma' ? 'Facture proforma' : 'Facture'} {invoice.number ?? '(brouillon)'}{' '}
               <span className={`pill ${STATUS_PILL[invoice.status]}`}>{STATUS_LABEL[invoice.status]}</span>
             </h3>
             <p className="modal-sub">{invoice.partner?.name ?? 'Client comptant'}</p>
@@ -391,72 +481,100 @@ function InvoiceModal({
           </button>
         </div>
 
-        <div className="modal-section">
-          <div className="modal-section-label">Lignes</div>
+        {invoice.deliveryNotes && invoice.deliveryNotes.length > 0 && (
+          <div className="link-banner">
+            <span>
+              Issue {invoice.deliveryNotes.length > 1 ? 'des bons' : 'du bon'} de livraison{' '}
+              {invoice.deliveryNotes.map((d, i) => (
+                <span key={d.id}>
+                  {i > 0 && ', '}
+                  <button type="button" className="btn-link" style={{ margin: 0, padding: '0 2px' }} onClick={() => navigate(`/sales?doc=${d.id}`)}>
+                    {d.number}
+                  </button>
+                </span>
+              ))}
+            </span>
+            <span className="sub">Stock déjà sorti avec le BL · versements du BL inclus</span>
+          </div>
+        )}
+        <div className="modal-section" style={{ marginTop: 0 }}>
           <table className="lot-mini-table">
             <thead>
               <tr>
                 <th>Désignation</th>
-                <th>Qté</th>
-                <th>P.U. HT</th>
-                <th>TVA</th>
+                <th className="num">Qté</th>
+                <th className="num">P.U. HT</th>
+                <th className="num">TVA</th>
               </tr>
             </thead>
             <tbody>
               {invoice.lines.map((l) => (
                 <tr key={l.id}>
                   <td>{l.description}</td>
-                  <td className="mono">{l.quantity}</td>
-                  <td className="mono">{l.unitPrice.toFixed(2)}</td>
-                  <td className="mono">{l.taxRate ? `${l.taxRate.rate}%` : '—'}</td>
+                  <td className="num">{l.quantity}</td>
+                  <td className="num">{l.unitPrice.toFixed(2)}</td>
+                  <td className="num muted">{l.taxRate ? `${l.taxRate.rate}%` : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        <div className="note-box" style={{ marginTop: 14 }}>
-          <div>
-            Total HT : <b className="mono">{invoice.totals.totalHt.toFixed(2)} DZD</b> — TVA :{' '}
-            <b className="mono">{invoice.totals.totalTax.toFixed(2)} DZD</b> — Total TTC :{' '}
-            <b className="mono">{invoice.totals.totalTtc.toFixed(2)} DZD</b>
+        <div className="totals">
+          <div className="totals-row">
+            <span>Total HT</span>
+            <span>{invoice.totals.totalHt.toFixed(2)} DZD</span>
           </div>
-          <div style={{ marginTop: 8, fontStyle: 'italic' }}>{invoice.totals.totalInWordsFr}</div>
-          <div dir="rtl" style={{ marginTop: 4, fontStyle: 'italic' }}>
-            {invoice.totals.totalInWordsAr}
+          <div className="totals-row">
+            <span>TVA</span>
+            <span>{invoice.totals.totalTax.toFixed(2)} DZD</span>
           </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-            <span className="badge-lang">FR</span>
-            <span className="badge-lang">AR — عربي</span>
+          {invoice.totals.stampDuty > 0 ? (
+            <>
+              <div className="totals-row">
+                <span>Total TTC</span>
+                <span>{invoice.totals.totalTtc.toFixed(2)} DZD</span>
+              </div>
+              <div className="totals-row">
+                <span>Droit de timbre</span>
+                <span>{invoice.totals.stampDuty.toFixed(2)} DZD</span>
+              </div>
+              <div className="totals-row grand">
+                <span>Net à payer</span>
+                <span>{invoice.totals.netToPay.toFixed(2)} DZD</span>
+              </div>
+            </>
+          ) : (
+            <div className="totals-row grand">
+              <span>Total TTC</span>
+              <span>{invoice.totals.totalTtc.toFixed(2)} DZD</span>
+            </div>
+          )}
+          <div className="totals-words">
+            <div>{invoice.totals.totalInWordsFr}</div>
+            <div dir="rtl">{invoice.totals.totalInWordsAr}</div>
           </div>
         </div>
 
-        {invoice.status !== 'draft' && invoice.status !== 'void' && (
-          <p className="sub" style={{ marginTop: 10 }}>
-            Payé : <b className="mono">{invoice.totalPaid.toFixed(2)}</b> DZD — Solde restant : <b className="mono">{invoice.balance.toFixed(2)}</b> DZD
-          </p>
-        )}
-
-        {pdfError && <div className="error-banner">{pdfError}</div>}
-
-        <div className="modal-footer" style={{ flexWrap: 'wrap' }}>
-          {invoice.type === 'CUSTOMER' && invoice.status === 'draft' && (
-            <button className="btn-primary" onClick={onFinalize}>
-              Finaliser
-            </button>
-          )}
-          {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.balance > 0 && (
-            <>
-              <input
-                className="mono"
-                style={{ width: 110, padding: '9px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-                placeholder="Montant"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-              />
-              <button
-                className="btn-secondary"
-                onClick={() => {
+        {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.kind !== 'proforma' && (
+          <div className="modal-section">
+            <div className="modal-section-label">Paiements</div>
+            <div className="pay-progress" aria-hidden="true">
+              <span style={{ width: `${invoice.totals.totalTtc > 0 ? Math.min(100, (invoice.totalPaid / invoice.totals.totalTtc) * 100) : 0}%` }} />
+            </div>
+            <div className="pay-summary">
+              <span>
+                Payé <b>{invoice.totalPaid.toFixed(2)} DZD</b>
+              </span>
+              <span>
+                Reste <b className={invoice.balance > 0 ? 'bad' : ''}>{invoice.balance.toFixed(2)} DZD</b>
+              </span>
+            </div>
+            {invoice.balance > 0 && (
+              <form
+                className="pay-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
                   const amount = Number(paymentAmount);
                   if (amount > 0) {
                     onRecordPayment(amount);
@@ -464,47 +582,63 @@ function InvoiceModal({
                   }
                 }}
               >
-                Enregistrer paiement
+                <input className="control" inputMode="decimal" placeholder="Montant reçu" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+                <button type="submit" className="btn-secondary" disabled={!(Number(paymentAmount) > 0)}>
+                  Encaisser
+                </button>
+                <button type="button" className="btn-link" onClick={() => onRecordPayment(invoice.balance)}>
+                  Tout encaisser ({invoice.balance.toFixed(2)})
+                </button>
+              </form>
+            )}
+            {invoice.totalPaid > 0 && (
+              <button
+                type="button"
+                className="btn-link subtle"
+                style={{ marginTop: 10 }}
+                onClick={() => {
+                  if (confirmingReset) {
+                    onResetPayments();
+                    setConfirmingReset(false);
+                  } else {
+                    setConfirmingReset(true);
+                  }
+                }}
+                onBlur={() => setConfirmingReset(false)}
+              >
+                {confirmingReset ? 'Confirmer : annuler tous les paiements ?' : 'Annuler les paiements enregistrés'}
               </button>
-              <button className="btn-secondary" onClick={() => onRecordPayment(invoice.balance)}>
-                Marquer payée intégralement
-              </button>
-            </>
-          )}
-          {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.totalPaid > 0 && (
-            <button
-              className="btn-link"
-              onClick={() => {
-                if (confirmingReset) {
-                  onResetPayments();
-                  setConfirmingReset(false);
-                } else {
-                  setConfirmingReset(true);
-                }
-              }}
-              onBlur={() => setConfirmingReset(false)}
-            >
-              {confirmingReset ? 'Confirmer — annuler tous les paiements ?' : 'Paiement erroné ? Annuler les paiements'}
-            </button>
-          )}
-          {invoice.status !== 'draft' && (
-            <>
-              <button className="btn-secondary" onClick={onOpenPdf}>
-                Télécharger PDF
-              </button>
-              <button className="btn-primary" onClick={onOpenPdf}>
-                Imprimer
-              </button>
-            </>
-          )}
+            )}
+          </div>
+        )}
+
+        {pdfError && <div className="error-banner">{pdfError}</div>}
+
+        <div className="modal-footer">
           <button
             type="button"
             className="btn-link danger"
+            style={{ marginRight: 'auto' }}
             onClick={() => (confirmingDelete ? onDelete() : setConfirmingDelete(true))}
             onBlur={() => setConfirmingDelete(false)}
           >
-            {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer la facture'}
+            {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer'}
           </button>
+          {invoice.status !== 'draft' && (
+            <button className="btn-primary" onClick={onOpenPdf}>
+              Imprimer / PDF
+            </button>
+          )}
+          {invoice.type === 'CUSTOMER' && invoice.status === 'draft' && (
+            <button className="btn-primary" onClick={onFinalize}>
+              Finaliser la facture
+            </button>
+          )}
+          {invoice.kind === 'proforma' && (
+            <button className="btn-primary" onClick={onConvert}>
+              Convertir en facture
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -524,9 +658,11 @@ function CreateInvoiceModal({
   sites,
   taxRates,
   products,
+  initialKind,
   onClose,
   onCreated,
 }: {
+  initialKind: 'invoice' | 'proforma';
   partners: Partner[];
   sites: Site[];
   taxRates: TaxRate[];
@@ -537,6 +673,8 @@ function CreateInvoiceModal({
   const { accessToken } = useAuth();
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [partnerId, setPartnerId] = useState('');
+  const [kind, setKind] = useState<'invoice' | 'proforma'>(initialKind);
+  const [paymentMode, setPaymentMode] = useState<'especes' | 'cheque' | 'virement' | 'terme'>('especes');
   const defaultTaxRateId = taxRates.find((t) => t.isDefault)?.id ?? '';
   const blankLine = (): DraftLine => ({ productId: '', description: '', quantity: '1', unitPrice: '', taxRateId: defaultTaxRateId });
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
@@ -567,8 +705,10 @@ function CreateInvoiceModal({
     try {
       await invoicingApi.createInvoice(accessToken, {
         type: 'CUSTOMER',
+        kind,
         siteId,
         partnerId: partnerId || undefined,
+        paymentMode,
         lines: lines.map((l) => ({
           productId: l.productId || undefined,
           description: l.description,
@@ -577,7 +717,7 @@ function CreateInvoiceModal({
           taxRateId: l.taxRateId || undefined,
         })),
       });
-      toast.success('Facture créée.');
+      toast.success(kind === 'proforma' ? 'Proforma créée.' : 'Facture brouillon créée.');
       onCreated();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Échec de la création.';
@@ -591,14 +731,25 @@ function CreateInvoiceModal({
       <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
-            <h3>Nouvelle facture</h3>
-            <p className="modal-sub">Client (facultatif — laissez vide pour une vente comptoir).</p>
+            <h3>{kind === 'proforma' ? 'Nouvelle proforma' : 'Nouvelle facture'}</h3>
+            <p className="modal-sub">
+              {kind === 'proforma' ? 'Numérotée tout de suite, sans mouvement de stock ni effet sur le solde.' : 'Créée en brouillon, numérotée à la finalisation.'}
+            </p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
           </button>
         </div>
         <form className="field-form" onSubmit={submit}>
+          <div className="toggle-row" style={{ maxWidth: 320 }}>
+            <button type="button" className={`toggle-btn${kind === 'invoice' ? ' on' : ''}`} onClick={() => setKind('invoice')}>
+              Facture
+            </button>
+            <button type="button" className={`toggle-btn${kind === 'proforma' ? ' on' : ''}`} onClick={() => setKind('proforma')}>
+              Proforma
+            </button>
+          </div>
+          <div className="field-grid">
           <div className="field-row">
             <label>Site</label>
             <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required>
@@ -619,8 +770,29 @@ function CreateInvoiceModal({
               options={partners.filter((p) => p.isCustomer).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
             />
           </div>
+          </div>
+          <div className="field-row">
+            <label>Mode de paiement</label>
+            <div className="toggle-row" style={{ margin: 0, maxWidth: 460 }}>
+              {(
+                [
+                  ['especes', 'Espèces'],
+                  ['cheque', 'Chèque'],
+                  ['virement', 'Virement'],
+                  ['terme', 'À terme'],
+                ] as const
+              ).map(([v, label]) => (
+                <button key={v} type="button" className={`toggle-btn${paymentMode === v ? ' on' : ''}`} onClick={() => setPaymentMode(v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <div className="modal-section-label">Lignes</div>
+          <div className="lines-head">
+            <span className="modal-section-label">Articles</span>
+            <span className="lines-count">{lines.length}</span>
+          </div>
           <div className="line-items">
             <div className="line-item line-item-head">
               <span className="li-grow">Produit (vide = service)</span>
@@ -699,7 +871,7 @@ function CreateInvoiceModal({
             })}
           </div>
           <button type="button" className="btn-link" onClick={() => setLines((prev) => [...prev, blankLine()])} style={{ marginBottom: 10 }}>
-            + Ajouter une ligne
+            + Ajouter un article
           </button>
 
           {error && <div className="error-banner">{error}</div>}
@@ -708,7 +880,7 @@ function CreateInvoiceModal({
               Annuler
             </button>
             <button type="submit" className="btn-primary">
-              Créer (brouillon)
+              {kind === 'proforma' ? 'Créer la proforma' : 'Créer (brouillon)'}
             </button>
           </div>
         </form>

@@ -13,12 +13,20 @@ import { UpsertPartnerProductPriceDto } from './dto/upsert-partner-product-price
 // boundary convention as PurchasingService (see that file's own comment for
 // the real bug this once caused, found live in Chrome).
 function serializeOrderLine<
-  T extends { quantityOrdered: unknown; quantityInvoiced: unknown; unitPrice: unknown; discountPercent?: unknown; invoiceLines?: { quantity: unknown }[] },
+  T extends {
+    quantityOrdered: unknown;
+    quantityInvoiced: unknown;
+    quantityDelivered?: unknown;
+    unitPrice: unknown;
+    discountPercent?: unknown;
+    invoiceLines?: { quantity: unknown }[];
+  },
 >({ invoiceLines, ...l }: T) {
   return {
     ...l,
     quantityOrdered: Number(l.quantityOrdered),
     quantityInvoiced: Number(l.quantityInvoiced),
+    quantityDelivered: Number(l.quantityDelivered ?? 0),
     // Quantity already on not-yet-finalized draft factures (only present
     // when the query included PENDING_DRAFT_LINES) — not yet in
     // quantityInvoiced, but no longer available to invoice either.
@@ -46,6 +54,8 @@ const ORDER_STATUS_LABEL_FR: Record<string, string> = {
   expired: 'Expiré',
   confirmed: 'Confirmée',
   partially_invoiced: 'Partiellement facturée',
+  partially_delivered: 'Partiellement livrée',
+  delivered: 'Livrée',
   invoiced: 'Facturée',
   cancelled: 'Annulé',
 };
@@ -151,6 +161,7 @@ export class SalesService {
         site: true,
         lines: { where: { deletedAt: null }, include: { product: true, taxRate: true, invoiceLines: PENDING_DRAFT_LINES } },
         invoices: { include: { lines: true } },
+        tradeDocuments: { where: { status: 'validated' }, select: { id: true, number: true, issuedAt: true, invoiceId: true }, orderBy: { issuedAt: 'asc' } },
       },
     });
     if (!order) throw new NotFoundException(`Commande de vente inconnue : ${id}`);
@@ -177,7 +188,7 @@ export class SalesService {
         if (order.kind === 'order') {
           for (const line of order.lines) {
             if (!line.productId) continue;
-            const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+            const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - Number(line.quantityDelivered);
             if (remaining > 0) {
               await this.stock.releaseInTransaction(tx, { orgId, productId: line.productId, siteId: order.siteId, quantity: remaining, performedBy });
             }
@@ -243,6 +254,9 @@ export class SalesService {
     if (order.lines.some((l) => Number(l.quantityInvoiced) > 0)) {
       throw new BadRequestException('Cette commande a déjà été facturée, elle ne peut plus être supprimée.');
     }
+    if (order.lines.some((l) => Number(l.quantityDelivered) > 0)) {
+      throw new BadRequestException('Cette commande a déjà des bons de livraison — annulez-les d’abord.');
+    }
     const draftLines = await this.prisma.invoiceLine.count({
       where: { salesOrderLineId: { in: order.lines.map((l) => l.id) }, invoice: { status: 'draft', deletedAt: null } },
     });
@@ -255,7 +269,7 @@ export class SalesService {
       if (order.kind === 'order' && order.status !== 'cancelled') {
         for (const line of order.lines) {
           if (!line.productId) continue;
-          const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+          const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - Number(line.quantityDelivered);
           if (remaining > 0) {
             await this.stock.releaseInTransaction(tx, { orgId, productId: line.productId, siteId: order.siteId, quantity: remaining, performedBy });
           }
@@ -280,8 +294,8 @@ export class SalesService {
     if (!order) throw new NotFoundException(`Commande de vente inconnue : ${orderId}`);
     const line = order.lines.find((l) => l.id === lineId);
     if (!line) throw new NotFoundException(`Ligne inconnue : ${lineId}`);
-    if (Number(line.quantityInvoiced) > 0) {
-      throw new BadRequestException('Cette ligne a déjà été facturée, elle ne peut plus être supprimée.');
+    if (Number(line.quantityInvoiced) > 0 || Number(line.quantityDelivered) > 0) {
+      throw new BadRequestException('Cette ligne a déjà été facturée ou livrée, elle ne peut plus être supprimée.');
     }
     if (order.lines.length <= 1) {
       throw new BadRequestException('Impossible de supprimer la dernière ligne d\'une commande.');
@@ -290,7 +304,7 @@ export class SalesService {
     await this.prisma.$transaction(async (tx) => {
       await setTenantOnTransaction(tx, orgId);
       if (order.kind === 'order' && line.productId) {
-        const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced);
+        const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - Number(line.quantityDelivered);
         if (remaining > 0) {
           await this.stock.releaseInTransaction(tx, { orgId, productId: line.productId, siteId: order.siteId, quantity: remaining, performedBy });
         }
@@ -332,7 +346,7 @@ export class SalesService {
       const line = linesByLineId.get(requested.salesOrderLineId);
       if (!line) throw new NotFoundException(`Ligne de commande de vente inconnue : ${requested.salesOrderLineId}`);
       const pending = pendingByLineId.get(line.id) ?? 0;
-      const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - pending;
+      const remaining = Number(line.quantityOrdered) - Number(line.quantityInvoiced) - Number(line.quantityDelivered) - pending;
       if (requested.quantity > remaining) {
         throw new BadRequestException(
           remaining <= 0
@@ -476,7 +490,7 @@ export class SalesService {
       referenceLine: order.promotedFromQuoteNumber ? `Devis d'origine : ${order.promotedFromQuoteNumber}` : null,
       org: this.orgForPdf(order),
       counterpartyLabel: 'CLIENT',
-      counterparty: { name: order.customer.name, nif: order.customer.nif },
+      counterparty: { name: order.customer.name, code: order.customer.code, address: order.customer.address, nif: order.customer.nif, rc: order.customer.rc, taxArticle: order.customer.taxArticle, phone: order.customer.phone },
       meta: [
         { label: 'Site', value: order.site.name },
         ...(order.expectedDate ? [{ label: 'Date prévue', value: order.expectedDate.toLocaleDateString('fr-FR') }] : []),
@@ -528,7 +542,7 @@ export class SalesService {
       referenceLine: `Commande : ${order.number ?? '(brouillon)'}`,
       org: this.orgForPdf(order),
       counterpartyLabel: 'CLIENT',
-      counterparty: { name: order.customer.name, nif: order.customer.nif },
+      counterparty: { name: order.customer.name, code: order.customer.code, address: order.customer.address, nif: order.customer.nif, rc: order.customer.rc, taxArticle: order.customer.taxArticle, phone: order.customer.phone },
       meta: [{ label: 'Site', value: order.site.name }],
       columns: [
         { key: 'product', label: 'Désignation', width: 220 },
@@ -559,8 +573,10 @@ export class SalesService {
     return `${prefix}-${year}-${String(rows[0].lastNumber).padStart(6, '0')}`;
   }
 
-  /** Resolves each line's effective unitPrice — explicit override, else PartnerProductPrice (negotiated customer pricing), else Product.sellPrice — and validates the product-vs-description shape. */
+  /** Resolves each line's effective unitPrice — explicit override, else PartnerProductPrice (negotiated customer pricing), else the customer's tier price (Prix 1 détail / Prix 2 gros) — and validates the product-vs-description shape. */
   private async resolveLinePrices(orgId: string, customerId: string, lines: CreateSalesOrderLineDto[]) {
+    const customer = await this.prisma.partner.findFirst({ where: { id: customerId, orgId }, select: { priceTier: true } });
+    const tier = customer?.priceTier ?? 1;
     return Promise.all(
       lines.map(async (l) => {
         if (!l.productId) {
@@ -572,6 +588,8 @@ export class SalesService {
         const product = await this.prisma.product.findFirst({ where: { id: l.productId, orgId } });
         if (!product) throw new NotFoundException(`Produit inconnu : ${l.productId}`);
         const description = l.description ?? product.name;
+        // Prix 2 falls back to Prix 1 when a product has no wholesale price set.
+        const tierPrice = tier === 2 && product.sellPrice2 != null ? product.sellPrice2 : product.sellPrice;
 
         if (l.unitPrice != null) return { ...l, description, unitPrice: l.unitPrice };
 
@@ -579,11 +597,11 @@ export class SalesService {
           where: { orgId_partnerId_productId: { orgId, partnerId: customerId, productId: l.productId } },
         });
         if (negotiated?.unitPrice != null) return { ...l, description, unitPrice: Number(negotiated.unitPrice) };
-        if (negotiated?.discountPercent != null && product.sellPrice != null) {
-          const discounted = Number(product.sellPrice) * (1 - Number(negotiated.discountPercent) / 100);
+        if (negotiated?.discountPercent != null && tierPrice != null) {
+          const discounted = Number(tierPrice) * (1 - Number(negotiated.discountPercent) / 100);
           return { ...l, description, unitPrice: Math.round(discounted * 100) / 100 };
         }
-        return { ...l, description, unitPrice: product.sellPrice != null ? Number(product.sellPrice) : 0 };
+        return { ...l, description, unitPrice: tierPrice != null ? Number(tierPrice) : 0 };
       }),
     );
   }

@@ -4,6 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { QualityService } from '../quality/quality.service';
 import { StockService } from '../stock/stock.service';
 import { InvoicingService } from '../invoicing/invoicing.service';
+import { LedgerService } from '../invoicing/ledger.service';
+import { nextDocumentNumber } from '../invoicing/document-numbering';
 import { DocumentPdfService, formatMoney } from '../shared-pdf/document-pdf.service';
 import { RecordQualityCheckDto } from '../quality/dto/record-quality-check.dto';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/create-purchase-order.dto';
@@ -44,11 +46,17 @@ function serializeReceiptLine<T extends { quantityReceived: unknown; unitCost: u
 function serializeOrder<T extends { lines: unknown[] }>(o: T) {
   return { ...o, lines: (o.lines as Parameters<typeof serializeOrderLine>[0][]).map(serializeOrderLine) };
 }
-function serializeReceipt<T extends { lines: unknown[]; landedCostAmount?: unknown }>(r: T) {
+function serializeReceipt<T extends { lines: unknown[]; landedCostAmount?: unknown }>(r: T, paid = 0) {
+  const lines = (r.lines as (Parameters<typeof serializeReceiptLine>[0] & { discountPercent?: unknown })[]).map((l) => ({
+    ...serializeReceiptLine(l),
+    discountPercent: l.discountPercent != null ? Number(l.discountPercent) : null,
+  }));
   return {
     ...r,
     landedCostAmount: r.landedCostAmount != null ? Number(r.landedCostAmount) : null,
-    lines: (r.lines as Parameters<typeof serializeReceiptLine>[0][]).map(serializeReceiptLine),
+    lines,
+    total: LedgerService.receiptTotal(lines),
+    paid: Math.round(paid * 100) / 100,
   };
 }
 
@@ -70,6 +78,7 @@ export class PurchasingService {
     private readonly quality: QualityService,
     private readonly invoicing: InvoicingService,
     private readonly pdf: DocumentPdfService,
+    private readonly ledger: LedgerService,
   ) {}
 
   // ---------------- Purchase orders ----------------
@@ -253,11 +262,24 @@ export class PurchasingService {
       }
     }
 
+    const supplierId = purchaseOrder?.supplierId ?? dto.supplierId ?? null;
+    if (supplierId && !purchaseOrder) {
+      const supplier = await this.prisma.partner.findFirst({ where: { id: supplierId, orgId, deletedAt: null } });
+      if (!supplier) throw new NotFoundException(`Fournisseur inconnu : ${supplierId}`);
+    }
+    if (dto.payment && !supplierId) throw new BadRequestException('Choisissez le fournisseur pour enregistrer un versement.');
+
     const landedCostShares = this.allocateLandedCost(dto.lines, dto.landedCostAmount);
+    const number = await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
+      return nextDocumentNumber(tx, orgId, 'receipt', 'BR');
+    });
 
     const receipt = await this.prisma.purchaseReceipt.create({
       data: {
         orgId,
+        number,
+        supplierId,
         purchaseOrderId: dto.purchaseOrderId ?? null,
         siteId: dto.siteId,
         receivedBy: performedBy,
@@ -292,7 +314,9 @@ export class PurchasingService {
       // recordMovement below, while the line's own persisted `unitCost`
       // stays the raw supplier-negotiated figure (last-price-paid history).
       const landedCostShare = landedCostShares[index];
-      const landedUnitCost = landedCostShare != null ? line.unitCost + landedCostShare / line.quantity : line.unitCost;
+      // The supplier discount lowers the real cost that feeds the average cost.
+      const netUnitCost = line.unitCost * (1 - (line.discountPercent ?? 0) / 100);
+      const landedUnitCost = landedCostShare != null ? netUnitCost + landedCostShare / line.quantity : netUnitCost;
 
       await this.stock.recordMovement(orgId, performedBy, {
         productId: line.productId,
@@ -300,7 +324,7 @@ export class PurchasingService {
         type: 'IN',
         quantity: line.quantity,
         batchId,
-        partnerId: purchaseOrder?.supplierId,
+        partnerId: supplierId ?? undefined,
         unitCost: landedUnitCost,
         relatedEntityType: 'purchase_receipt',
         relatedEntityId: receipt.id,
@@ -322,6 +346,7 @@ export class PurchasingService {
           productId: line.productId,
           quantityReceived: line.quantity,
           unitCost: line.unitCost,
+          discountPercent: line.discountPercent ?? null,
           landedCostShare: landedCostShare ?? null,
           batchId: batchId ?? null,
           qualityCheckId: qualityCheckId ?? null,
@@ -340,25 +365,94 @@ export class PurchasingService {
       await this.updatePurchaseOrderStatus(purchaseOrder.id);
     }
 
+    if (dto.payment && supplierId) {
+      await this.prisma.partnerPayment.create({
+        data: {
+          orgId,
+          partnerId: supplierId,
+          direction: 'out',
+          amount: dto.payment.amount,
+          method: dto.payment.method ?? 'especes',
+          documentType: 'purchase_receipt',
+          documentId: receipt.id,
+          createdBy: performedBy,
+        },
+      });
+    }
+
     return this.getReceipt(orgId, receipt.id);
+  }
+
+  /**
+   * Annule un bon de réception: the stock goes back out (same lots), the BC
+   * line's received quantity goes back down, and versements made with it
+   * are cancelled. Blocked if the stock has already been used.
+   */
+  async cancelReceipt(orgId: string, performedBy: string, id: string) {
+    const receipt = await this.prisma.purchaseReceipt.findFirst({ where: { id, orgId }, include: { lines: true } });
+    if (!receipt) throw new NotFoundException(`Bon de réception inconnu : ${id}`);
+    if (receipt.cancelledAt) throw new BadRequestException('Ce bon de réception est déjà annulé.');
+
+    const collectedEvents: { kind: string }[] = [];
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, orgId);
+      for (const line of receipt.lines) {
+        try {
+          const result = await this.stock.recordMovementInTransaction(tx, orgId, performedBy, {
+            productId: line.productId,
+            siteId: receipt.siteId,
+            type: 'OUT',
+            quantity: Number(line.quantityReceived),
+            batchId: line.batchId ?? undefined,
+            partnerId: receipt.supplierId ?? undefined,
+            relatedEntityType: 'purchase_receipt_cancel',
+            relatedEntityId: receipt.id,
+          });
+          collectedEvents.push(...result.events);
+        } catch (err) {
+          if (err instanceof BadRequestException) {
+            throw new BadRequestException('Impossible d’annuler : une partie de cette marchandise a déjà été vendue ou déplacée.');
+          }
+          throw err;
+        }
+        if (line.purchaseOrderLineId) {
+          await tx.purchaseOrderLine.update({ where: { id: line.purchaseOrderLineId }, data: { quantityReceived: { decrement: Number(line.quantityReceived) } } });
+        }
+      }
+      await tx.partnerPayment.updateMany({ where: { orgId, documentId: receipt.id, cancelledAt: null }, data: { cancelledAt: new Date() } });
+      await tx.purchaseReceipt.update({ where: { id }, data: { cancelledAt: new Date() } });
+    });
+    this.stock.publishEvents(collectedEvents);
+    if (receipt.purchaseOrderId) await this.updatePurchaseOrderStatus(receipt.purchaseOrderId);
+    return this.getReceipt(orgId, id);
   }
 
   async listReceipts(orgId: string, purchaseOrderId?: string) {
     const receipts = await this.prisma.purchaseReceipt.findMany({
       where: { orgId, ...(purchaseOrderId ? { purchaseOrderId } : {}) },
-      include: { site: true, lines: { include: { product: true } } },
+      include: { site: true, supplier: { select: { id: true, name: true, code: true } }, purchaseOrder: { select: { id: true, number: true } }, lines: { include: { product: true } } },
       orderBy: { receivedAt: 'desc' },
     });
-    return receipts.map(serializeReceipt);
+    const payments = await this.prisma.partnerPayment.findMany({
+      where: { orgId, cancelledAt: null, documentId: { in: receipts.map((r) => r.id) } },
+      select: { documentId: true, amount: true },
+    });
+    const paid = new Map<string, number>();
+    for (const p of payments) paid.set(p.documentId as string, (paid.get(p.documentId as string) ?? 0) + Number(p.amount));
+    return receipts.map((r) => serializeReceipt(r, paid.get(r.id) ?? 0));
   }
 
   async getReceipt(orgId: string, id: string) {
     const receipt = await this.prisma.purchaseReceipt.findFirst({
       where: { id, orgId },
-      include: { site: true, purchaseOrder: true, lines: { include: { product: true } } },
+      include: { site: true, supplier: true, purchaseOrder: true, lines: { include: { product: true } } },
     });
     if (!receipt) throw new NotFoundException(`Réception inconnue : ${id}`);
-    return serializeReceipt(receipt);
+    const payments = await this.prisma.partnerPayment.findMany({ where: { orgId, documentId: id, cancelledAt: null }, orderBy: { paidAt: 'asc' } });
+    const paid = payments.reduce((s, p) => s + Number(p.amount), 0);
+    const account =
+      receipt.supplierId && !receipt.cancelledAt ? await this.ledger.balanceAroundDocument(orgId, receipt.supplierId, receipt.id, 'supplier') : null;
+    return { ...serializeReceipt(receipt, paid), payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })), account };
   }
 
   /** Derives a PO's status from its lines' cumulative quantityReceived — never set directly by a receiving call. */
@@ -584,7 +678,7 @@ export class PurchasingService {
         logo: order.organization.logo,
       },
       counterpartyLabel: 'FOURNISSEUR',
-      counterparty: { name: order.supplier.name, nif: order.supplier.nif },
+      counterparty: { name: order.supplier.name, code: order.supplier.code, address: order.supplier.address, nif: order.supplier.nif, rc: order.supplier.rc, taxArticle: order.supplier.taxArticle, phone: order.supplier.phone },
       meta: [
         { label: 'Site de livraison', value: order.site.name },
         ...(order.expectedDate ? [{ label: 'Livraison prévue', value: order.expectedDate.toLocaleDateString('fr-FR') }] : []),
@@ -609,32 +703,40 @@ export class PurchasingService {
       include: {
         organization: true,
         site: true,
-        purchaseOrder: { include: { supplier: true } },
-        lines: { include: { product: true, batch: true, qualityCheck: true } },
+        supplier: true,
+        purchaseOrder: true,
+        lines: { include: { product: true, batch: true } },
       },
     });
-    if (!receipt) throw new NotFoundException(`Réception inconnue : ${id}`);
+    if (!receipt) throw new NotFoundException(`Bon de réception inconnu : ${id}`);
 
-    const QUALITY_LABEL_FR: Record<string, string> = { conforme: 'Conforme', non_conforme: 'Non conforme' };
-    const lines = receipt.lines.map((l) => {
-      const extraParts: string[] = [];
-      if (l.batch) extraParts.push(`Lot ${l.batch.lotNumber}`);
-      if (l.qualityCheck) extraParts.push(QUALITY_LABEL_FR[l.qualityCheck.result] ?? l.qualityCheck.result);
+    const lines = receipt.lines.map((l, i) => {
+      const qty = Number(l.quantityReceived);
+      const unit = Number(l.unitCost);
+      const disc = l.discountPercent != null ? Number(l.discountPercent) : 0;
+      const perCarton = l.product?.unitsPerCarton ?? null;
       return {
         cells: {
-          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
-          qty: String(Number(l.quantityReceived)),
-          unitCost: formatMoney(Number(l.unitCost)),
-          extra: extraParts.join(' · ') || '—',
+          n: String(i + 1),
+          ref: l.product?.sku ?? '',
+          designation: (l.product?.name ?? l.productId) + (l.batch ? ` (lot ${l.batch.lotNumber})` : ''),
+          qty: String(qty),
+          cartons: perCarton ? String(Math.round((qty / perCarton) * 100) / 100) : '',
+          unit: formatMoney(unit),
+          disc: disc ? `${disc} %` : '',
+          total: formatMoney(qty * unit * (1 - disc / 100)),
         },
       };
     });
+    const total = LedgerService.receiptTotal(receipt.lines);
+    const account = receipt.supplierId && !receipt.cancelledAt ? await this.ledger.balanceAroundDocument(orgId, receipt.supplierId, receipt.id, 'supplier') : null;
 
     return this.pdf.generate({
-      title: 'BON DE LIVRAISON',
-      number: receipt.purchaseOrder?.number ?? `RÉC-${receipt.id.slice(0, 8).toUpperCase()}`,
+      title: 'BON DE RÉCEPTION',
+      number: receipt.number ?? receipt.id.slice(0, 8).toUpperCase(),
       date: receipt.receivedAt,
-      referenceLine: receipt.purchaseOrder?.number ? `Bon de commande : ${receipt.purchaseOrder.number}` : 'Réception libre (sans bon de commande)',
+      statusLabel: receipt.cancelledAt ? 'Annulé' : null,
+      referenceLine: receipt.purchaseOrder?.number ? `Bon de commande : ${receipt.purchaseOrder.number}` : null,
       org: {
         name: receipt.organization.name,
         address: receipt.organization.address,
@@ -646,15 +748,31 @@ export class PurchasingService {
         logo: receipt.organization.logo,
       },
       counterpartyLabel: 'FOURNISSEUR',
-      counterparty: receipt.purchaseOrder?.supplier ? { name: receipt.purchaseOrder.supplier.name, nif: receipt.purchaseOrder.supplier.nif } : null,
-      meta: [{ label: 'Site de réception', value: receipt.site.name }],
+      counterparty: receipt.supplier ? { name: receipt.supplier.name, code: receipt.supplier.code, address: receipt.supplier.address, nif: receipt.supplier.nif, rc: receipt.supplier.rc, taxArticle: receipt.supplier.taxArticle, phone: receipt.supplier.phone } : null,
+      counterpartyFallback: 'Fournisseur non spécifié',
+      meta: [{ label: 'Dépôt', value: receipt.site.name }],
       columns: [
-        { key: 'product', label: 'Désignation', width: 195 },
-        { key: 'qty', label: 'Qté reçue', width: 70, align: 'right' as const },
-        { key: 'unitCost', label: 'Coût unitaire', width: 95, align: 'right' as const },
-        { key: 'extra', label: 'Lot / Contrôle', width: 135 },
+        { key: 'n', label: 'N°', width: 22 },
+        { key: 'ref', label: 'Réf.', width: 76 },
+        { key: 'designation', label: 'Désignation', width: 121 },
+        { key: 'qty', label: 'Qté', width: 34, align: 'right' as const },
+        { key: 'cartons', label: 'Cartons', width: 52, align: 'right' as const },
+        { key: 'unit', label: 'P.U. TTC', width: 62, align: 'right' as const },
+        { key: 'disc', label: 'Remise', width: 44, align: 'right' as const },
+        { key: 'total', label: 'Total TTC', width: 80, align: 'right' as const },
       ],
       lines,
+      summary: [
+        { label: 'Total', value: `${formatMoney(total)} DZD`, accent: true },
+        ...(account
+          ? [
+              { label: 'Ancien solde', value: `${formatMoney(account.previousBalance)} DZD`, separated: true },
+              { label: 'Versement', value: `${formatMoney(account.paidWithDocument)} DZD` },
+              { label: 'Nouveau solde', value: `${formatMoney(account.newBalance)} DZD`, bold: true },
+            ]
+          : []),
+      ],
+      notes: receipt.notes,
       footerNote: 'Document généré par Stockily.',
     });
   }

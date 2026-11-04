@@ -1,203 +1,322 @@
 .shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: 256px 1fr;
   height: 100vh;
 }
 
+/* ───────── Sidebar ───────── */
 .shell-sidebar {
-  background: var(--ink);
-  color: #ede7f7;
-  padding: 20px 14px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 14px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Stays put while .shell-content scrolls — previously the sidebar was
-     just a normal grid column with no height/overflow of its own, so it
-     scrolled away with the rest of the page on any view tall enough to
-     need scrolling (e.g. a long product/invoice list). If the sidebar's
-     own content ever grows past the viewport it still gets its own
-     scrollbar here rather than pushing the page down. */
+  gap: 2px;
+  /* Stays put while .shell-content scrolls; scrolls on its own if needed. */
   height: 100vh;
   overflow-y: auto;
 }
 
-.shell-wordmark {
-  font-family: var(--f-display);
+.shell-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 14px;
+}
+.shell-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+}
+.shell-wordmark-text {
   font-weight: 700;
-  font-size: 1.1rem;
-  padding: 4px 10px 20px;
+  font-size: 1.08rem;
+  letter-spacing: -0.03em;
 }
-.shell-wordmark .ily {
-  color: var(--teal-bright);
+.shell-wordmark-text .ily {
+  color: var(--accent);
+}
+.brand-mark {
+  flex: none;
+  filter: drop-shadow(0 2px 4px rgba(74, 47, 171, 0.25));
 }
 
+.shell-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shell-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+}
 .shell-group-label {
-  font-family: var(--f-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #7a6fa0;
-  padding: 14px 10px 6px;
-}
-
-/* Mobile drawer only (AppShell.tsx gates this on isMobile) — a way back to
-   the Applications launcher without first returning to the phone's home
-   screen. Set apart from the module list below it with its own bottom
-   border/margin, same idea as .shell-logout's top border marking off the
-   account actions at the other end of the drawer. */
-.shell-back-link {
-  color: #9a8fbd;
-  margin-bottom: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.shell-back-link:hover {
-  color: #ede7f7;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-subtle);
+  padding: 0 10px 4px;
 }
 
 .shell-nav-item {
-  font-size: 0.88rem;
-  padding: 9px 10px;
-  border-radius: 6px;
+  position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  color: #c6bee0;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-600);
   text-decoration: none;
-  cursor: pointer;
+  text-align: left;
   background: none;
   border: none;
-  font-family: inherit;
-  text-align: left;
-  width: 100%;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.shell-nav-item > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-nav-item svg {
+  flex: none;
+  color: var(--gray-400);
+  transition: color 0.12s ease;
 }
 .shell-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--gray-50);
+  color: var(--text);
+}
+.shell-nav-item:hover svg {
+  color: var(--gray-600);
 }
 .shell-nav-item.active {
-  background: rgba(31, 191, 160, 0.16);
-  color: #f4f1fb;
-  border-left: 2px solid var(--teal-bright);
-  padding-left: 8px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-weight: 600;
+}
+.shell-nav-item.active svg {
+  color: var(--brand-600);
+}
+.shell-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand-600);
 }
 .shell-nav-item.shell-locked {
-  opacity: 0.5;
   cursor: default;
+  color: var(--gray-400);
+}
+.shell-nav-item.shell-locked:hover {
+  background: none;
+}
+.shell-nav-item.shell-locked svg {
+  color: var(--gray-300);
+}
+.shell-lock {
+  margin-left: auto;
 }
 .shell-tag {
-  font-family: var(--f-mono);
-  font-size: 0.62rem;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 2px 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  padding: 2px 7px;
   border-radius: 999px;
-  color: #9a8fbd;
 }
 
 .shell-spacer {
   flex: 1;
-}
-.shell-settings {
-  color: #9a8fbd;
-  font-size: 0.8rem;
-}
-.shell-settings:hover {
-  color: #ede7f7;
-}
-.shell-logout {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  margin-top: 6px;
-  padding-top: 12px;
+  min-height: 16px;
 }
 
+.shell-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-100);
+}
+.shell-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: var(--r-lg);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-100);
+}
+.shell-account-text {
+  flex: 1;
+  min-width: 0;
+}
+.shell-account-org {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-account-email {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--brand-700);
+  background: linear-gradient(135deg, var(--brand-100), #dff7f1);
+  border: 1px solid rgba(109, 79, 224, 0.15);
+}
+.shell-avatar.sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 0.72rem;
+}
+.shell-icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  border: none;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.shell-icon-btn:hover {
+  background: var(--gray-100);
+  color: var(--text);
+}
+
+/* ───────── Content ───────── */
 .shell-content {
-  padding: 30px 34px 40px;
   height: 100vh;
   overflow-y: auto;
   overflow-x: auto;
 }
+.shell-content-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 32px 40px 56px;
+  animation: page-in 0.22s var(--ease);
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 
-/* Mobile: the sidebar becomes an off-canvas drawer instead of a permanent
-   232px column (that was over half of a 375-430px screen — see
-   AppShell.tsx's header comment). Closed by default, slides in over the
-   content on a hamburger tap. Matches useIsMobile's MOBILE_BREAKPOINT
-   (800px) via the JS-driven `.shell-mobile`/`.shell-sidebar-mobile`
-   classes rather than a separate media query, so there's exactly one
-   breakpoint definition to keep in sync. */
+/* ───────── Mobile: drawer + top bar ─────────
+   Driven by the JS `.shell-mobile` classes (useIsMobile, 800px) so there's
+   exactly one breakpoint definition to keep in sync. */
 .shell.shell-mobile {
   display: block;
   height: auto;
   min-height: 100vh;
 }
-
 .shell-topbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 16px;
-  background: var(--ink);
-  color: #ede7f7;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-top: calc(8px + env(safe-area-inset-top));
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 40;
 }
-.shell-topbar-wordmark {
-  font-family: var(--f-display);
-  font-weight: 700;
-  font-size: 1.05rem;
+.shell-topbar .shell-icon-btn {
+  color: var(--text);
 }
-.shell-topbar-wordmark .ily {
-  color: var(--teal-bright);
+.shell-topbar .brand-mark {
+  width: 26px;
+  height: 26px;
 }
-
-.shell-hamburger {
-  background: none;
-  border: none;
-  padding: 8px 6px;
-  margin: -8px -6px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-}
-.shell-hamburger span {
-  display: block;
-  width: 20px;
-  height: 2px;
-  border-radius: 2px;
-  background: #ede7f7;
+.shell-topbar-spacer {
+  flex: 1;
 }
 
 .shell-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(10, 6, 20, 0.45);
+  background: rgba(22, 21, 31, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   z-index: 55;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
-
+.shell-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
 .shell-sidebar-mobile {
   position: fixed;
   top: 0;
   bottom: 0;
   left: 0;
-  width: min(82vw, 280px);
+  width: min(84vw, 300px);
   height: 100vh;
+  height: 100dvh;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
   transform: translateX(-100%);
-  transition: transform 0.22s ease;
+  transition: transform 0.26s var(--ease);
   z-index: 60;
-  box-shadow: 6px 0 24px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-lg);
+  border-right: none;
 }
 .shell-sidebar-mobile.open {
   transform: translateX(0);
 }
-/* The drawer's own wordmark is redundant once the top bar already shows
-   one — only needed as the sidebar's first line on desktop. */
-.shell-sidebar-mobile .shell-wordmark {
-  display: none;
+.shell-sidebar-mobile .shell-nav-item {
+  min-height: 42px;
+  font-size: 0.95rem;
 }
 
 .shell.shell-mobile .shell-content {
   height: auto;
-  min-height: calc(100vh - 48px);
-  padding: 18px 16px 32px;
+  min-height: calc(100vh - 52px);
+}
+.shell.shell-mobile .shell-content-inner {
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
 }

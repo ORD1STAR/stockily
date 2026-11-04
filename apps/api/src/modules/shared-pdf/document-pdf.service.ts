@@ -39,14 +39,67 @@ export interface DocumentPdfInput {
     logo: string | null;
   };
   counterpartyLabel: string;
-  counterparty: { name: string; nif?: string | null } | null;
+  counterparty: PdfParty | null;
+  /** Shown in the counterparty card when there is none (e.g. "Client comptoir"). */
+  counterpartyFallback?: string;
   /** Short label:value pairs rendered between the party cards and the table — e.g. site, expected date. */
   meta?: { label: string; value: string }[];
   columns: DocumentPdfColumn[];
   lines: DocumentPdfLine[];
   totalLabel?: string | null;
   totalValue?: string | null;
+  /** Totals panel rows (Total, Versé, Reste…); the row marked `accent` is highlighted. Replaces totalLabel/totalValue when given. */
+  summary?: PdfSummaryRow[];
+  /** Observation printed under the totals. */
+  notes?: string | null;
   footerNote: string;
+}
+
+export interface PdfParty {
+  name: string;
+  code?: string | null;
+  address?: string | null;
+  nif?: string | null;
+  rc?: string | null;
+  taxArticle?: string | null;
+  phone?: string | null;
+}
+
+export interface PdfSummaryRow {
+  label: string;
+  value: string;
+  accent?: boolean;
+  bold?: boolean;
+  /** Draws a thin rule above this row. */
+  separated?: boolean;
+}
+
+/**
+ * Card lines for a party: name, then address, NIF, RC, Tél — always printed,
+ * empty when unknown. `legal: false` (bons, devis, commandes…) keeps only the
+ * name, address and phone: the fiscal identifiers belong on invoices only.
+ */
+export function partyLines(party: PdfParty | null, fallbackName: string, opts: { nis?: string | null; withTaxArticle?: boolean; legal?: boolean } = {}): (string | null)[] {
+  if (opts.legal === false)
+    return [party ? (party.code ? `${party.name}  (${party.code})` : party.name) : fallbackName, party?.address || null, party?.phone ? `Tél : ${party.phone}` : null];
+  return [
+    party ? (party.code ? `${party.name}  (${party.code})` : party.name) : fallbackName,
+    party?.address || null,
+    `NIF : ${party?.nif ?? ''}`,
+    opts.nis ? `NIS : ${opts.nis}` : null,
+    `RC : ${party?.rc ?? ''}`,
+    opts.withTaxArticle || party?.taxArticle ? `AI : ${party?.taxArticle ?? ''}` : null,
+    `Tél : ${party?.phone ?? ''}`,
+  ];
+}
+
+/** Company name in the header: full name, wrapped, font shrunk for long names — never cut. */
+export function renderOrgName(doc: PDFKit.PDFDocument, name: string, x: number, y: number, width: number): number {
+  let size = 22;
+  doc.font('Helvetica-Bold');
+  while (size > 13 && doc.fontSize(size).heightOfString(name, { width }) > size * 2.6) size -= 1;
+  doc.fontSize(size).text(name, x, y, { width });
+  return y + doc.heightOfString(name, { width });
 }
 
 function parseDataUrl(dataUrl: string | null): Buffer | null {
@@ -93,7 +146,9 @@ export class DocumentPdfService {
     this.renderPartyCards(doc, input);
     if (input.meta && input.meta.length > 0) this.renderMeta(doc, input.meta);
     this.renderLinesTable(doc, input);
-    if (input.totalLabel && input.totalValue) this.renderTotal(doc, input.totalLabel, input.totalValue);
+    if (input.summary && input.summary.length > 0) this.renderSummary(doc, input.summary);
+    else if (input.totalLabel && input.totalValue) this.renderTotal(doc, input.totalLabel, input.totalValue);
+    if (input.notes) this.renderNotes(doc, input.notes);
     this.renderFooterOnEveryPage(doc, input);
 
     doc.end();
@@ -116,11 +171,8 @@ export class DocumentPdfService {
     doc.font('Helvetica-Bold').fontSize(20);
     const titleWidth = doc.widthOfString(input.title);
     doc.fillColor(BRAND).text(input.title, MARGIN, top + 2, { width: CONTENT_WIDTH, align: 'right' });
-    doc
-      .fillColor(INK)
-      .font('Helvetica-Bold')
-      .fontSize(22)
-      .text(input.org.name, nameX, logoBuffer ? top + 12 : top, { width: Math.max(120, RIGHT_EDGE - titleWidth - 24 - nameX), height: 52, ellipsis: true });
+    doc.fillColor(INK);
+    const nameBottom = renderOrgName(doc, input.org.name, nameX, logoBuffer ? top + 8 : top, Math.max(160, RIGHT_EDGE - Math.max(titleWidth, 150) - 24 - nameX));
 
     let ry = top + 30;
     doc.fillColor(MUTED).font('Helvetica').fontSize(10);
@@ -144,7 +196,7 @@ export class DocumentPdfService {
       rightBottom = badgeTop + 18;
     }
 
-    const ruleY = Math.max(rightBottom, top + logoSize) + 12;
+    const ruleY = Math.max(rightBottom, top + logoSize, nameBottom) + 12;
     doc.moveTo(MARGIN, ruleY).lineTo(RIGHT_EDGE, ruleY).lineWidth(1.5).strokeColor(BRAND).stroke();
     doc.strokeColor(INK).lineWidth(1);
     doc.y = ruleY + 16;
@@ -153,26 +205,18 @@ export class DocumentPdfService {
   private renderPartyCards(doc: PDFKit.PDFDocument, input: DocumentPdfInput): void {
     const top = doc.y;
     const cardWidth = (CONTENT_WIDTH - 20) / 2;
-    const sellerLines: (string | null)[] = [
+    const sellerLines = partyLines(
+      { name: input.org.name, address: input.org.address, nif: input.org.nif, rc: input.org.rc, taxArticle: input.org.taxArticle, phone: input.org.phone },
       input.org.name,
-      input.org.address,
-      input.org.nif ? `NIF : ${input.org.nif}` : null,
-      input.org.rc ? `RC : ${input.org.rc}` : null,
-      input.org.phone,
-    ];
+      { legal: false },
+    );
     const buyerLabel = input.counterpartyLabel;
-    const buyerLines: (string | null)[] = [
-      input.counterparty?.name ?? '—',
-      // NIF is no longer required on a Partner (explicit user decision) —
-      // once there's a counterparty at all, its NIF label always prints,
-      // with an empty value when none is on file.
-      input.counterparty ? `NIF : ${input.counterparty.nif ?? ''}` : null,
-    ];
+    const buyerLines = partyLines(input.counterparty, input.counterpartyFallback ?? '—', { legal: false });
 
     // Sized to the taller card's actual content (wrapped lines included) —
     // a fixed height let a fully filled-in seller profile (address + NIF +
     // NIS + RC + article + phone) spill its last line below the card.
-    const cardHeight = Math.max(96, this.cardContentHeight(doc, cardWidth, sellerLines), this.cardContentHeight(doc, cardWidth, buyerLines));
+    const cardHeight = Math.max(72, this.cardContentHeight(doc, cardWidth, sellerLines), this.cardContentHeight(doc, cardWidth, buyerLines));
     this.drawCard(doc, MARGIN, top, cardWidth, cardHeight, 'ÉMETTEUR', sellerLines);
     this.drawCard(doc, MARGIN + cardWidth + 20, top, cardWidth, cardHeight, buyerLabel, buyerLines);
 
@@ -252,9 +296,11 @@ export class DocumentPdfService {
 
     doc.font('Helvetica').fontSize(9);
     lines.forEach((line, i) => {
-      const firstColWidth = columns[0].width - 16;
-      const descHeight = doc.heightOfString(line.cells[columns[0].key] ?? '', { width: firstColWidth });
-      const rowHeight = Math.max(minRowHeight, descHeight + 14);
+      // Row height = the tallest cell (any column can wrap: a long code, a long name…).
+      const tallest = Math.max(
+        ...columns.map((col) => doc.heightOfString(line.cells[col.key] ?? '', { width: col.width - (col.align === 'right' ? 6 : 10) })),
+      );
+      const rowHeight = Math.max(minRowHeight, tallest + 14);
 
       if (doc.y + rowHeight > bottomLimit) {
         doc.addPage();
@@ -291,6 +337,41 @@ export class DocumentPdfService {
     doc.text(value, x + panelWidth - 130, y + 8, { width: 116, align: 'right' });
     doc.fillColor(INK);
     doc.y = y + rowH + 16;
+  }
+
+  private renderSummary(doc: PDFKit.PDFDocument, rows: PdfSummaryRow[]): void {
+    const panelWidth = 260;
+    const x = RIGHT_EDGE - panelWidth;
+    const needed = rows.length * 24 + 10;
+    if (doc.y + needed > doc.page.height - MARGIN - 40) doc.addPage();
+    let y = doc.y;
+    for (const r of rows) {
+      if (r.separated) {
+        doc.moveTo(x + 10, y + 2).lineTo(RIGHT_EDGE - 10, y + 2).strokeColor(HAIRLINE).lineWidth(0.7).stroke();
+        y += 6;
+      }
+      const h = r.accent ? 26 : 20;
+      if (r.accent) doc.rect(x, y, panelWidth, h).fill(BRAND);
+      doc
+        .fillColor(r.accent ? '#ffffff' : r.bold ? INK : MUTED)
+        .font(r.accent || r.bold ? 'Helvetica-Bold' : 'Helvetica')
+        .fontSize(r.accent ? 11 : 9.5)
+        .text(r.label, x + 12, y + (r.accent ? 8 : 5), { width: panelWidth - 130 });
+      doc.text(r.value, x + panelWidth - 140, y + (r.accent ? 8 : 5), { width: 128, align: 'right' });
+      y += h;
+    }
+    doc.strokeColor(INK).lineWidth(1).fillColor(INK);
+    doc.y = y + 14;
+  }
+
+  private renderNotes(doc: PDFKit.PDFDocument, notes: string): void {
+    const h = doc.font('Helvetica').fontSize(9).heightOfString(notes, { width: CONTENT_WIDTH - 28 }) + 34;
+    if (doc.y + h > doc.page.height - MARGIN - 40) doc.addPage();
+    const y = doc.y;
+    doc.roundedRect(MARGIN, y, CONTENT_WIDTH, h, 4).fillAndStroke(PANEL_BG, HAIRLINE);
+    doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(8).text('OBSERVATION', MARGIN + 14, y + 10, { characterSpacing: 0.5 });
+    doc.fillColor(INK).font('Helvetica').fontSize(9).text(notes, MARGIN + 14, y + 24, { width: CONTENT_WIDTH - 28 });
+    doc.y = y + h + 12;
   }
 
   private renderFooterOnEveryPage(doc: PDFKit.PDFDocument, input: DocumentPdfInput): void {

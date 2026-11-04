@@ -1,128 +1,178 @@
-import { ReactNode, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { ReactNode, useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from './auth-context';
-import { PRODUCT_MODULES } from './modules';
+import { Icon } from './Icon';
+import { entitledModuleKeys, MODULE_GROUP_LABEL, ModuleGroup, PRODUCT_MODULES, UPCOMING_MODULES } from './modules';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
 import { PartnersModal } from './PartnersModal';
 import { useIsMobile } from './useIsMobile';
 import './AppShell.css';
 
-// The real sidebar, matching docs/Wireframes.html's pattern: a persistent
-// dark sidebar, module list, locked Phase 2/3 modules greyed out. Unlike
-// the wireframe (a static mockup), active/inactive here reflects `me`'s
-// actual entitlements from GET /me, not a hardcoded demo state.
-//
-// This is the one AppShell instance every non-Scan page still renders on a
-// phone (Stock/Quality/Factures/Sites — Scan and Dashboard already drop
-// AppShell entirely for their own dedicated mobile screens, see their own
-// header comments). The 232px column was previously unconditional — on a
-// 375-430px phone that's over half the viewport, permanently covering the
-// actual page. Below the shared MOBILE_BREAKPOINT it now becomes an
-// off-canvas drawer: closed by default, opened via a hamburger in a thin
-// top bar, closes again on any tap inside it (a link navigating away, or a
-// modal-opening button — either way the drawer shouldn't still be covering
-// the screen afterwards).
+// Persistent sidebar on desktop; below the shared MOBILE_BREAKPOINT it
+// becomes an off-canvas drawer opened from a slim top bar (a permanent
+// column would cover over half of a phone screen). Active/locked state
+// reflects `me`'s real entitlements from GET /me.
 export function AppShell({ children }: { children: ReactNode }) {
   const { me, logout } = useAuth();
-  const entitledKeys = new Set((me?.entitlements ?? []).map((e) => e.module));
+  const entitledKeys = entitledModuleKeys(me?.entitlements ?? []);
   const [showSettings, setShowSettings] = useState(false);
   const [showPartners, setShowPartners] = useState(false);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
   const closeSidebar = () => setSidebarOpen(false);
+
+  // Close the drawer on navigation and lock body scroll while it's open.
+  useEffect(() => setSidebarOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!isMobile) return;
+    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen, isMobile]);
+
+  const groups = (['operations', 'commerce', 'control'] as ModuleGroup[]).map((g) => ({
+    key: g,
+    label: MODULE_GROUP_LABEL[g],
+    items: PRODUCT_MODULES.filter((m) => m.group === g),
+  }));
+  const canManageBusiness = entitledKeys.has('invoicing');
+  const email = me?.user.email ?? '';
+  const orgName = me?.organization.name ?? '';
 
   return (
     <div className={`shell${isMobile ? ' shell-mobile' : ''}`}>
       {isMobile && (
-        <div className="shell-topbar">
-          <button className="shell-hamburger" onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu">
-            <span />
-            <span />
-            <span />
+        <header className="shell-topbar">
+          <button className="shell-icon-btn" onClick={() => setSidebarOpen(true)} aria-label="Ouvrir le menu">
+            <Icon name="menu" size={20} />
           </button>
-          <div className="shell-topbar-wordmark">
-            Stock<span className="ily">ily</span>
+          <NavLink to="/dashboard" className="shell-brand">
+            <BrandMark />
+            <span className="shell-wordmark-text">
+              Stock<span className="ily">ily</span>
+            </span>
+          </NavLink>
+          <div className="shell-topbar-spacer" />
+          <span className="shell-avatar sm" title={orgName}>
+            {initials(orgName)}
+          </span>
+        </header>
+      )}
+      {isMobile && <div className={`shell-backdrop${sidebarOpen ? ' open' : ''}`} onClick={closeSidebar} />}
+
+      <aside className={`shell-sidebar${isMobile ? ' shell-sidebar-mobile' : ''}${sidebarOpen ? ' open' : ''}`}>
+        <div className="shell-sidebar-head">
+          <NavLink to="/dashboard" className="shell-brand">
+            <BrandMark />
+            <span className="shell-wordmark-text">
+              Stock<span className="ily">ily</span>
+            </span>
+          </NavLink>
+          {isMobile && (
+            <button className="shell-icon-btn" onClick={closeSidebar} aria-label="Fermer le menu">
+              <Icon name="x" size={18} />
+            </button>
+          )}
+        </div>
+
+        <nav className="shell-nav" aria-label="Navigation principale">
+          <NavLink to="/dashboard" className={({ isActive }) => 'shell-nav-item' + (isActive ? ' active' : '')}>
+            <Icon name="home" />
+            <span>Accueil</span>
+          </NavLink>
+
+          {groups.map((g) => (
+            <div className="shell-nav-group" key={g.key}>
+              <div className="shell-group-label">{g.label}</div>
+              {g.items.map((m) =>
+                entitledKeys.has(m.key) ? (
+                  <NavLink key={m.to} to={m.to} className={({ isActive }) => 'shell-nav-item' + (isActive ? ' active' : '')}>
+                    <Icon name={m.icon} />
+                    <span>{m.label}</span>
+                  </NavLink>
+                ) : (
+                  <div key={m.to} className="shell-nav-item shell-locked" title="Module non activé pour votre organisation">
+                    <Icon name={m.icon} />
+                    <span>{m.label}</span>
+                    <Icon name="lock" size={14} className="shell-lock" />
+                  </div>
+                ),
+              )}
+            </div>
+          ))}
+
+          <div className="shell-nav-group">
+            <div className="shell-group-label">À venir</div>
+            {UPCOMING_MODULES.map((m) => (
+              <div key={m.label} className="shell-nav-item shell-locked" title="Pas encore disponible">
+                <Icon name={m.icon} />
+                <span>{m.label}</span>
+                <span className="shell-tag">{m.tag}</span>
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        <div className="shell-spacer" />
+
+        <div className="shell-footer">
+          {canManageBusiness && (
+            <>
+              <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowPartners(true); }}>
+                <Icon name="users" />
+                <span>Fournisseurs & clients</span>
+              </button>
+              <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowSettings(true); }}>
+                <Icon name="settings" />
+                <span>Paramètres</span>
+              </button>
+            </>
+          )}
+          <div className="shell-account">
+            <span className="shell-avatar">{initials(orgName)}</span>
+            <div className="shell-account-text">
+              <div className="shell-account-org">{orgName}</div>
+              <div className="shell-account-email">{email}</div>
+            </div>
+            <button className="shell-icon-btn" onClick={() => logout()} title="Se déconnecter" aria-label="Se déconnecter">
+              <Icon name="logout" size={17} />
+            </button>
           </div>
         </div>
-      )}
-      {isMobile && sidebarOpen && <div className="shell-backdrop" onClick={closeSidebar} />}
-      <aside
-        className={`shell-sidebar${isMobile ? ' shell-sidebar-mobile' : ''}${sidebarOpen ? ' open' : ''}`}
-        onClick={() => isMobile && closeSidebar()}
-      >
-        <div className="shell-wordmark">
-          Stock<span className="ily">ily</span>
-        </div>
-        {/* Mobile-only — the desktop sidebar is already the "main menu",
-            nothing to go back to. On a phone this drawer is reached from
-            inside a specific module (Stock, Quality…), and since
-            "Fournisseurs & clients"/"Paramètres du Business" no longer
-            live in this drawer (moved to their own tiles on the
-            Applications launcher — see AppsListPage), this is how you get
-            back there to reach them, or any other module, without first
-            returning to the phone's home screen. */}
-        {isMobile && (
-          <NavLink to="/apps" className="shell-nav-item shell-back-link">
-            ← Toutes les applications
-          </NavLink>
-        )}
-        <div className="shell-group-label">Modules</div>
-        {PRODUCT_MODULES.map((m) => (
-          <NavItem key={m.key} to={m.to} label={m.label} enabled={entitledKeys.has(m.key)} />
-        ))}
-        {/* Milestone 10 — Achats/Ventes moved out of this hardcoded stub
-            list into PRODUCT_MODULES above (they're real, built modules
-            now, gated per-org by GET /me's entitlements like every other
-            module) — only genuinely unbuilt Phase 2/3 modules stay here. */}
-        <div className="shell-group-label">Verrouillés</div>
-        <div className="shell-nav-item shell-locked">
-          CRM <span className="shell-tag">Phase 2</span>
-        </div>
-        <div className="shell-nav-item shell-locked">
-          Comptabilité <span className="shell-tag">Phase 3</span>
-        </div>
-        <div className="shell-spacer" />
-        <NavLink to="/dashboard" className="shell-nav-item shell-settings">
-          {me?.organization.name}
-        </NavLink>
-        {/* Mobile-only redundant here now — AppsListPage (the "Applications"
-            launcher reachable from the phone's own home screen) has its own
-            dedicated tiles for both, under "Gestion". On desktop this
-            drawer never renders (only the persistent sidebar does, still
-            with both buttons below), so `!isMobile` only strips them from
-            the mobile off-canvas copy. */}
-        {entitledKeys.has('invoicing') && !isMobile && (
-          <button className="shell-nav-item shell-settings" onClick={() => setShowSettings(true)}>
-            ⚙ Paramètres du Business
-          </button>
-        )}
-        {entitledKeys.has('invoicing') && !isMobile && (
-          <button className="shell-nav-item shell-settings" onClick={() => setShowPartners(true)}>
-            👥 Fournisseurs & clients
-          </button>
-        )}
-        <button className="shell-nav-item shell-settings shell-logout" onClick={() => logout()}>
-          Se déconnecter
-        </button>
       </aside>
-      <main className="shell-content">{children}</main>
+
+      <main className="shell-content">
+        <div className="shell-content-inner">{children}</div>
+      </main>
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
       {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
     </div>
   );
 }
 
-function NavItem({ to, label, enabled, tag }: { to: string; label: string; enabled: boolean; tag?: string }) {
-  if (!enabled) {
-    return (
-      <div className="shell-nav-item shell-locked" title={tag ? `Pas encore construit (${tag})` : "Module non activé pour votre organisation"}>
-        {label} {tag && <span className="shell-tag">{tag}</span>}
-      </div>
-    );
-  }
+export function BrandMark({ size = 28 }: { size?: number }) {
   return (
-    <NavLink to={to} className={({ isActive }) => 'shell-nav-item' + (isActive ? ' active' : '')}>
-      {label}
-    </NavLink>
+    <svg className="brand-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="bm-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#7a5cf0" />
+          <stop offset="1" stopColor="#4a2fab" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#bm-g)" />
+      <path d="M9 12.5 16 9l7 3.5-7 3.5z" fill="#fff" opacity=".95" />
+      <path d="M9 16.5l7 3.5 7-3.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity=".75" />
+      <path d="M9 20.5l7 3.5 7-3.5" fill="none" stroke="#22c5a6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
+}
+
+export function initials(name: string): string {
+  const words = name
+    .replace(/\(.*?\)/g, '')
+    .split(/[\s\-—]+/)
+    .filter((w) => /[A-Za-zÀ-ÿ]/.test(w));
+  return ((words[0]?.[0] ?? '') + (words[1]?.[0] ?? '')).toUpperCase() || 'S';
 }

@@ -101,8 +101,16 @@ export class InvoicingController {
 
   @Get('invoices')
   @RequiresPermission('invoicing', 'invoicing.invoice.read')
-  listInvoices(@CurrentUser() user: AuthenticatedUser, @Query('status') status?: string) {
-    return this.invoicing.listInvoices(user.orgId, { status });
+  listInvoices(@CurrentUser() user: AuthenticatedUser, @Query('status') status?: string, @Query('kind') kind?: string) {
+    return this.invoicing.listInvoices(user.orgId, { status, kind });
+  }
+
+  @Post('invoices/:id/convert')
+  @RequiresPermission('invoicing', 'invoicing.invoice.create')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('invoice', 'invoicing.proforma.converted')
+  convertProforma(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.invoicing.convertProforma(user.orgId, id);
   }
 
   @Get('invoices/:id')

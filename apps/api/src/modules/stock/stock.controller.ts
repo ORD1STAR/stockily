@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors, Put } from '@nestjs/common';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { RequiresModule } from '../tenancy/decorators/requires-module.decorator';
 import { RequiresPermission } from '../tenancy/decorators/requires-permission.decorator';
@@ -14,6 +14,7 @@ import { CreateInventoryAdjustmentDto } from './dto/create-inventory-adjustment.
 import { CreateProductDto } from './dto/create-product.dto';
 import { RecordMovementDto } from './dto/record-movement.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SetVariantsDto } from './dto/set-variants.dto';
 
 // Every route here runs behind the full guard chain (docs/Action Plan.md §4):
 // JwtAuthGuard -> ModuleEntitlementGuard -> PermissionGuard -> SiteScopeGuard.
@@ -53,8 +54,16 @@ export class StockController {
   // params/body — picks it up without a second special case.
   @Get('products')
   @RequiresPermission('stock', 'stock.product.read')
-  listProducts(@CurrentUser() user: AuthenticatedUser, @Query('siteId') siteId = 'all') {
-    return this.stock.listProducts(user.orgId, user.userId, siteId);
+  listProducts(@CurrentUser() user: AuthenticatedUser, @Query('siteId') siteId = 'all', @Query('includeParents') includeParents?: string) {
+    return this.stock.listProducts(user.orgId, user.userId, siteId, includeParents === '1');
+  }
+
+  @Put('products/:id/variants')
+  @RequiresPermission('stock', 'stock.product.write')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('product', 'stock.product.variants_updated')
+  setVariants(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: SetVariantsDto) {
+    return this.stock.setVariants(user.orgId, id, dto);
   }
 
   @Get('products/:id')

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsIn, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsIn, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
 // A new lot created as part of receiving this line — same fields as
 // CreateBatchDto (Quality), deliberately not reused directly: this is a
@@ -32,6 +32,13 @@ export class CreatePurchaseReceiptLineDto {
   @IsNumber()
   unitCost!: number; // feeds Weighted Average Cost via StockService.recordMovement
 
+  /** Remise fournisseur sur la ligne, in percent. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPercent?: number;
+
   // Exactly one of these, only when the product isLotTracked — never both.
   @IsOptional()
   @ValidateNested()
@@ -54,10 +61,31 @@ export class CreatePurchaseReceiptLineDto {
   qualityNotes?: string;
 }
 
+export class ReceiptPaymentDto {
+  @IsNumber()
+  @IsPositive()
+  amount!: number;
+
+  @IsOptional()
+  @IsIn(['especes', 'cheque', 'virement', 'autre'])
+  method?: string;
+}
+
 export class CreatePurchaseReceiptDto {
   @IsOptional()
   @IsString()
   purchaseOrderId?: string; // absent = réception libre
+
+  /** Fournisseur of a réception libre (taken from the BC otherwise). */
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  /** Versement made to the fournisseur with this bon de réception. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReceiptPaymentDto)
+  payment?: ReceiptPaymentDto;
 
   @IsString()
   siteId!: string;

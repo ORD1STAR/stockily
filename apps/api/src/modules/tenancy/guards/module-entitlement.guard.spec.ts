@@ -9,6 +9,7 @@ function makeContext(reqOverrides: Record<string, unknown> = {}): ExecutionConte
   return {
     switchToHttp: () => ({ getRequest: () => req }),
     getHandler: () => jest.fn(),
+    getClass: () => jest.fn(),
   } as unknown as ExecutionContext;
 }
 
@@ -29,13 +30,13 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('allows the request through when the route has no @RequiresModule', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue(undefined);
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
     await expect(guard.canActivate(makeContext())).resolves.toBe(true);
     expect(prisma.module.findUnique).not.toHaveBeenCalled();
   });
 
   it('allows an active (non-trial) entitlement', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('stock');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('stock');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-1', key: 'stock' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue({ status: 'active', trialEndsAt: null });
 
@@ -43,7 +44,7 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('allows a trial entitlement that has not yet expired', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('stock');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('stock');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-1', key: 'stock' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue({
       status: 'trial',
@@ -54,7 +55,7 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('rejects an expired trial with a 402 ModuleEntitlementException', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('stock');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('stock');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-1', key: 'stock' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue({
       status: 'trial',
@@ -65,7 +66,7 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('rejects when there is no entitlement row at all', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('quality');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('quality');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-2', key: 'quality' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue(null);
 
@@ -73,7 +74,7 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('rejects a suspended/cancelled entitlement even if trialEndsAt is still in the future', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('stock');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('stock');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-1', key: 'stock' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue({
       status: 'cancelled',
@@ -84,7 +85,7 @@ describe('ModuleEntitlementGuard', () => {
   });
 
   it('caches the DB result and does not re-query within the TTL', async () => {
-    jest.spyOn(reflector, 'get').mockReturnValue('stock');
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue('stock');
     prisma.module.findUnique.mockResolvedValue({ id: 'mod-1', key: 'stock' });
     prisma.organizationModuleEntitlement.findUnique.mockResolvedValue({ status: 'active', trialEndsAt: null });
 

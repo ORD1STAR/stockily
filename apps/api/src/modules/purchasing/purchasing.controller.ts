@@ -98,6 +98,14 @@ export class PurchasingController {
     return this.purchasing.getReceipt(user.orgId, id);
   }
 
+  @Post('receipts/:id/cancel')
+  @RequiresPermission('purchasing', 'purchasing.order.cancel')
+  @UseInterceptors(AuditInterceptor)
+  @Audit('purchase_receipt', 'purchasing.receipt.cancelled')
+  cancelReceipt(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.purchasing.cancelReceipt(user.orgId, user.userId, id);
+  }
+
   // ---------------- Impression ----------------
 
   @Get('orders/:id/pdf')
