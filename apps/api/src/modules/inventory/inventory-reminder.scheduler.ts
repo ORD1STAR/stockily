@@ -23,6 +23,9 @@ export class InventoryReminderScheduler {
 
   @Cron('0 8 * * *')
   async handleCron(): Promise<void> {
+    // The server sends reminders; every desktop device doing it too would
+    // email the org once per poste.
+    if (process.env.STOCKILY_LOCAL_MODE === '1') return;
     const orgs = await this.prisma.organization.findMany({
       where: { inventoryReminder: { not: 'off' } },
       select: { id: true, name: true, email: true, inventoryReminderLastSentAt: true },

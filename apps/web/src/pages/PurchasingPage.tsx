@@ -45,7 +45,7 @@ function statusPillClass(status: PurchaseOrderView['status']): string {
 }
 
 export function PurchasingPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [orders, setOrders] = useState<PurchaseOrderView[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -143,16 +143,22 @@ export function PurchasingPage() {
           <div className="sub">{orders.length} bon(s) de commande</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <ActionMenu
-            items={[
-              { label: 'Comparer des fournisseurs', hint: 'Demande de prix (RFQ)', icon: 'users', onClick: () => setShowRfqForm(true), disabled: sites.length === 0 },
-              { label: 'Réception libre', hint: 'Bon de réception sans bon de commande', icon: 'truck', onClick: () => setShowFreeReceipt(true), disabled: sites.length === 0 },
-              { label: 'Retour fournisseur', hint: 'Marchandise renvoyée au fournisseur', icon: 'chevronLeft', onClick: () => setShowReturnForm(true), disabled: sites.length === 0 || suppliers.length === 0 },
-            ]}
-          />
-          <button className="btn-primary" onClick={() => setShowOrderForm(true)} disabled={sites.length === 0 || suppliers.length === 0}>
-            <Icon name="plus" size={16} /> Bon de commande
-          </button>
+          {(can('purchasing.rfq.create') || can('purchasing.receipt.create')) && (
+            <ActionMenu
+              items={[
+                ...(can('purchasing.rfq.create') ? [{ label: 'Comparer des fournisseurs', hint: 'Demande de prix (RFQ)', icon: 'users' as const, onClick: () => setShowRfqForm(true), disabled: sites.length === 0 }] : []),
+                ...(can('purchasing.receipt.create') ? [
+                  { label: 'Réception libre', hint: 'Bon de réception sans bon de commande', icon: 'truck' as const, onClick: () => setShowFreeReceipt(true), disabled: sites.length === 0 },
+                  { label: 'Retour fournisseur', hint: 'Marchandise renvoyée au fournisseur', icon: 'chevronLeft' as const, onClick: () => setShowReturnForm(true), disabled: sites.length === 0 || suppliers.length === 0 },
+                ] : []),
+              ]}
+            />
+          )}
+          {can('purchasing.order.create') && (
+            <button className="btn-primary" onClick={() => setShowOrderForm(true)} disabled={sites.length === 0 || suppliers.length === 0}>
+              <Icon name="plus" size={16} /> Bon de commande
+            </button>
+          )}
         </div>
       </div>
 
@@ -559,17 +565,18 @@ function OrderDetailModal({
   onCancelled: () => void;
   onLineDeleted: (updated: PurchaseOrderView) => void;
 }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [printing, setPrinting] = useState<string | null>(null);
   const [confirmingLineId, setConfirmingLineId] = useState<string | null>(null);
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
-  const canReceive = order.status === 'confirmed' || order.status === 'partially_received';
-  const canCancel = canReceive && order.lines.every((l) => l.quantityReceived === 0);
-  const canInvoice = order.lines.some((l) => l.quantityReceived > 0);
-  const canDelete = order.lines.every((l) => l.quantityReceived === 0) && (order.receipts ?? []).length === 0;
+  const stateReceivable = order.status === 'confirmed' || order.status === 'partially_received';
+  const canReceive = can('purchasing.receipt.create') && stateReceivable;
+  const canCancel = can('purchasing.order.cancel') && stateReceivable && order.lines.every((l) => l.quantityReceived === 0);
+  const canInvoice = can('purchasing.invoice.create') && order.lines.some((l) => l.quantityReceived > 0);
+  const canDelete = can('purchasing.order.delete') && order.lines.every((l) => l.quantityReceived === 0) && (order.receipts ?? []).length === 0;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -690,7 +697,7 @@ function OrderDetailModal({
                   <td className="num">{l.quantityReceived}</td>
                   <td className="num">{l.unitCost.toFixed(2)} DZD</td>
                   <td>
-                    <button
+                    {can('purchasing.orderline.delete') && (                    <button
                       type="button"
                       className="btn-link danger"
                       disabled={l.quantityReceived > 0 || deletingLineId === l.id}
@@ -699,7 +706,7 @@ function OrderDetailModal({
                       onBlur={() => setConfirmingLineId((c) => (c === l.id ? null : c))}
                     >
                       {deletingLineId === l.id ? 'Suppression…' : confirmingLineId === l.id ? 'Confirmer ?' : 'Retirer'}
-                    </button>
+                    </button>)}
                   </td>
                 </tr>
               ))}

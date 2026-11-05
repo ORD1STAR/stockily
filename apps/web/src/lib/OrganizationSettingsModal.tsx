@@ -46,7 +46,8 @@ function resizeToDataUrl(file: File): Promise<string> {
 // it's available regardless of which module page is open, matching the
 // wireframe's placement at the very bottom of the sidebar.
 export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
+  const readOnly = !can('invoicing.profile.write');
   const [reminder, setReminder] = useState<InventoryReminderStatus | null>(null);
   useEffect(() => {
     if (!accessToken) return;
@@ -122,13 +123,14 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Paramètres du Business</h3>
-            <p className="modal-sub">Affichées sur vos factures et bons.</p>
+            <p className="modal-sub">{readOnly ? 'Consultation uniquement — vous n’avez pas la permission de modifier.' : 'Affichées sur vos factures et bons.'}</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕
           </button>
         </div>
         <form className="field-form" onSubmit={submit}>
+          <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <input
             ref={fileInputRef}
             type="file"
@@ -255,14 +257,17 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
               </div>
             </div>
           )}
+          </fieldset>
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>
               Fermer
             </button>
-            <button type="submit" className="btn-primary">
-              Enregistrer
-            </button>
+            {!readOnly && (
+              <button type="submit" className="btn-primary">
+                Enregistrer
+              </button>
+            )}
           </div>
         </form>
       </div>

@@ -37,9 +37,11 @@ describe('PermissionGuard', () => {
     prisma.rolePermission.findFirst.mockResolvedValue({ id: 'perm-1' });
 
     await expect(guard.canActivate(makeContext())).resolves.toBe(true);
-    // No siteId on the request -> only org-wide (siteId: null) roles should be considered.
+    // No siteId on the request -> any of the user's roles may grant the action
+    // (a site-scoped sub-user must still pass non-site routes; the service
+    // layer scopes which rows they then receive).
     expect(prisma.userRole.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ OR: [{ siteId: null }] }) }),
+      expect.objectContaining({ where: { userId: 'user-1' } }),
     );
   });
 

@@ -40,20 +40,17 @@ export class PermissionGuard implements CanActivate {
     // wrongly deny a site-scoped-only user on ordinary non-site-scoped
     // routes, or wrongly grant an all-sites request the same strictness as a
     // single concrete site:
-    //  - no siteId at all (route has no site dimension, e.g. GET /stock/categories):
-    //    unchanged from Milestone 1 — org-wide roles only.
-    //  - a concrete siteId: org-wide OR that exact site (unchanged).
-    //  - `site=all` (Milestone 2's consolidated-view query param): the
-    //    permission check itself should pass for ANY of the user's roles
-    //    regardless of site — a site-scoped-only user (e.g. Opérateur
-    //    Entrepôt at one site) does have `stock.product.read`, just not for
-    //    every site. This guard only answers "is the action ever permitted
-    //    for this user"; SiteAccessService (service layer) is what actually
-    //    restricts which sites' rows an all-sites request returns to them.
+    //  - a concrete siteId: org-wide OR that exact site.
+    //  - no siteId, or `site=all`: the permission check passes for ANY of the
+    //    user's roles regardless of site. A site-scoped-only sub-user (e.g. a
+    //    caissier at one dépôt) does have the action, just not org-wide — and
+    //    a list route like GET /counters carries no siteId, so requiring an
+    //    org-wide role here would lock such a user out of every non-site
+    //    route. This guard only answers "is the action ever permitted for
+    //    this user"; the service layer (SiteAccessService / per-endpoint site
+    //    filtering) restricts which sites' rows they actually receive.
     const roleWhere =
-      rawSiteId === 'all'
-        ? { userId }
-        : { userId, OR: rawSiteId ? [{ siteId: null }, { siteId: rawSiteId }] : [{ siteId: null }] };
+      rawSiteId && rawSiteId !== 'all' ? { userId, OR: [{ siteId: null }, { siteId: rawSiteId }] } : { userId };
 
     const userRoles = await this.prisma.userRole.findMany({ where: roleWhere, select: { roleId: true } });
     if (userRoles.length === 0) {

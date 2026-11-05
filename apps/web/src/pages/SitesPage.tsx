@@ -8,7 +8,7 @@ import { toast } from '../lib/toast';
 import '../lib/data-views.css';
 
 export function SitesPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [products, setProducts] = useState<StockRow[]>([]);
@@ -56,12 +56,16 @@ export function SitesPage() {
           <div className="sub">Vue consolidée — {sites.length} site(s) actif(s)</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => setShowSiteForm(true)}>
-            <Icon name="plus" size={16} /> Nouveau site
-          </button>
-          <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
-            <Icon name="plus" size={16} /> Transfert inter-site
-          </button>
+          {can('sites.site.write') && (
+            <button className="btn-secondary" onClick={() => setShowSiteForm(true)}>
+              <Icon name="plus" size={16} /> Nouveau site
+            </button>
+          )}
+          {can('sites.transfer.create') && (
+            <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
+              <Icon name="plus" size={16} /> Transfert inter-site
+            </button>
+          )}
         </div>
       </div>
 

@@ -22,7 +22,11 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = authHeader.slice('Bearer '.length);
     try {
-      const payload = this.jwtService.verify<AccessTokenPayload>(token);
+      const payload = this.jwtService.verify<AccessTokenPayload & { typ?: string; orgId?: string }>(token);
+      // Defense in depth: a platform-admin token (signed with the same
+      // secret, but carrying `typ` and no orgId) must never authenticate a
+      // tenant request — it belongs only to the /admin console.
+      if (payload.typ || !payload.orgId) throw new UnauthorizedException();
       req.authUser = { userId: payload.sub, orgId: payload.orgId };
       return true;
     } catch {

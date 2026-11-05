@@ -26,13 +26,13 @@ export class CountersController {
   }
 
   @Get()
-  @RequiresPermission('scan', 'scan.label.read')
+  @RequiresPermission('scan', 'scan.counter.read')
   list(@CurrentUser() user: AuthenticatedUser) {
-    return this.counters.list(user.orgId);
+    return this.counters.list(user.orgId, user.userId);
   }
 
   @Post()
-  @RequiresPermission('stock', 'stock.product.write')
+  @RequiresPermission('scan', 'scan.counter.create')
   @UseInterceptors(AuditInterceptor)
   @Audit('counter', 'counter.created')
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateCounterDto) {
@@ -40,13 +40,13 @@ export class CountersController {
   }
 
   @Patch(':id')
-  @RequiresPermission('stock', 'stock.product.write')
+  @RequiresPermission('scan', 'scan.counter.create')
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateCounterDto) {
     return this.counters.update(user.orgId, id, dto);
   }
 
   @Post(':id/open')
-  @RequiresPermission('stock', 'stock.movement.create')
+  @RequiresPermission('scan', 'scan.counter.session')
   @UseInterceptors(AuditInterceptor)
   @Audit('counter_session', 'counter.session.opened')
   open(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: OpenSessionDto) {
@@ -54,19 +54,19 @@ export class CountersController {
   }
 
   @Get('sessions/list')
-  @RequiresPermission('scan', 'scan.label.read')
+  @RequiresPermission('scan', 'scan.counter.read')
   sessions(@CurrentUser() user: AuthenticatedUser, @Query('counterId') counterId?: string) {
-    return this.counters.listSessions(user.orgId, counterId);
+    return this.counters.listSessions(user.orgId, user.userId, counterId);
   }
 
   @Get('sessions/:id')
-  @RequiresPermission('scan', 'scan.label.read')
+  @RequiresPermission('scan', 'scan.counter.read')
   session(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.counters.summary(user.orgId, id);
   }
 
   @Post('sessions/:id/movements')
-  @RequiresPermission('stock', 'stock.movement.create')
+  @RequiresPermission('scan', 'scan.counter.cash')
   @UseInterceptors(AuditInterceptor)
   @Audit('counter_session', 'counter.cash.movement')
   movement(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CashMovementDto) {
@@ -74,7 +74,7 @@ export class CountersController {
   }
 
   @Post('sessions/:id/close')
-  @RequiresPermission('stock', 'stock.movement.create')
+  @RequiresPermission('scan', 'scan.counter.session')
   @UseInterceptors(AuditInterceptor)
   @Audit('counter_session', 'counter.session.closed')
   close(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CloseSessionDto) {
@@ -82,7 +82,7 @@ export class CountersController {
   }
 
   @Post('sessions/:id/sales')
-  @RequiresPermission('stock', 'stock.movement.create')
+  @RequiresPermission('scan', 'scan.counter.sell')
   @UseInterceptors(AuditInterceptor)
   @Audit('trade_document', 'counter.sale.created')
   sale(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CounterSaleDto) {
@@ -90,13 +90,13 @@ export class CountersController {
   }
 
   @Get('sessions/:id/z')
-  @RequiresPermission('scan', 'scan.label.read')
+  @RequiresPermission('scan', 'scan.counter.ticket')
   async z(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
     this.pdf(res, await this.counters.zReportPdf(user.orgId, id), `ticket-z-${id}`);
   }
 
   @Get('tickets/:documentId')
-  @RequiresPermission('scan', 'scan.label.read')
+  @RequiresPermission('scan', 'scan.counter.ticket')
   async ticket(@CurrentUser() user: AuthenticatedUser, @Param('documentId') documentId: string, @Res() res: Response) {
     this.pdf(res, await this.counters.ticketPdf(user.orgId, documentId), `ticket-${documentId}`);
   }

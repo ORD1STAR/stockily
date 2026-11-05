@@ -32,7 +32,7 @@ export interface TokenPair {
 export const authApi = {
   signup: (data: { organizationName: string; email: string; password: string }) =>
     rawRequest<TokenPair>('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
-  login: (data: { email: string; password: string }) =>
+  login: (data: { identifier: string; password: string }) =>
     rawRequest<TokenPair>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   refresh: (refreshToken: string) =>
     rawRequest<TokenPair>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
@@ -1115,4 +1115,128 @@ export const cashApi = {
     },
   ) => authedRequest<{ source: 'manual' | 'payment'; id: string }>('/cash/entries', token, { method: 'POST', body: JSON.stringify(data) }),
   cancel: (token: string, source: 'manual' | 'payment', id: string) => authedRequest<void>(`/cash/entries/${source}/${id}`, token, { method: 'DELETE' }),
+};
+
+// ───────── Appareils (application de bureau hors ligne) ─────────
+
+export interface DeviceView {
+  id: string;
+  deviceLabel: string | null;
+  status: 'active' | 'deactivated' | 'revoked';
+  activatedAt: string;
+  lastRenewedAt: string;
+  licenseExpiresAt: string;
+  deactivatedAt: string | null;
+  reactivationCount: number;
+}
+
+export interface SeatUsage {
+  used: number;
+  total: number;
+  seatsPerSite: number;
+  sites: number;
+}
+
+export interface ReplayView {
+  id: string;
+  deviceActivationId: string;
+  userId: string;
+  method: string;
+  path: string;
+  status: 'applied' | 'failed';
+  httpStatus: number;
+  error: string | null;
+  createdAt: string;
+}
+
+export const licensingApi = {
+  devices: (token: string) => authedRequest<{ seats: SeatUsage; devices: DeviceView[] }>('/licensing/devices', token),
+  deactivate: (token: string, id: string) => authedRequest<DeviceView>(`/licensing/devices/${id}/deactivate`, token, { method: 'POST' }),
+  failedReplays: (token: string) => authedRequest<ReplayView[]>('/sync/replays?status=failed', token),
+};
+
+// Only exists when the app runs inside the Stockily desktop app (the API
+// is then the device's local one) — on the web these endpoints 404.
+export interface LocalStatus {
+  mode: 'desktop';
+  online: boolean;
+  syncing: boolean;
+  readOnly: boolean;
+  revoked: string | null;
+  licenseExpiresAt: string | null;
+  lastPushAt: string | null;
+  lastPullAt: string | null;
+  lastError: string | null;
+  pending: number;
+  failed: number;
+}
+
+export interface OutboxEntryView {
+  id: string;
+  userId: string;
+  method: string;
+  path: string;
+  status: 'pending' | 'applied' | 'failed' | 'discarded';
+  attempts: number;
+  httpStatus: number | null;
+  lastError: string | null;
+  createdAt: string;
+  appliedAt: string | null;
+  body: unknown;
+}
+
+export const localApi = {
+  status: async (token: string): Promise<LocalStatus | null> => {
+    try {
+      return await authedRequest<LocalStatus>('/local/status', token);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
+  syncNow: (token: string) => authedRequest<{ started: boolean }>('/local/sync', token, { method: 'POST' }),
+  outbox: (token: string, status?: string) => authedRequest<OutboxEntryView[]>(`/local/outbox${status ? `?status=${status}` : ''}`, token),
+  retry: (token: string, id: string) => authedRequest<{ ok: boolean }>(`/local/outbox/${id}/retry`, token, { method: 'POST' }),
+  discard: (token: string, id: string) => authedRequest<{ ok: boolean }>(`/local/outbox/${id}/discard`, token, { method: 'POST' }),
+};
+
+// ───────── Membres (sous-utilisateurs) ─────────
+
+export interface MemberAccess {
+  modules: { key: string; level: 'view' | 'edit' | 'custom'; actions: string[] }[];
+  sites: 'all' | { id: string; name: string }[];
+}
+
+export interface MemberView {
+  id: string;
+  email: string | null;
+  username: string | null;
+  displayName: string | null;
+  isActive: boolean;
+  isAdmin: boolean;
+  roleName: string | null;
+  access: MemberAccess | null;
+}
+
+export interface GrantableModule {
+  key: string;
+  name: string;
+  hasReadOnly: boolean;
+  capabilities: { id: string; label: string; hint?: string; actions: string[] }[];
+}
+
+export interface MemberInput {
+  username: string;
+  displayName?: string;
+  password: string;
+  access: { modules: { key: string; level: 'view' | 'edit' | 'custom'; actions?: string[] }[]; sites: 'all' | string[] };
+}
+
+export const membersApi = {
+  list: (token: string) => authedRequest<MemberView[]>('/members', token),
+  grantableModules: (token: string) => authedRequest<GrantableModule[]>('/members/grantable-modules', token),
+  create: (token: string, data: MemberInput) => authedRequest<MemberView>('/members', token, { method: 'POST', body: JSON.stringify(data) }),
+  update: (token: string, id: string, data: Partial<Omit<MemberInput, 'username'>> & { isActive?: boolean }) =>
+    authedRequest<MemberView>(`/members/${id}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
+  deactivate: (token: string, id: string) => authedRequest<MemberView>(`/members/${id}`, token, { method: 'DELETE' }),
 };

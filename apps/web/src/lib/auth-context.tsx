@@ -2,10 +2,14 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useState 
 import { ApiError, authApi, authedRequest, REFRESH_TOKEN_STORAGE_KEY, setSilentRefreshHandler } from './api';
 
 export interface MeResponse {
-  user: { id: string; email: string };
+  user: { id: string; email: string | null; username: string | null; displayName: string | null };
   organization: { id: string; name: string; plan: string };
   entitlements: { module: string; status: string; trialEndsAt: string | null }[];
   roles: { role: string; site: string | null }[];
+  /** Effective permission actions for the caller — used to hide controls a sub-user lacks (the server still enforces). */
+  permissions: string[];
+  /** 'all' = org-wide; otherwise the site ids this user is scoped to. */
+  siteScope: 'all' | string[];
 }
 
 interface AuthContextValue {
@@ -14,9 +18,11 @@ interface AuthContextValue {
   /** Null only while `loading` or logged out — pages behind ProtectedRoute can treat this as always present. */
   accessToken: string | null;
   signup: (organizationName: string, email: string, password: string) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   logoutEverywhere: () => Promise<void>;
+  /** True if the current user holds the given permission action (cosmetic gating; server enforces). */
+  can: (action: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -77,8 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const tokens = await authApi.login({ email, password });
+    async (identifier: string, password: string) => {
+      const tokens = await authApi.login({ identifier, password });
       await applySession(tokens);
     },
     [applySession],
@@ -101,8 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, [accessToken, clearSession]);
 
+  const can = useCallback((action: string) => !!me?.permissions?.includes(action), [me]);
+
   return (
-    <AuthContext.Provider value={{ me, loading, accessToken, signup, login, logout, logoutEverywhere }}>
+    <AuthContext.Provider value={{ me, loading, accessToken, signup, login, logout, logoutEverywhere, can }}>
       {children}
     </AuthContext.Provider>
   );

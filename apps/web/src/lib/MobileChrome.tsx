@@ -33,6 +33,8 @@ export function MobileHeader({ back, right }: { back?: () => void; right?: React
 
 export function ModuleTiles({ has }: { has: Set<string> }) {
   const navigate = useNavigate();
+  const { can } = useAuth();
+  const showLocked = can('members.user.manage');
   return (
     <div className="mobile-section">
       <div className="mobile-section-label">Applications</div>
@@ -46,7 +48,7 @@ export function ModuleTiles({ has }: { has: Set<string> }) {
               <span className="mobile-tile-label">{m.label}</span>
               <span className="mobile-tile-hint">{m.hint}</span>
             </button>
-          ) : (
+          ) : !showLocked ? null : (
             <div key={m.to} className="mobile-tile locked" title="Module non activé pour votre organisation">
               <span className="mod-chip tone-slate">
                 <Icon name="lock" size={18} />

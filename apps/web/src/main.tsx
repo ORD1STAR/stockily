@@ -1,6 +1,19 @@
 import { StrictMode } from 'react';
 import * as ReactDOM from 'react-dom/client';
 import App from './app/app';
+import { REFRESH_TOKEN_STORAGE_KEY } from './lib/api';
+
+// Desktop app: right after a PC is activated, the shell opens the app with
+// a one-time session in the URL fragment (#stockily-rt=…, never sent to any
+// server) so the user lands signed in instead of typing the password twice.
+// Stored and wiped from the address bar before anything renders.
+{
+  const m = window.location.hash.match(/^#stockily-rt=([0-9a-f]+)$/);
+  if (m) {
+    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, m[1]);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+}
 
 // Suppresses Safari/iOS's edge-swipe "go back" gesture, which recognizes a
 // horizontal drag starting near the screen edge at the OS/browser-chrome

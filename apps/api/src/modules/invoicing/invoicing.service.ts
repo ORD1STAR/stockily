@@ -12,7 +12,7 @@ import { UpdateOrganizationProfileDto } from './dto/update-organization-profile.
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { EMAIL_SENDER, EmailSenderPort } from './email/email-sender.port';
 import { InvoicePdfService } from './pdf/invoice-pdf.service';
-import { nextDocumentNumber } from './document-numbering';
+import { allocateNumber, formatNumber, nextDocumentNumber } from './document-numbering';
 import { LedgerService } from './ledger.service';
 
 type InvoiceWithLines = Invoice & { lines: (InvoiceLine & { taxRate: TaxRate | null })[] };
@@ -598,26 +598,13 @@ export class InvoicingService {
         await this.recomputeSalesOrderStatusInTransaction(tx, salesOrderId);
       }
 
-      // Gapless, per-org, per-calendar-year sequential number (Décret
-      // 05-468) via a single atomic statement — safe under concurrent
-      // finalization because Postgres serializes concurrent
-      // INSERT...ON CONFLICT DO UPDATE statements targeting the same row
-      // via ordinary row-level locking (the second concurrent transaction
-      // blocks until the first commits/rolls back, then sees the
-      // incremented value) — NOT a read-then-write from application code,
-      // which would race. Column names are quoted camelCase because this
-      // schema has no per-field @map (only @@map on the table name) — see
-      // docs/MILESTONE_4.md, this tripped up the first draft of this query.
-      const year = new Date().getFullYear();
-      const rows = await tx.$queryRaw<{ lastNumber: number }[]>`
-        INSERT INTO "invoice_counters" ("orgId", "year", "lastNumber")
-        VALUES (${orgId}, ${year}, 1)
-        ON CONFLICT ("orgId", "year")
-        DO UPDATE SET "lastNumber" = "invoice_counters"."lastNumber" + 1
-        RETURNING "lastNumber"
-      `;
-      const seq = rows[0].lastNumber;
-      const number = `FA-${year}-${String(seq).padStart(6, '0')}`;
+      // Sequential, per-org, per-calendar-year number (Décret 05-468). The
+      // allocator is an atomic INSERT...ON CONFLICT counter for web
+      // requests; a desktop device offline draws from the block it reserved
+      // instead, and the server replays that same number (see
+      // document-numbering.ts) — so the number on the printed facture is
+      // the number on record.
+      const number = formatNumber('FA', await allocateNumber(tx, orgId, 'invoice'));
       const finalizedAt = new Date();
 
       return tx.invoice.update({

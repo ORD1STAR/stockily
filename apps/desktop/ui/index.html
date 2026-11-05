@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stockily</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="card">
+      <div class="brand">
+        <svg width="40" height="40" viewBox="0 0 32 32" aria-hidden="true">
+          <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#7a5cf0" />
+              <stop offset="1" stop-color="#4a2fab" />
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="9" fill="url(#g)" />
+          <path d="M9 12.5 16 9l7 3.5-7 3.5z" fill="#fff" opacity=".95" />
+          <path d="M9 16.5l7 3.5 7-3.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity=".75" />
+          <path d="M9 20.5l7 3.5 7-3.5" fill="none" stroke="#22c5a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span>Stockily</span>
+      </div>
+
+      <section id="loading" class="state">
+        <div class="spinner"></div>
+        <p id="loading-text">Vérification de la licence…</p>
+        <p class="hint" id="loading-hint"></p>
+      </section>
+
+      <section id="activate" class="state" hidden>
+        <h1>Activer ce poste</h1>
+        <p class="lead">
+          Connectez-vous avec votre compte Stockily. Ce poste occupera une place de votre abonnement, puis fonctionnera même sans internet.
+        </p>
+        <div id="activate-message" class="alert" hidden></div>
+        <form id="activate-form">
+          <label>
+            Email
+            <input type="email" id="email" autocomplete="username" required />
+          </label>
+          <label>
+            Mot de passe
+            <input type="password" id="password" autocomplete="current-password" required />
+          </label>
+          <label>
+            Nom du poste
+            <input type="text" id="label" maxlength="100" required />
+            <small>Pour le reconnaître dans Paramètres → Appareils (ex. « Comptoir 1 », « Dépôt »).</small>
+          </label>
+          <div id="activate-error" class="alert error" hidden></div>
+          <button type="submit" id="activate-btn">Activer et ouvrir Stockily</button>
+        </form>
+        <p class="hint">Une connexion internet est nécessaire pour cette étape uniquement.</p>
+      </section>
+
+      <section id="failed" class="state" hidden>
+        <h1>Impossible de démarrer</h1>
+        <div id="failed-message" class="alert error"></div>
+        <button id="retry-btn">Réessayer</button>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

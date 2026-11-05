@@ -1,0 +1,19 @@
+{
+  "name": "@org/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stockily desktop app (Windows): offline-capable, license-locked shell around the Stockily web app + a local API.",
+  "scripts": {
+    "runtime": "node scripts/build-runtime.mjs",
+    "tauri": "tauri",
+    "package": "node scripts/build-runtime.mjs && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  },
+  "nx": {
+    "tags": [
+      "scope:desktop"
+    ]
+  }
+}

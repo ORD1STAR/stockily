@@ -42,6 +42,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
+      # Desktop-app licenses (RS256). The private key signs licenses and
+      # must only ever exist on the server; the public key is also compiled
+      # into the desktop app (apps/desktop/src-tauri/keys). PEM with "\n"
+      # escapes on one line. Unset = insecure dev keypair (refused when
+      # NODE_ENV=production).
+      LICENSE_PRIVATE_KEY: ${LICENSE_PRIVATE_KEY:-}
+      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

@@ -24,6 +24,13 @@ import { InventoryModule } from '../modules/inventory/inventory.module';
 import { CountersModule } from '../modules/counters/counters.module';
 import { StatsModule } from '../modules/stats/stats.module';
 import { CashModule } from '../modules/cash/cash.module';
+import { LicensingModule } from '../modules/licensing/licensing.module';
+import { MembersModule } from '../modules/members/members.module';
+import { SyncModule } from '../modules/sync/sync.module';
+import { ReplayMiddleware } from '../modules/sync/replay.middleware';
+import { LocalModule } from '../local/local.module';
+import { AdminModule } from '../admin/admin.module';
+import { isLocalMode } from '../local/local-env';
 import { AuditModule } from '../modules/audit/audit.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
 import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-context.middleware';
@@ -60,6 +67,16 @@ import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-co
     CountersModule,
     StatsModule,
     CashModule,
+    // Offline desktop app: device seats/licenses, and the endpoints a
+    // device syncs through.
+    LicensingModule,
+    MembersModule,
+    SyncModule,
+    // Desktop app only: outbox, sync engine, read-only enforcement.
+    ...(isLocalMode() ? [LocalModule] : []),
+    // Server only: the cross-tenant platform-admin console. Never loaded on
+    // a device, so a shop PC can't reach admin endpoints or the superuser DB.
+    ...(isLocalMode() ? [] : [AdminModule]),
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -70,6 +87,8 @@ export class AppModule implements NestModule {
   // as Express middleware (Milestone 8, RLS), not a Nest interceptor
   // (interceptors run after guards).
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantContextMiddleware).forRoutes('*');
+    // ReplayMiddleware after TenantContextMiddleware: it runs inside the
+    // tenant context and is a no-op unless the request is a device replay.
+    consumer.apply(TenantContextMiddleware, ReplayMiddleware).forRoutes('*');
   }
 }

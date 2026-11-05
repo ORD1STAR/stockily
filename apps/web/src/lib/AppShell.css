@@ -320,3 +320,30 @@
 .shell.shell-mobile .shell-content-inner {
   padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
 }
+
+/* ───────── Desktop app: sync indicator + read-only banner ───────── */
+.shell-sync-ok {
+  color: var(--success);
+}
+.shell-sync-busy {
+  color: var(--accent);
+}
+.shell-sync-offline {
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+.shell-sync-bad {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.shell-readonly-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: 0.875rem;
+  font-weight: 500;
+}

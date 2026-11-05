@@ -1,12 +1,15 @@
 import helmet from 'helmet';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'node:path';
 import { AppModule } from './app/app.module';
 import { AllExceptionsFilter } from './app/all-exceptions.filter';
 import { frenchValidationExceptionFactory } from './app/validation-messages';
+import { isLocalMode, localEnv } from './local/local-env';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix, { exclude: ['health'] });
   app.use(helmet());
@@ -20,6 +23,17 @@ async function bootstrap() {
   const corsOrigins = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter(Boolean) ?? ['http://localhost:4200'];
   app.enableCors({ origin: corsOrigins, credentials: true });
 
+  // Desktop app: the API also serves the web app on the same origin, so the
+  // built frontend just calls /api — whatever port the shell picked.
+  const webDir = localEnv().webDir;
+  if (isLocalMode() && webDir) {
+    app.useStaticAssets(webDir, { index: false });
+    app.use((req: { method: string; path: string }, res: { sendFile(p: string): void }, next: () => void) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api') && req.path !== '/health') return res.sendFile(join(webDir, 'index.html'));
+      next();
+    });
+  }
+
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
     new ValidationPipe({
@@ -30,7 +44,9 @@ async function bootstrap() {
     }),
   );
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  // A desktop device's API is for that machine only — never reachable from the shop's network.
+  if (isLocalMode()) await app.listen(port, '127.0.0.1');
+  else await app.listen(port);
   Logger.log(
     `🚀 Application is running on: http://localhost:${port}/${globalPrefix}`,
   );

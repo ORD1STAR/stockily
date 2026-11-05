@@ -38,7 +38,7 @@ const FILTERS: { label: string; value: string | undefined }[] = [
 ];
 
 export function InvoicingPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [invoices, setInvoices] = useState<InvoiceView[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -171,15 +171,19 @@ export function InvoicingPage() {
           <div className="sub">Numérotation séquentielle unique — organisation entière</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <ActionMenu
-            items={[
-              { label: 'Nouvelle proforma', hint: 'Sans effet sur le stock ni le solde', icon: 'receipt', onClick: () => setShowCreate('proforma') },
-              { label: 'Ajouter un taux de TVA', icon: 'calculator', onClick: () => setShowTaxRateForm(true) },
-            ]}
-          />
-          <button className="btn-primary" onClick={() => setShowCreate('invoice')}>
-            <Icon name="plus" size={16} /> Nouvelle facture
-          </button>
+          {(can('invoicing.invoice.create') || can('invoicing.taxrate.write')) && (
+            <ActionMenu
+              items={[
+                ...(can('invoicing.invoice.create') ? [{ label: 'Nouvelle proforma', hint: 'Sans effet sur le stock ni le solde', icon: 'receipt' as const, onClick: () => setShowCreate('proforma') }] : []),
+                ...(can('invoicing.taxrate.write') ? [{ label: 'Ajouter un taux de TVA', icon: 'calculator' as const, onClick: () => setShowTaxRateForm(true) }] : []),
+              ]}
+            />
+          )}
+          {can('invoicing.invoice.create') && (
+            <button className="btn-primary" onClick={() => setShowCreate('invoice')}>
+              <Icon name="plus" size={16} /> Nouvelle facture
+            </button>
+          )}
         </div>
       </div>
 
@@ -454,6 +458,7 @@ function InvoiceModal({
   onDelete: () => void;
   pdfError: string | null;
 }) {
+  const { can } = useAuth();
   const [paymentAmount, setPaymentAmount] = useState('');
   const navigate = useNavigate();
   // A second click is required before actually resetting — this deletes
@@ -556,7 +561,7 @@ function InvoiceModal({
           </div>
         </div>
 
-        {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.kind !== 'proforma' && (
+        {invoice.status !== 'draft' && invoice.status !== 'void' && invoice.kind !== 'proforma' && can('invoicing.payment.create') && (
           <div className="modal-section">
             <div className="modal-section-label">Paiements</div>
             <div className="pay-progress" aria-hidden="true">
@@ -591,7 +596,7 @@ function InvoiceModal({
                 </button>
               </form>
             )}
-            {invoice.totalPaid > 0 && (
+            {invoice.totalPaid > 0 && can('invoicing.payment.create') && (
               <button
                 type="button"
                 className="btn-link subtle"
@@ -615,26 +620,30 @@ function InvoiceModal({
         {pdfError && <div className="error-banner">{pdfError}</div>}
 
         <div className="modal-footer">
-          <button
-            type="button"
-            className="btn-link danger"
-            style={{ marginRight: 'auto' }}
-            onClick={() => (confirmingDelete ? onDelete() : setConfirmingDelete(true))}
-            onBlur={() => setConfirmingDelete(false)}
-          >
-            {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer'}
-          </button>
+          {can('invoicing.invoice.delete') ? (
+            <button
+              type="button"
+              className="btn-link danger"
+              style={{ marginRight: 'auto' }}
+              onClick={() => (confirmingDelete ? onDelete() : setConfirmingDelete(true))}
+              onBlur={() => setConfirmingDelete(false)}
+            >
+              {confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer'}
+            </button>
+          ) : (
+            <span style={{ marginRight: 'auto' }} />
+          )}
           {invoice.status !== 'draft' && (
             <button className="btn-primary" onClick={onOpenPdf}>
               Imprimer / PDF
             </button>
           )}
-          {invoice.type === 'CUSTOMER' && invoice.status === 'draft' && (
+          {invoice.type === 'CUSTOMER' && invoice.status === 'draft' && can('invoicing.invoice.finalize') && (
             <button className="btn-primary" onClick={onFinalize}>
               Finaliser la facture
             </button>
           )}
-          {invoice.kind === 'proforma' && (
+          {invoice.kind === 'proforma' && can('invoicing.invoice.create') && (
             <button className="btn-primary" onClick={onConvert}>
               Convertir en facture
             </button>

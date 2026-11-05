@@ -27,7 +27,7 @@ const STATUS: Record<InventoryCountSummary['status'], { label: string; pill: str
 };
 
 export function InventoryPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const openId = searchParams.get('id');
   const [counts, setCounts] = useState<InventoryCountSummary[] | null>(null);
@@ -86,9 +86,11 @@ export function InventoryPage() {
           <h2>Inventaires</h2>
           <div className="sub">Comptez le stock réel d’un dépôt et corrigez les écarts.</div>
         </div>
-        <button className="btn-primary" onClick={() => setShowNew(true)} disabled={sites.length === 0}>
-          <Icon name="plus" size={16} /> Nouvel inventaire
-        </button>
+        {can('stock.movement.create') && (
+          <button className="btn-primary" onClick={() => setShowNew(true)} disabled={sites.length === 0}>
+            <Icon name="plus" size={16} /> Nouvel inventaire
+          </button>
+        )}
       </div>
       {error && <div className="error-banner">{error}</div>}
       {reminder && <ReminderBanner reminder={reminder} />}
@@ -104,9 +106,11 @@ export function InventoryPage() {
           </span>
           <div className="center-message-title">Aucun inventaire pour le moment</div>
           <div className="center-message-sub">Lancez votre premier inventaire pour comparer le stock réel au stock théorique.</div>
-          <button className="btn-primary" style={{ marginTop: 10 }} onClick={() => setShowNew(true)} disabled={sites.length === 0}>
-            Nouvel inventaire
-          </button>
+          {can('stock.movement.create') && (
+            <button className="btn-primary" style={{ marginTop: 10 }} onClick={() => setShowNew(true)} disabled={sites.length === 0}>
+              Nouvel inventaire
+            </button>
+          )}
         </div>
       ) : (
         <div className="table-wrap">

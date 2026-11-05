@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { nextDocumentNumber } from '../invoicing/document-numbering';
 import { formatMoney } from '../shared-pdf/document-pdf.service';
 import { TradeService } from '../trade/trade.service';
+import { SiteAccessService } from '../tenancy/services/site-access.service';
 import { CashMovementDto, CloseSessionDto, CounterSaleDto, CreateCounterDto, OpenSessionDto, UpdateCounterDto } from './counters.dto';
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -21,13 +22,21 @@ export class CountersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trade: TradeService,
+    private readonly siteAccess: SiteAccessService,
   ) {}
+
+  // A site-scoped sub-user (e.g. a caissier at one dépôt) only sees that
+  // site's comptoirs; an org-wide role ('all') sees everything.
+  private siteFilter(scope: 'all' | string[]) {
+    return scope === 'all' ? {} : { siteId: { in: scope.length ? scope : ['__none__'] } };
+  }
 
   // ───────── Comptoirs ─────────
 
-  async list(orgId: string) {
+  async list(orgId: string, userId: string) {
+    const scope = await this.siteAccess.getAccessibleSiteIds(userId, orgId);
     const counters = await this.prisma.counter.findMany({
-      where: { orgId },
+      where: { orgId, ...this.siteFilter(scope) },
       include: { site: { select: { id: true, name: true } }, sessions: { where: { status: 'open' }, select: { id: true } } },
       orderBy: { name: 'asc' },
     });
@@ -73,9 +82,10 @@ export class CountersService {
     return this.summary(orgId, session.id);
   }
 
-  async listSessions(orgId: string, counterId?: string) {
+  async listSessions(orgId: string, userId: string, counterId?: string) {
+    const scope = await this.siteAccess.getAccessibleSiteIds(userId, orgId);
     const sessions = await this.prisma.counterSession.findMany({
-      where: { orgId, ...(counterId ? { counterId } : {}) },
+      where: { orgId, ...(counterId ? { counterId } : {}), ...(scope === 'all' ? {} : { counter: { is: this.siteFilter(scope) } }) },
       orderBy: { openedAt: 'desc' },
       take: 100,
       select: { id: true },

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
+import { allocateNumber, formatNumber } from '../invoicing/document-numbering';
 import { StockService } from '../stock/stock.service';
 import { InvoicingService } from '../invoicing/invoicing.service';
 import { DocumentPdfService, formatMoney } from '../shared-pdf/document-pdf.service';
@@ -561,16 +562,7 @@ export class SalesService {
     // Same atomic counter mechanism as Invoice/PurchaseOrder numbering — a
     // single INSERT...ON CONFLICT DO UPDATE...RETURNING statement, safe
     // under concurrent creation via Postgres's own row-level locking.
-    const prefix = docType === 'quote' ? 'DEV' : 'CMD';
-    const year = new Date().getFullYear();
-    const rows = await tx.$queryRaw<{ lastNumber: number }[]>`
-      INSERT INTO "sales_order_counters" ("orgId", "year", "docType", "lastNumber")
-      VALUES (${orgId}, ${year}, ${docType}, 1)
-      ON CONFLICT ("orgId", "year", "docType")
-      DO UPDATE SET "lastNumber" = "sales_order_counters"."lastNumber" + 1
-      RETURNING "lastNumber"
-    `;
-    return `${prefix}-${year}-${String(rows[0].lastNumber).padStart(6, '0')}`;
+    return formatNumber(docType === 'quote' ? 'DEV' : 'CMD', await allocateNumber(tx, orgId, `sales:${docType}`));
   }
 
   /** Resolves each line's effective unitPrice — explicit override, else PartnerProductPrice (negotiated customer pricing), else the customer's tier price (Prix 1 détail / Prix 2 gros) — and validates the product-vs-description shape. */

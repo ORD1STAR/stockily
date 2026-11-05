@@ -1,0 +1,396 @@
+.admin {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg, #f6f6f8);
+}
+.admin-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: #1d1b26;
+  color: #cfcbe0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  gap: 2px;
+}
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #fff;
+  font-size: 1.1rem;
+  padding: 6px 8px 14px;
+}
+.admin-brand .tag {
+  font-size: 0.62rem;
+  background: #5b3fd1;
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #cfcbe0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.admin-nav a:hover {
+  background: #2a2838;
+  color: #fff;
+}
+.admin-nav a.active {
+  background: #5b3fd1;
+  color: #fff;
+}
+.admin-sidebar-foot {
+  margin-top: auto;
+  border-top: 1px solid #332f45;
+  padding-top: 12px;
+  font-size: 0.8rem;
+}
+.admin-foot-email {
+  margin-bottom: 6px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-foot-logout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  color: #cfcbe0;
+  cursor: pointer;
+  padding: 6px 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.admin-foot-logout:hover {
+  color: #fff;
+}
+.admin-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.admin-page-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px 14px;
+  border-bottom: 1px solid var(--gray-100);
+  background: var(--surface);
+}
+.admin-page-titles {
+  min-width: 0;
+}
+.admin-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.admin-page-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 28px 28px;
+}
+.admin-page-body.flush {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.admin-kpi {
+  background: #fff;
+  border: 1px solid var(--border, #e4e2ec);
+  border-radius: 12px;
+  padding: 16px;
+}
+.admin-kpi .num {
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+.admin-kpi .label {
+  color: var(--muted, #6b6880);
+  font-size: 0.85rem;
+}
+.sql-editor {
+  width: 100%;
+  min-height: 160px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 12px;
+  border: 1px solid var(--border, #e4e2ec);
+  border-radius: 10px;
+  resize: vertical;
+}
+.sql-danger {
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+}
+@media (max-width: 760px) {
+  .admin {
+    flex-direction: column;
+  }
+  .admin-sidebar {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .admin-sidebar-foot {
+    margin: 0;
+    border: 0;
+    padding: 0;
+  }
+}
+
+/* ───────── Form controls: match the platform look everywhere in /admin ───────── */
+.admin-main input:not([type='checkbox']):not([type='radio']),
+.admin-main select,
+.admin-main textarea:not(.sql-editor) {
+  font-family: var(--f-body);
+  font-size: 0.875rem;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+  box-sizing: border-box;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.admin-main input::placeholder,
+.admin-main textarea::placeholder {
+  color: var(--text-subtle);
+}
+.admin-main input:hover:not(:focus):not(:disabled),
+.admin-main select:hover:not(:focus),
+.admin-main textarea:hover:not(:focus) {
+  border-color: var(--gray-300);
+}
+.admin-main input:focus,
+.admin-main select:focus,
+.admin-main textarea:focus {
+  outline: none;
+  border-color: var(--brand-500);
+  box-shadow: var(--ring);
+}
+/* Custom select chevron instead of the OS default */
+.admin-main select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6880' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  cursor: pointer;
+}
+
+/* Page header: title + action on one tidy row */
+.admin-main .panel-head {
+  margin-bottom: 20px;
+}
+.admin-main h2 {
+  font-size: 1.3rem;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.admin-main .sub {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: 3px;
+}
+
+/* KPI cards: a touch more depth + a hover lift */
+.admin-kpi {
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.admin-kpi .num {
+  letter-spacing: -0.03em;
+}
+
+/* Pricing: price field as an input + "DZD / mois" suffix group */
+.price-input {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 230px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.price-input:focus-within {
+  border-color: var(--brand-500);
+  box-shadow: var(--ring);
+}
+.admin-main .price-input input {
+  border: none !important;
+  box-shadow: none !important;
+  text-align: right;
+  min-width: 0;
+  flex: 1;
+}
+.price-input .suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--gray-100);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* SQL console editor: keep monospace, add the platform's focus ring */
+.sql-editor {
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.sql-editor:focus {
+  outline: none;
+  border-color: var(--brand-500);
+  box-shadow: var(--ring);
+}
+.admin-main code {
+  font-family: var(--f-mono, 'JetBrains Mono', monospace);
+  font-size: 0.82rem;
+  background: var(--gray-100);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+/* ───────── SQL console: 3-pane PL/SQL-style layout ───────── */
+.sql-layout { display: flex; flex: 1; min-height: 0; }
+.sql-tables { width: 272px; flex-shrink: 0; border-right: 1px solid var(--gray-100); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.sql-tables-head { padding: 10px; border-bottom: 1px solid var(--gray-100); }
+.sql-tables-head input { width: 100%; }
+.sql-tables-list { flex: 1; overflow: auto; padding: 6px; }
+.sql-table-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; cursor: pointer; color: var(--text); }
+.sql-table-row:hover { background: var(--gray-100); }
+.sql-table-row.open { color: var(--brand-700); }
+.sql-table-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--f-mono, 'JetBrains Mono', monospace); font-size: 0.8rem; }
+.sql-table-run { all: unset; cursor: pointer; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--text-muted); opacity: 0; }
+.sql-table-row:hover .sql-table-run { opacity: 1; }
+.sql-table-run:hover { background: var(--brand-50); color: var(--brand-600); }
+.sql-cols { padding: 2px 8px 8px 26px; }
+.sql-col { display: flex; justify-content: space-between; gap: 8px; padding: 3px 8px; border-radius: 5px; cursor: pointer; }
+.sql-col:hover { background: var(--gray-100); }
+.sql-col-name { font-family: var(--f-mono, 'JetBrains Mono', monospace); font-size: 0.76rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-col-type { color: var(--text-subtle); font-size: 0.7rem; flex-shrink: 0; align-self: center; }
+
+.sql-right { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.sql-editor-pane { flex-shrink: 0; padding: 14px 16px; border-bottom: 1px solid var(--gray-100); background: var(--surface); }
+.admin-main textarea.sql-editor { width: 100%; min-height: 128px; max-height: 38vh; display: block; }
+.sql-controls { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+.sql-write-toggle { display: flex; align-items: center; gap: 7px; font-size: 0.85rem; font-weight: 500; }
+.sql-confirm { max-width: 220px; }
+.sql-hint { color: var(--text-subtle); font-size: 0.78rem; }
+.sql-controls > button { margin-left: auto; }
+.sql-results-pane { flex: 1; min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.sql-result-bar { flex-shrink: 0; padding: 9px 16px; font-size: 0.82rem; color: var(--text-muted); border-bottom: 1px solid var(--gray-100); background: var(--gray-50, #fafafa); }
+/* The grid scrolls BOTH ways inside this box; the page itself never scrolls.
+   NB: we deliberately do NOT set `scrollbar-width` — modern Chromium ignores
+   the ::-webkit-scrollbar styling (and may use an invisible overlay bar) when
+   that standard property is present. The webkit rules below force an
+   always-visible, space-reserving horizontal scrollbar. */
+/* Sizes to its rows (capped at the available height) so the custom scrollbar
+   below sits DIRECTLY under the data, not at the bottom of an empty pane. */
+.sql-result-scroll { flex: 0 1 auto; min-height: 0; min-width: 0; overflow: auto; }
+.sql-result-scroll { scrollbar-width: none; }
+.sql-result-scroll::-webkit-scrollbar { display: none; }
+/* Custom, always-visible horizontal scrollbar (native overlay bars are
+   unreliable and sit flush at the screen edge). */
+.sql-hscroll { flex-shrink: 0; position: relative; height: 13px; margin: 9px 16px 14px; border-radius: 7px; background: var(--gray-200); cursor: pointer; box-shadow: inset 0 0 0 1px var(--gray-100); }
+.sql-hscroll-thumb { position: absolute; top: 0; bottom: 0; min-width: 40px; border-radius: 7px; background: var(--gray-400, #98a2b3); transition: background 0.12s var(--ease); }
+.sql-hscroll:hover .sql-hscroll-thumb, .sql-hscroll-thumb:active { background: var(--text-muted); }
+table.data.sql-result-table { width: max-content; min-width: 100%; font-size: 0.82rem; }
+.sql-result-table th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.sql-result-table td { white-space: nowrap; font-family: var(--f-mono, 'JetBrains Mono', monospace); max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+.sql-empty { padding: 44px; text-align: center; color: var(--text-subtle); font-size: 0.9rem; }
+
+/* ───────── Logs: readable events + expandable detail ───────── */
+.chip.chip-admin { background: var(--brand-50); color: var(--brand-700); }
+.logs-table .log-event { font-weight: 500; }
+.log-detail-row td { background: var(--gray-50, #fafafa); padding: 0; }
+.log-detail { padding: 14px 18px; }
+.log-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 20px; }
+.log-detail-grid .k { display: block; font-size: 0.7rem; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
+.log-detail-grid .v { font-size: 0.85rem; }
+.log-detail-grid .v.mono { font-family: var(--f-mono, 'JetBrains Mono', monospace); font-size: 0.78rem; word-break: break-all; }
+.log-json { margin: 12px 0 0; padding: 12px; background: #1d1b26; color: #cfcbe0; border-radius: 8px; font-size: 0.76rem; overflow: auto; max-height: 220px; }
+
+/* Always-visible styled scrollbars for every admin scroll area (no
+   scrollbar-width — see the note on .sql-result-scroll). */
+.admin-page-body::-webkit-scrollbar, .sql-tables-list::-webkit-scrollbar { width: 11px; height: 11px; }
+.admin-page-body::-webkit-scrollbar-track, .sql-tables-list::-webkit-scrollbar-track { background: transparent; }
+.admin-page-body::-webkit-scrollbar-thumb, .sql-tables-list::-webkit-scrollbar-thumb {
+  background: var(--gray-300); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box;
+}
+.admin-page-body::-webkit-scrollbar-thumb:hover, .sql-tables-list::-webkit-scrollbar-thumb:hover { background: var(--gray-400, #98a2b3); background-clip: padding-box; }
+
+/* ── Logs filter bar ── */
+.logs-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.logs-search { position: relative; display: flex; align-items: center; }
+.logs-search svg { position: absolute; left: 11px; color: var(--text-subtle); pointer-events: none; }
+.admin-main .logs-search input:not(.sql-editor) { padding-left: 36px; width: 230px; }
+.logs-filters select { max-width: 210px; }
+.logs-filters select:disabled { opacity: .5; cursor: not-allowed; }
+.logs-reset { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+
+/* ── Combobox (searchable select) ── */
+.combo { position: relative; }
+.combo-btn { width: 100%; height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-md); font: inherit; font-size: .88rem; color: var(--text); cursor: pointer; transition: border-color .12s var(--ease), box-shadow .12s var(--ease); }
+.combo-btn:hover { border-color: var(--gray-400, #98a2b3); }
+.combo.active .combo-btn { border-color: var(--brand-500); background: var(--brand-50); color: var(--brand-700); }
+.combo.disabled .combo-btn { opacity: .5; cursor: not-allowed; }
+.combo-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-pop { position: absolute; right: 0; top: calc(100% + 6px); min-width: 100%; width: max-content; max-width: 320px; z-index: 50; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: 8px; }
+.admin-main .combo-pop .combo-search { width: 100%; height: 34px; margin-bottom: 6px; }
+.combo-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.combo-opt { padding: 7px 10px; border-radius: var(--r-md); font-size: .86rem; cursor: pointer; white-space: nowrap; }
+.combo-opt.hi { background: var(--gray-100); }
+.combo-opt.sel { color: var(--brand-700); font-weight: 600; }
+.combo-empty { padding: 10px; font-size: .84rem; color: var(--text-muted); text-align: center; }
+
+/* ── Admin user modal ── */
+.admin-pw { display: flex; gap: 8px; }
+.admin-pw input { flex: 1; min-width: 0; }
+.admin-pw .btn-secondary { white-space: nowrap; }
+.admin-active-toggle { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: .9rem; cursor: pointer; }

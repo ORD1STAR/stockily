@@ -94,11 +94,21 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    // Deliberately identical error for "no such user" and "wrong password"
-    // — distinguishing them lets an attacker enumerate valid emails.
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      throw new UnauthorizedException('Email ou mot de passe incorrect.');
+    const identifier = (dto.identifier ?? dto.email ?? '').trim();
+    // Email or username, resolved in one lookup. The users_select RLS policy
+    // has an "unset tenant context" carve-out (login is unauthenticated), so
+    // this findFirst sees all orgs' users — both columns are globally unique,
+    // so it still matches at most one. Lowercased so a case difference in the
+    // typed identifier doesn't block a real account.
+    const user = identifier
+      ? await this.prisma.user.findFirst({
+          where: { OR: [{ email: { equals: identifier, mode: 'insensitive' } }, { username: identifier }] },
+        })
+      : null;
+    // Deliberately identical error for "no such user", "wrong password" and
+    // "deactivated" — distinguishing them lets an attacker enumerate accounts.
+    if (!user || !user.isActive || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+      throw new UnauthorizedException('Identifiant ou mot de passe incorrect.');
     }
 
     // Self-heals orgs that predate the signup-time site creation above (or

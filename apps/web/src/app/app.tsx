@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
+import { ConfirmProvider } from '../lib/ConfirmDialog';
 import { ProtectedRoute } from '../lib/ProtectedRoute';
 import { ToastContainer } from '../lib/toast';
 // The shared component layer is global, not per-page: otherwise a button
@@ -30,6 +31,10 @@ const InventoryPage = lazy(() => import('../pages/InventoryPage'));
 const CountersPage = lazy(() => import('../pages/CountersPage'));
 const StatsPage = lazy(() => import('../pages/StatsPage'));
 const CashPage = lazy(() => import('../pages/CashPage'));
+const DevicesPage = lazy(() => import('../pages/DevicesPage'));
+const MembersPage = lazy(() => import('../pages/MembersPage'));
+const AdminApp = lazy(() => import('../admin/AdminApp'));
+const SyncPage = lazy(() => import('../pages/SyncPage'));
 
 // A blank instant during a chunk fetch reads as broken more than a plain
 // "Chargement…" would — on a fast connection this never even paints.
@@ -44,6 +49,7 @@ function RouteFallback() {
 export function App() {
   return (
     <AuthProvider>
+      <ConfirmProvider>
       <BrowserRouter>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
@@ -153,11 +159,38 @@ export function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/devices"
+              element={
+                <ProtectedRoute>
+                  <DevicesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/members"
+              element={
+                <ProtectedRoute>
+                  <MembersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sync"
+              element={
+                <ProtectedRoute>
+                  <SyncPage />
+                </ProtectedRoute>
+              }
+            />
+            {/* Platform-admin console — its own session/login, separate from the tenant app. */}
+            <Route path="/admin/*" element={<AdminApp />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Suspense>
       </BrowserRouter>
       <ToastContainer />
+      </ConfirmProvider>
     </AuthProvider>
   );
 }

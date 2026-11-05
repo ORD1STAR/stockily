@@ -31,12 +31,25 @@ export const MODULE_GROUP_LABEL: Record<ModuleGroup, string> = {
 // or an unexpired 'trial'), and every nav tile's visibility needs to agree
 // with what the API will actually let the user do, not just whether the
 // org has ever had this module at all.
-export function entitledModuleKeys(entitlements: { module: string; status: string; trialEndsAt: string | null }[]): Set<string> {
-  return new Set(
-    entitlements
-      .filter((e) => e.status === 'active' || (e.status === 'trial' && !!e.trialEndsAt && new Date(e.trialEndsAt).getTime() > Date.now()))
-      .map((e) => e.module),
-  );
+// Read permissions that are granted to every sub-user only so pages can load
+// their reference data (site pickers, product lookups…). They don't make the
+// owning module visible in the menu.
+const IMPLIED_READS = new Set(['sites.site.read', 'stock.product.read', 'invoicing.partner.read']);
+
+/**
+ * Modules the user can actually open: entitled by the org AND — when the
+ * caller's permissions are given — at least one real (non-implied) permission
+ * on that module. This keeps menus in sync with what the API will allow.
+ */
+export function entitledModuleKeys(
+  entitlements: { module: string; status: string; trialEndsAt: string | null }[],
+  permissions?: string[],
+): Set<string> {
+  const entitled = entitlements
+    .filter((e) => e.status === 'active' || (e.status === 'trial' && !!e.trialEndsAt && new Date(e.trialEndsAt).getTime() > Date.now()))
+    .map((e) => e.module);
+  if (!permissions) return new Set(entitled);
+  return new Set(entitled.filter((k) => permissions.some((a) => a.startsWith(`${k}.`) && !IMPLIED_READS.has(a))));
 }
 
 export const PRODUCT_MODULES: ModuleNavEntry[] = [

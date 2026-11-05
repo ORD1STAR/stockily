@@ -8,7 +8,7 @@ import { ApiError, CounterSessionView, CounterView, Site, countersApi, sitesApi 
 import { CashMovementModal, CloseSessionModal, OpenSessionModal, money, openPdf } from '../lib/CounterModals';
 
 export function CountersPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [counters, setCounters] = useState<CounterView[] | null>(null);
   const [sessions, setSessions] = useState<CounterSessionView[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -40,9 +40,11 @@ export function CountersPage() {
           <h2>Comptoirs</h2>
           <div className="sub">Caisses : ouverture, ventes au scan, clôture et ticket Z.</div>
         </div>
-        <button className="btn-primary" onClick={() => setShowCreate(true)} disabled={sites.length === 0}>
-          <Icon name="plus" size={16} /> Nouveau comptoir
-        </button>
+        {can('scan.counter.create') && (
+          <button className="btn-primary" onClick={() => setShowCreate(true)} disabled={sites.length === 0}>
+            <Icon name="plus" size={16} /> Nouveau comptoir
+          </button>
+        )}
       </div>
       {error && <div className="error-banner">{error}</div>}
 
@@ -57,9 +59,11 @@ export function CountersPage() {
           </span>
           <div className="center-message-title">Aucun comptoir</div>
           <div className="center-message-sub">Créez une caisse pour vendre au scan et suivre les espèces.</div>
-          <button className="btn-primary" style={{ marginTop: 10 }} onClick={() => setShowCreate(true)} disabled={sites.length === 0}>
-            Nouveau comptoir
-          </button>
+          {can('scan.counter.create') && (
+            <button className="btn-primary" style={{ marginTop: 10 }} onClick={() => setShowCreate(true)} disabled={sites.length === 0}>
+              Nouveau comptoir
+            </button>
+          )}
         </div>
       ) : (
         <div className="counter-grid">
@@ -94,22 +98,30 @@ export function CountersPage() {
                       {s.number} · ouverte le {new Date(s.openedAt).toLocaleString('fr-FR')}
                     </div>
                     <div className="counter-card-actions">
-                      <Link className="btn-primary btn-sm" to="/scan?mode=checkout">
-                        Vendre
-                      </Link>
-                      <button className="btn-secondary btn-sm" onClick={() => setMoving(s)}>
-                        Mouvement de caisse
-                      </button>
-                      <button className="btn-secondary btn-sm" onClick={() => setClosing(s)}>
-                        Clôturer
-                      </button>
+                      {can('scan.counter.sell') && (
+                        <Link className="btn-primary btn-sm" to="/scan?mode=checkout">
+                          Vendre
+                        </Link>
+                      )}
+                      {can('scan.counter.cash') && (
+                        <button className="btn-secondary btn-sm" onClick={() => setMoving(s)}>
+                          Mouvement de caisse
+                        </button>
+                      )}
+                      {can('scan.counter.session') && (
+                        <button className="btn-secondary btn-sm" onClick={() => setClosing(s)}>
+                          Clôturer
+                        </button>
+                      )}
                     </div>
                   </>
                 ) : (
                   <div className="counter-card-actions">
-                    <button className="btn-primary btn-sm" onClick={() => setOpening(c)} disabled={!c.isActive}>
-                      Ouvrir la caisse
-                    </button>
+                    {can('scan.counter.session') && (
+                      <button className="btn-primary btn-sm" onClick={() => setOpening(c)} disabled={!c.isActive}>
+                        Ouvrir la caisse
+                      </button>
+                    )}
                     <button
                       className="btn-link"
                       onClick={async () => {

@@ -56,6 +56,12 @@ model Organization {
   // Droit de timbre on invoices paid in cash, in percent of the TTC (null = disabled).
   stampDutyRate Decimal? @db.Decimal(5, 2)
 
+  // Desktop-app device seats: an org may activate up to (active Site count ×
+  // this) devices at once. Admin/support-configurable, not self-service —
+  // it's a pricing lever, not a user setting. Default 3 matches the figure
+  // discussed when this was designed (3 postes per site).
+  seatsPerSite Int @default(3)
+
   sites         Site[]
   users         User[]
   roles         Role[]
@@ -87,6 +93,9 @@ model Organization {
   counters Counter[]
   counterSessions CounterSession[]
   cashEntries CashEntry[]
+  deviceActivations DeviceActivation[]
+  numberBlocks NumberBlock[]
+  syncReplayLogs SyncReplayLog[]
 
   @@map("organizations")
 }
@@ -98,7 +107,7 @@ model Module {
   id           String   @id @default(uuid())
   key          String   @unique // e.g. "stock", "quality", "invoicing", "sites", "scan", "purchasing", "orders", "delivery", "crm", "notifications", "returns", "accounting", "reporting"
   name         String
-  phase        Int      // 1, 2, or 3
+  phase        Int      // 1, 2, or 3 (0 = infra, not a subscribable product module — e.g. "licensing")
   dependencies String[] // module keys this one requires to be active
 
   entitlements OrganizationModuleEntitlement[]
@@ -153,8 +162,22 @@ model Site {
 model User {
   id           String   @id @default(uuid())
   orgId        String
-  email        String   @unique // globally unique across the platform (§2 simplicity decision)
+  // Globally unique across the platform (§2). Nullable because a sub-user
+  // the owner creates logs in by username and may have no email.
+  email        String?  @unique
+  // Alternative login handle for sub-users the owner creates (who may not
+  // have an email). Globally unique like email, so login resolves one user
+  // from an identifier without knowing the org. Null for the org's first
+  // (owner) user, who logs in by email.
+  username     String?  @unique
+  displayName  String?
   passwordHash String
+  // Sub-users are soft-disabled, never deleted (keeps audit/FK history);
+  // login refuses an inactive user.
+  isActive     Boolean  @default(true)
+  // The user who created this sub-user (owner or an admin); null for the
+  // org's first user.
+  createdById  String?
   createdAt    DateTime @default(now())
 
   organization   Organization    @relation(fields: [orgId], references: [id])
@@ -178,6 +201,125 @@ model RefreshToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("refresh_tokens")
+}
+
+// One row per activated desktop-app device (offline/local mode). A device is
+// identified by three separately-hashed hardware components rather than one
+// composite hash, so `activate` can fuzzy-match on 2 of 3 when one changes
+// (e.g. a disk swap) and reactivate the same seat instead of orphaning it —
+// raw hardware identifiers (motherboard UUID, disk serial, MAC) are hashed
+// client-side and never stored or transmitted. `status` stays `deactivated`
+// on self-service release (no cooldown, by design) or `revoked` when support
+// forcibly reclaims a seat; either way the row is kept, not deleted, so
+// `reactivationCount` and the unique constraint below keep meaning across a
+// device's whole history with this org.
+model DeviceActivation {
+  id                String    @id @default(uuid())
+  orgId             String
+  deviceLabel       String?
+  fingerprintHash   String // sha256(motherboardHash|diskHash|macHash), canonical order
+  motherboardHash   String
+  diskHash          String
+  macHash           String
+  status            String    @default("active") // active | deactivated | revoked
+  activatedAt       DateTime  @default(now())
+  lastRenewedAt     DateTime  @default(now())
+  licenseExpiresAt  DateTime
+  deactivatedAt     DateTime?
+  reactivationCount Int       @default(0)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, fingerprintHash])
+  @@index([orgId, status])
+  @@map("device_activations")
+}
+
+// A contiguous range of document numbers reserved for one desktop device,
+// so it can keep numbering factures/bons/etc. while offline without two
+// devices ever issuing the same number. Reserving bumps the org's real
+// counter by the block size in one atomic statement; the device then
+// consumes start..end locally. Unused numbers in a block are the only gaps
+// in a series, and this table is what documents them (Décret 05-468:
+// every gap must be explainable). counterKey: "invoice", "purchase_order",
+// "sales:<quote|order>", "doc:<document_counters.docType>". lastUsed starts
+// at start - 1; on the server it's the highest number replayed so far, on
+// the device it's the highest number allocated locally.
+model NumberBlock {
+  id                 String    @id @default(uuid())
+  orgId              String
+  deviceActivationId String
+  counterKey         String
+  year               Int
+  start              Int
+  end                Int
+  lastUsed           Int
+  createdAt          DateTime  @default(now())
+  releasedAt         DateTime?
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, deviceActivationId, counterKey, year])
+  @@map("number_blocks")
+}
+
+// Server-side idempotency record for requests replayed by a desktop device
+// after it reconnects: the device sends the same idempotency key (its
+// outbox entry id) on every retry, so a replay that already succeeded is
+// answered from here instead of being applied twice. Failed replays are
+// kept too — they are the org admin's view of what didn't sync.
+model SyncReplayLog {
+  id                 String   @id @default(uuid())
+  orgId              String
+  deviceActivationId String
+  idempotencyKey     String   @unique
+  userId             String
+  method             String
+  path               String
+  status             String // applied | failed
+  httpStatus         Int
+  responseBody       Json?
+  error              String?
+  createdAt          DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@map("sync_replay_log")
+}
+
+// Desktop (local mode) only — always empty on the server. Every mutating
+// API request a device performs is recorded here, with the response it got
+// locally and the document numbers it consumed, then replayed against the
+// server once online. status: pending | applied | failed | discarded.
+model LocalOutboxEntry {
+  id            String    @id @default(uuid())
+  userId        String
+  method        String
+  path          String
+  body          Json?
+  localResponse Json?
+  numbers       Json      @default("[]")
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  httpStatus    Int?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  appliedAt     DateTime?
+
+  @@index([status, createdAt])
+  @@map("local_outbox")
+}
+
+// Desktop (local mode) only: ids the device generated offline -> the ids
+// the server assigned when the same request was replayed, so later outbox
+// entries that reference a locally-created row are rewritten before replay.
+model LocalIdMap {
+  localId   String   @id
+  remoteId  String
+  createdAt DateTime @default(now())
+
+  @@map("local_id_map")
 }
 
 // System-default roles (Super Admin, Gestionnaire, Opérateur Entrepôt,
@@ -1207,4 +1349,87 @@ model CashEntry {
 
   @@index([orgId, occurredAt])
   @@map("cash_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Platform administration (Ordi-Tech staff) — cross-tenant, distinct from a
+// per-org Super Admin. These tables are accessed ONLY by the admin superuser
+// Prisma client (bypasses RLS); the normal app role (stockily_app) is denied
+// all access via an RLS deny-all stance (ENABLE+FORCE, no policy). The admin
+// module is never loaded in local/desktop mode, so none of this exists on a
+// device.
+// ---------------------------------------------------------------------------
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  username     String?   @unique
+  name         String?
+  passwordHash String
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  refreshTokens AdminRefreshToken[]
+
+  @@map("admin_users")
+}
+
+model AdminRefreshToken {
+  id        String    @id @default(uuid())
+  adminId   String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  admin AdminUser @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([tokenHash])
+  @@map("admin_refresh_tokens")
+}
+
+// Every admin action (module grant, user edit, SQL write, etc.) for traceability.
+model AdminAuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  adminEmail String
+  action     String
+  detail     Json?
+  ip         String?
+  occurredAt DateTime @default(now())
+
+  @@index([occurredAt])
+  @@map("admin_audit_log")
+}
+
+// Platform pricing per module (DZD/month). Payment integration comes later.
+model ModulePrice {
+  id           String   @id @default(uuid())
+  moduleKey    String   @unique
+  monthlyPrice Decimal  @db.Decimal(12, 2)
+  currency     String   @default("DZD")
+  isActive     Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  @@map("module_prices")
+}
+
+// Platform-level payments by an org for its subscription. Empty until the
+// payment API is wired; the admin lists them.
+model PlatformPayment {
+  id        String    @id @default(uuid())
+  orgId     String
+  amount    Decimal   @db.Decimal(12, 2)
+  currency  String    @default("DZD")
+  method    String?
+  status    String    @default("pending") // pending | paid | failed | refunded
+  reference String?
+  notes     String?
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([orgId, createdAt])
+  @@map("platform_payments")
 }

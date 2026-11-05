@@ -18,8 +18,9 @@ export function AppsListPage() {
 
   if (!me) return null;
 
-  const entitledKeys = entitledModuleKeys(me.entitlements);
+  const entitledKeys = entitledModuleKeys(me.entitlements, me.permissions);
   const hasInvoicing = entitledKeys.has('invoicing');
+  const canSeeBusiness = entitledModuleKeys(me.entitlements).has('invoicing') && me.permissions.includes('invoicing.profile.read');
 
   return (
     <div className="mobile-home">
@@ -32,24 +33,24 @@ export function AppsListPage() {
         }
       />
       <ModuleTiles has={entitledKeys} />
-      {hasInvoicing && (
+      {(hasInvoicing || canSeeBusiness) && (
         <div className="mobile-section">
           <div className="mobile-section-label">Gestion</div>
           <div className="mobile-list">
-            <button className="mobile-list-item" onClick={() => setShowPartners(true)}>
+            {hasInvoicing && <button className="mobile-list-item" onClick={() => setShowPartners(true)}>
               <span className="mod-chip sm tone-slate">
                 <Icon name="users" size={16} />
               </span>
               <span className="mobile-list-text">Fournisseurs & clients</span>
               <Icon name="chevronRight" size={16} />
-            </button>
-            <button className="mobile-list-item" onClick={() => setShowSettings(true)}>
+            </button>}
+            {canSeeBusiness && <button className="mobile-list-item" onClick={() => setShowSettings(true)}>
               <span className="mod-chip sm tone-slate">
                 <Icon name="settings" size={16} />
               </span>
               <span className="mobile-list-text">Paramètres du business</span>
               <Icon name="chevronRight" size={16} />
-            </button>
+            </button>}
           </div>
         </div>
       )}

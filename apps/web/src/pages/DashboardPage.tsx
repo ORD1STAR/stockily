@@ -35,7 +35,7 @@ function useOverview(): { data: Overview | null; loading: boolean } {
 
   useEffect(() => {
     if (!me || !accessToken) return;
-    const has = entitledModuleKeys(me.entitlements);
+    const has = entitledModuleKeys(me.entitlements, me.permissions);
     let cancelled = false;
     const opt = <T,>(cond: boolean, p: () => Promise<T>) => (cond ? p().catch(() => null) : Promise.resolve(null));
 
@@ -87,7 +87,7 @@ function DesktopDashboard() {
   const { me, logoutEverywhere } = useAuth();
   const { data, loading } = useOverview();
   if (!me) return null;
-  const has = entitledModuleKeys(me.entitlements);
+  const has = entitledModuleKeys(me.entitlements, me.permissions);
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const todos = buildTodos(data, has);
 
@@ -205,7 +205,7 @@ function DesktopDashboard() {
           <div>
             <div className="dash-account-org">{me.organization.name}</div>
             <div className="dash-account-email">
-              {me.user.email} · {me.roles.map((r) => `${r.role}${r.site ? ` (${r.site})` : ''}`).join(', ')}
+              {me.user.email ?? me.user.displayName ?? (me.user.username ? `@${me.user.username}` : '')} · {me.roles.map((r) => `${r.role}${r.site ? ` (${r.site})` : ''}`).join(', ')}
             </div>
           </div>
         </div>
@@ -304,7 +304,7 @@ function MobileHome() {
   const [showPartners, setShowPartners] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   if (!me) return null;
-  const has = entitledModuleKeys(me.entitlements);
+  const has = entitledModuleKeys(me.entitlements, me.permissions);
 
   return (
     <div className="mobile-home">

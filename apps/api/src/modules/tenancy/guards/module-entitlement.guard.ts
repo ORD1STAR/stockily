@@ -4,6 +4,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { REQUIRES_MODULE_KEY } from '../decorators/requires-module.decorator';
 import { ModuleEntitlementException } from '../exceptions/module-entitlement.exception';
 import { EntitlementCacheService } from '../services/entitlement-cache.service';
+import { isLocalMode } from '../../../local/local-env';
+import { getLocalActiveModuleKeys } from '../../../local/local-entitlements';
 
 type CachedEntitlement = { status: string; trialEndsAt: Date | null } | null;
 
@@ -29,6 +31,19 @@ export class ModuleEntitlementGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const orgId: string | undefined = req.authUser?.orgId;
     if (!orgId) throw new UnauthorizedException();
+
+    // Desktop (local) mode: trust the SIGNED license token's entitlements,
+    // not the device's local database — editing the local
+    // organization_module_entitlements table must not unlock a module (the
+    // signature can't be forged). Falls back to the DB only before a license
+    // has been loaded.
+    if (isLocalMode()) {
+      const keys = getLocalActiveModuleKeys();
+      if (keys) {
+        if (keys.has(moduleKey)) return true;
+        throw new ModuleEntitlementException(moduleKey);
+      }
+    }
 
     const cacheKey = `${orgId}:${moduleKey}`;
     let entitlement = this.cache.get<CachedEntitlement>(cacheKey);

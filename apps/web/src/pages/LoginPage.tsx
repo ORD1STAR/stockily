@@ -7,7 +7,7 @@ import { AuthLayout } from './AuthLayout';
 export function LoginPage() {
   const { me, login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -19,7 +19,7 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(identifier, password);
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Veuillez réessayer.');
@@ -35,8 +35,8 @@ export function LoginPage() {
         {error && <div className="error-banner">{error}</div>}
 
         <div className="field-row">
-          <label htmlFor="email">Email</label>
-          <input id="email" type="email" autoComplete="email" placeholder="vous@entreprise.dz" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <label htmlFor="identifier">Email ou nom d'utilisateur</label>
+          <input id="identifier" type="text" autoComplete="username" placeholder="vous@entreprise.dz" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
         </div>
         <div className="field-row">
           <label htmlFor="password">Mot de passe</label>

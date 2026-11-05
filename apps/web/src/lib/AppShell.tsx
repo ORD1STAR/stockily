@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from './auth-context';
+import { LocalStatus } from './api';
+import { useDesktopStatus } from './desktop';
 import { Icon } from './Icon';
 import { entitledModuleKeys, MODULE_GROUP_LABEL, ModuleGroup, PRODUCT_MODULES, UPCOMING_MODULES } from './modules';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
@@ -14,7 +16,7 @@ import './AppShell.css';
 // reflects `me`'s real entitlements from GET /me.
 export function AppShell({ children }: { children: ReactNode }) {
   const { me, logout } = useAuth();
-  const entitledKeys = entitledModuleKeys(me?.entitlements ?? []);
+  const entitledKeys = entitledModuleKeys(me?.entitlements ?? [], me?.permissions ?? []);
   const [showSettings, setShowSettings] = useState(false);
   const [showPartners, setShowPartners] = useState(false);
   const isMobile = useIsMobile();
@@ -38,7 +40,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     items: PRODUCT_MODULES.filter((m) => m.group === g),
   }));
   const canManageBusiness = entitledKeys.has('invoicing');
-  const email = me?.user.email ?? '';
+  const canSeeBusiness = entitledModuleKeys(me?.entitlements ?? []).has('invoicing') && !!me?.permissions?.includes('invoicing.profile.read');
+  const canManageDevices = !!me?.roles.some((r) => r.role === 'Super Admin' || r.role === 'Gestionnaire');
+  const canManageMembers = !!me?.permissions?.includes('members.user.manage');
+  const desktop = useDesktopStatus();
+  // Sub-users may have a username instead of an email.
+  const email = me?.user.email ?? (me?.user.username ? `@${me.user.username}` : '');
   const orgName = me?.organization.name ?? '';
 
   return (
@@ -92,8 +99,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <Icon name={m.icon} />
                     <span>{m.label}</span>
                   </NavLink>
-                ) : (
-                  <div key={m.to} className="shell-nav-item shell-locked" title="Module non activé pour votre organisation">
+                ) : !canManageMembers ? null : (
+                  <div key={m.to} className="shell-nav-item shell-locked" title="Module non activé ou non autorisé">
                     <Icon name={m.icon} />
                     <span>{m.label}</span>
                     <Icon name="lock" size={14} className="shell-lock" />
@@ -118,17 +125,30 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="shell-spacer" />
 
         <div className="shell-footer">
+          {desktop && <SyncIndicator status={desktop} />}
+          {canManageMembers && (
+            <NavLink to="/members" className="shell-nav-item">
+              <Icon name="users" />
+              <span>Utilisateurs</span>
+            </NavLink>
+          )}
+          {canManageDevices && (
+            <NavLink to="/devices" className="shell-nav-item">
+              <Icon name="monitor" />
+              <span>Appareils</span>
+            </NavLink>
+          )}
           {canManageBusiness && (
-            <>
-              <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowPartners(true); }}>
-                <Icon name="users" />
-                <span>Fournisseurs & clients</span>
-              </button>
-              <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowSettings(true); }}>
-                <Icon name="settings" />
-                <span>Paramètres</span>
-              </button>
-            </>
+            <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowPartners(true); }}>
+              <Icon name="users" />
+              <span>Fournisseurs & clients</span>
+            </button>
+          )}
+          {canSeeBusiness && (
+            <button className="shell-nav-item" onClick={() => { closeSidebar(); setShowSettings(true); }}>
+              <Icon name="settings" />
+              <span>Paramètres</span>
+            </button>
           )}
           <div className="shell-account">
             <span className="shell-avatar">{initials(orgName)}</span>
@@ -144,11 +164,42 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="shell-content">
+        {desktop?.readOnly && (
+          <div className="shell-readonly-banner" role="alert">
+            <Icon name="lock" size={16} />
+            <span>
+              {desktop.revoked
+                ? 'Cet appareil a été désactivé : consultation et impression uniquement. Reconnectez-vous pour le réactiver.'
+                : 'Licence expirée (plus de 45 jours sans connexion) : consultation et impression uniquement. Connectez cet ordinateur à internet quelques instants pour la renouveler.'}
+            </span>
+          </div>
+        )}
         <div className="shell-content-inner">{children}</div>
       </main>
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
       {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
     </div>
+  );
+}
+
+// Desktop app only: one-glance sync state, opens the Synchronisation page.
+function SyncIndicator({ status }: { status: LocalStatus }) {
+  const state = status.failed > 0 ? 'bad' : !status.online ? 'offline' : status.pending > 0 || status.syncing ? 'busy' : 'ok';
+  const text =
+    state === 'bad'
+      ? `${status.failed} saisie${status.failed > 1 ? 's' : ''} refusée${status.failed > 1 ? 's' : ''}`
+      : state === 'offline'
+        ? status.pending > 0
+          ? `Hors ligne · ${status.pending} en attente`
+          : 'Hors ligne'
+        : state === 'busy'
+          ? 'Synchronisation…'
+          : 'Synchronisé';
+  return (
+    <NavLink to="/sync" className={`shell-nav-item shell-sync shell-sync-${state}`} title="Voir la synchronisation de ce poste">
+      <Icon name={status.online ? 'refresh' : 'wifiOff'} />
+      <span>{text}</span>
+    </NavLink>
   );
 }
 

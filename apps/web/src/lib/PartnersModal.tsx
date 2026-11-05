@@ -17,7 +17,7 @@ const money = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximum
 // which hardcodes isCustomer: true/isSupplier: false — there was no way to
 // register a supplier anywhere in the app.
 export function PartnersModal({ onClose }: { onClose: () => void }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [partners, setPartners] = useState<Partner[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -183,9 +183,11 @@ export function PartnersModal({ onClose }: { onClose: () => void }) {
         )}
         <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
           <span className="sub">Solde = solde initial + bons et factures − retours − versements.</span>
-          <button className="btn-primary" onClick={() => setShowForm(true)}>
-            + Nouveau partenaire
-          </button>
+          {can('invoicing.partner.write') && (
+            <button className="btn-primary" onClick={() => setShowForm(true)}>
+              + Nouveau partenaire
+            </button>
+          )}
         </div>
       </div>
       {showForm && (
@@ -220,7 +222,7 @@ function PartnerEditForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [name, setName] = useState(partner?.name ?? '');
   const [isCustomer, setIsCustomer] = useState(partner?.isCustomer ?? false);
   const [isSupplier, setIsSupplier] = useState(partner?.isSupplier ?? true);
@@ -410,7 +412,7 @@ function PartnerEditForm({
           )}
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
-            {partner && (
+            {partner && can('invoicing.partner.delete') && (
               <button
                 type="button"
                 className="btn-link danger"
@@ -425,9 +427,11 @@ function PartnerEditForm({
             <button type="button" className="btn-secondary" onClick={onClose}>
               Annuler
             </button>
-            <button type="submit" className="btn-primary" disabled={submitting}>
-              {submitting ? 'Enregistrement…' : partner ? 'Enregistrer' : 'Créer'}
-            </button>
+            {can('invoicing.partner.write') && (
+              <button type="submit" className="btn-primary" disabled={submitting}>
+                {submitting ? 'Enregistrement…' : partner ? 'Enregistrer' : 'Créer'}
+              </button>
+            )}
           </div>
         </form>
       </div>

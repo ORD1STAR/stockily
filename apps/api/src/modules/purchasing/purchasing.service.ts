@@ -5,7 +5,7 @@ import { QualityService } from '../quality/quality.service';
 import { StockService } from '../stock/stock.service';
 import { InvoicingService } from '../invoicing/invoicing.service';
 import { LedgerService } from '../invoicing/ledger.service';
-import { nextDocumentNumber } from '../invoicing/document-numbering';
+import { allocateNumber, formatNumber, nextDocumentNumber } from '../invoicing/document-numbering';
 import { DocumentPdfService, formatMoney } from '../shared-pdf/document-pdf.service';
 import { RecordQualityCheckDto } from '../quality/dto/record-quality-check.dto';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto/create-purchase-order.dto';
@@ -104,15 +104,7 @@ export class PurchasingService {
       // legal gapless requirement applies here — reused purely for
       // consistency with the one other numbered-document pattern in this
       // codebase, not because it's required.
-      const year = new Date().getFullYear();
-      const rows = await tx.$queryRaw<{ lastNumber: number }[]>`
-        INSERT INTO "purchase_order_counters" ("orgId", "year", "lastNumber")
-        VALUES (${orgId}, ${year}, 1)
-        ON CONFLICT ("orgId", "year")
-        DO UPDATE SET "lastNumber" = "purchase_order_counters"."lastNumber" + 1
-        RETURNING "lastNumber"
-      `;
-      const number = `BC-${year}-${String(rows[0].lastNumber).padStart(6, '0')}`;
+      const number = formatNumber('BC', await allocateNumber(tx, orgId, 'purchase_order'));
 
       const created = await tx.purchaseOrder.create({
         data: {
@@ -566,15 +558,7 @@ export class PurchasingService {
 
     return this.prisma.$transaction(async (tx) => {
       await setTenantOnTransaction(tx, orgId);
-      const year = new Date().getFullYear();
-      const rows = await tx.$queryRaw<{ lastNumber: number }[]>`
-        INSERT INTO "purchase_order_counters" ("orgId", "year", "lastNumber")
-        VALUES (${orgId}, ${year}, 1)
-        ON CONFLICT ("orgId", "year")
-        DO UPDATE SET "lastNumber" = "purchase_order_counters"."lastNumber" + 1
-        RETURNING "lastNumber"
-      `;
-      const number = `BC-${year}-${String(rows[0].lastNumber).padStart(6, '0')}`;
+      const number = formatNumber('BC', await allocateNumber(tx, orgId, 'purchase_order'));
 
       const awarded = await tx.purchaseOrder.update({
         where: { id: winningPurchaseOrderId },

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "IPC for the bundled activation screen only. The Stockily web app itself is served from the local API (http://127.0.0.1) and is deliberately given no access to these commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

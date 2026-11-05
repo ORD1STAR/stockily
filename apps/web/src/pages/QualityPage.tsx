@@ -33,7 +33,7 @@ interface QualityRow {
 }
 
 export function QualityPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [products, setProducts] = useState<StockRow[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [nonConformities, setNonConformities] = useState<NonConformity[]>([]);
@@ -131,9 +131,11 @@ export function QualityPage() {
           <h2>Qualité</h2>
           <div className="sub">Lots, péremption et non-conformités — toutes activités confondues</div>
         </div>
-        <button className="btn-primary" onClick={() => setShowCheckForm(true)}>
-          <Icon name="plus" size={16} /> Contrôle qualité
-        </button>
+        {can('quality.check.create') && (
+          <button className="btn-primary" onClick={() => setShowCheckForm(true)}>
+            <Icon name="plus" size={16} /> Contrôle qualité
+          </button>
+        )}
       </div>
 
       <div className="note-box">

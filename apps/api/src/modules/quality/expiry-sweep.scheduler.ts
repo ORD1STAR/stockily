@@ -24,6 +24,8 @@ export class ExpirySweepScheduler {
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleCron(): Promise<void> {
+    // Server-side job: alerts created on a device would be wiped by its next snapshot anyway.
+    if (process.env.STOCKILY_LOCAL_MODE === '1') return;
     const orgs = await this.prisma.organization.findMany({ select: { id: true } });
     for (const org of orgs) {
       try {

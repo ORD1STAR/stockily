@@ -34,7 +34,7 @@ function marginClass(v: number | null) {
 }
 
 export function StockPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
   // No product list until a dépôt is chosen ('' = none). With a single
   // dépôt it's selected automatically; with several, the page always opens
@@ -194,12 +194,16 @@ export function StockPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={() => setShowProductForm(true)}>
-            <Icon name="plus" size={16} /> Nouveau produit
-          </button>
-          <button className="btn-primary" onClick={() => setShowMovementForm(true)} disabled={rows.length === 0}>
-            <Icon name="plus" size={16} /> Mouvement de stock
-          </button>
+          {can('stock.product.write') && (
+            <button className="btn-secondary" onClick={() => setShowProductForm(true)}>
+              <Icon name="plus" size={16} /> Nouveau produit
+            </button>
+          )}
+          {can('stock.movement.create') && (
+            <button className="btn-primary" onClick={() => setShowMovementForm(true)} disabled={rows.length === 0}>
+              <Icon name="plus" size={16} /> Mouvement de stock
+            </button>
+          )}
         </div>
       </div>
 
@@ -381,7 +385,7 @@ function SkuDetailModal({
   onDeleted: () => void;
   onOpenProduct: (productId: string) => void;
 }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [detail, setDetail] = useState(initialDetail);
   const [batches, setBatches] = useState<Batch[] | null>(null);
   const [showEdit, setShowEdit] = useState(false);
@@ -530,9 +534,11 @@ function SkuDetailModal({
             </div>
           </div>
           <div className="modal-header-actions">
-            <button type="button" className="btn-secondary btn-sm" onClick={() => setShowEdit(true)}>
-              Modifier
-            </button>
+            {can('stock.product.write') && (
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowEdit(true)}>
+                Modifier
+              </button>
+            )}
             <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
               ✕
             </button>
@@ -712,6 +718,7 @@ function SkuDetailModal({
             {settingsError && <div className="error-banner">{settingsError}</div>}
 
             <div className="modal-footer">
+              {can('stock.product.delete') ? (
               <button
                 type="button"
                 className="btn-link danger"
@@ -722,9 +729,14 @@ function SkuDetailModal({
               >
                 {checkingUsage ? 'Vérification…' : deleting ? 'Suppression…' : confirmingDelete ? 'Confirmer la suppression ?' : 'Supprimer le produit'}
               </button>
-              <button type="button" className="btn-primary" onClick={saveSettings} disabled={!settingsDirty || savingSettings}>
-                {savingSettings ? 'Enregistrement…' : 'Enregistrer'}
-              </button>
+              ) : (
+                <span style={{ marginRight: 'auto' }} />
+              )}
+              {can('stock.product.write') && (
+                <button type="button" className="btn-primary" onClick={saveSettings} disabled={!settingsDirty || savingSettings}>
+                  {savingSettings ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              )}
               {confirmingDelete && (
                 <p className="sub" style={{ width: '100%', margin: 0 }}>
                   {usageSummary.length > 0

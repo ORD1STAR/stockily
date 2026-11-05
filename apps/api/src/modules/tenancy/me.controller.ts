@@ -21,7 +21,7 @@ export class MeController {
   @Get('me')
   async me(@CurrentUser() authUser: AuthenticatedUser) {
     const [user, organization, entitlements, userRoles] = await Promise.all([
-      this.prisma.user.findUniqueOrThrow({ where: { id: authUser.userId }, select: { id: true, email: true } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: authUser.userId }, select: { id: true, email: true, username: true, displayName: true } }),
       this.prisma.organization.findUniqueOrThrow({ where: { id: authUser.orgId }, select: { id: true, name: true, plan: true } }),
       this.prisma.organizationModuleEntitlement.findMany({
         where: { orgId: authUser.orgId },
@@ -29,9 +29,20 @@ export class MeController {
       }),
       this.prisma.userRole.findMany({
         where: { userId: authUser.userId },
-        include: { role: { select: { id: true, name: true } }, site: { select: { id: true, name: true } } },
+        include: {
+          role: { select: { id: true, name: true, rolePermissions: { select: { action: true } } } },
+          site: { select: { id: true, name: true } },
+        },
       }),
     ]);
+
+    // Effective permission actions + site scope for the caller, so the web
+    // can hide controls a sub-user lacks (the server still enforces via the
+    // guard chain — this is cosmetic). A role scoped to no specific site
+    // (siteId null) means org-wide, hence siteScope 'all'.
+    const permissions = [...new Set(userRoles.flatMap((ur) => ur.role.rolePermissions.map((p) => p.action)))];
+    const siteIds = userRoles.map((ur) => ur.site?.id ?? null);
+    const siteScope: 'all' | string[] = siteIds.includes(null) ? 'all' : [...new Set(siteIds as string[])];
 
     return {
       user,
@@ -42,6 +53,8 @@ export class MeController {
         trialEndsAt: e.trialEndsAt,
       })),
       roles: userRoles.map((ur) => ({ role: ur.role.name, site: ur.site?.name ?? null })),
+      permissions,
+      siteScope,
     };
   }
 

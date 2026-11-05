@@ -8,6 +8,8 @@ import { PermissionGuard } from '../tenancy/guards/permission.guard';
 import { SiteScopeGuard } from '../tenancy/guards/site-scope.guard';
 import { Audit } from '../audit/audit.decorator';
 import { AuditInterceptor } from '../audit/audit.interceptor';
+import { PrismaService } from '../../prisma/prisma.service';
+import { assertPermission } from '../tenancy/guards/permission-check';
 import { CashService } from './cash.service';
 import { CreateCashEntryDto } from './cash.dto';
 
@@ -20,7 +22,7 @@ import { CreateCashEntryDto } from './cash.dto';
 @UseGuards(JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard)
 @RequiresModule('cash')
 export class CashController {
-  constructor(private readonly cash: CashService) {}
+  constructor(private readonly cash: CashService, private readonly prisma: PrismaService) {}
 
   @Get()
   @RequiresPermission('cash', 'cash.journal.read')
@@ -37,15 +39,16 @@ export class CashController {
   }
 
   @Post('entries')
-  @RequiresPermission('cash', 'cash.entry.write')
+  @RequiresPermission('cash', 'cash.journal.read')
   @UseInterceptors(AuditInterceptor)
   @Audit('cash_entry', 'cash.entry.created')
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateCashEntryDto) {
+  async create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateCashEntryDto) {
+    await assertPermission(this.prisma, user.userId, 'cash', dto.direction === 'out' ? 'cash.entry.disburse' : 'cash.entry.collect');
     return this.cash.create(user.orgId, user.userId, dto);
   }
 
   @Delete('entries/:source/:id')
-  @RequiresPermission('cash', 'cash.entry.write')
+  @RequiresPermission('cash', 'cash.entry.cancel')
   @UseInterceptors(AuditInterceptor)
   @Audit('cash_entry', 'cash.entry.cancelled')
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('source') source: string, @Param('id') id: string) {

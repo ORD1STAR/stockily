@@ -48,7 +48,7 @@ const METHODS: [CashMethod, string][] = [
 const DOC_PREFIX: Record<string, string> = { invoice: 'Facture', supplier_invoice: 'Facture', purchase_receipt: 'BR', delivery_note: 'BL' };
 
 export function CashPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [preset, setPreset] = useState<Preset>('month');
   const today = iso(new Date());
   const [customFrom, setCustomFrom] = useState(iso(new Date(new Date().setDate(1))));
@@ -132,12 +132,16 @@ export function CashPage() {
           <div className="sub">Encaissements et décaissements {span}</div>
         </div>
         <div className="cash-actions">
-          <button type="button" className="btn-secondary" onClick={() => setForm('out')}>
-            <span className="cash-sign is-out">−</span> Décaissement
-          </button>
-          <button type="button" className="btn-primary" onClick={() => setForm('in')}>
-            <Icon name="plus" size={16} /> Encaissement
-          </button>
+          {can('cash.entry.disburse') && (
+            <button type="button" className="btn-secondary" onClick={() => setForm('out')}>
+              <span className="cash-sign is-out">−</span> Décaissement
+            </button>
+          )}
+          {can('cash.entry.collect') && (
+            <button type="button" className="btn-primary" onClick={() => setForm('in')}>
+              <Icon name="plus" size={16} /> Encaissement
+            </button>
+          )}
         </div>
       </div>
 
@@ -278,7 +282,7 @@ export function CashPage() {
                         {e.direction === 'out' ? `−${da2.format(e.amount)}` : ''}
                       </td>
                       <td className="row-actions">
-                        {e.cancellable ? (
+                        {e.cancellable && can('cash.entry.cancel') ? (
                           <button type="button" className="btn-link danger" onClick={() => cancel(e)} title="Annuler ce mouvement">
                             Annuler
                           </button>

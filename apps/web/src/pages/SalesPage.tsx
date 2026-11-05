@@ -49,7 +49,7 @@ function statusPillClass(status: string): string {
 }
 
 export function SalesPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [orders, setOrders] = useState<SalesOrderView[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -178,15 +178,19 @@ export function SalesPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <ActionMenu
             items={[
-              { label: 'Bon de livraison', hint: 'Sortie de stock, avec ou sans commande', icon: 'truck', onClick: () => setDocForm('delivery_note'), disabled: sites.length === 0 },
-              { label: 'Retour client', hint: 'Marchandise rendue par un client', icon: 'chevronLeft', onClick: () => setDocForm('customer_return'), disabled: sites.length === 0 },
-              { label: 'Nouveau devis', hint: 'Proposition de prix au client', icon: 'receipt', onClick: () => setShowFormKind('quote'), disabled: sites.length === 0 || customers.length === 0 },
-              { label: 'Tarifs négociés', hint: 'Prix et remises par client', icon: 'handshake', onClick: () => setShowPricing(true) },
+              ...(can('sales.order.create') ? [
+                { label: 'Bon de livraison', hint: 'Sortie de stock, avec ou sans commande', icon: 'truck' as const, onClick: () => setDocForm('delivery_note'), disabled: sites.length === 0 },
+                { label: 'Retour client', hint: 'Marchandise rendue par un client', icon: 'chevronLeft' as const, onClick: () => setDocForm('customer_return'), disabled: sites.length === 0 },
+                { label: 'Nouveau devis', hint: 'Proposition de prix au client', icon: 'receipt' as const, onClick: () => setShowFormKind('quote'), disabled: sites.length === 0 || customers.length === 0 },
+              ] : []),
+              { label: 'Tarifs négociés', hint: can('sales.pricing.write') ? 'Prix et remises par client' : 'Consulter les prix par client', icon: 'handshake' as const, onClick: () => setShowPricing(true) },
             ]}
           />
-          <button className="btn-primary" onClick={() => setShowFormKind('order')} disabled={sites.length === 0 || customers.length === 0}>
-            <Icon name="plus" size={16} /> Bon de commande
-          </button>
+          {can('sales.order.create') && (
+            <button className="btn-primary" onClick={() => setShowFormKind('order')} disabled={sites.length === 0 || customers.length === 0}>
+              <Icon name="plus" size={16} /> Bon de commande
+            </button>
+          )}
         </div>
       </div>
 
@@ -668,7 +672,7 @@ function OrderFormModal({
 }
 
 function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: SalesOrderView; onClose: () => void; onChanged: () => void; onDeliver: () => void }) {
-  const { accessToken } = useAuth();
+  const { accessToken, can } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shortageMessage, setShortageMessage] = useState<string | null>(null);
@@ -677,12 +681,12 @@ function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: Sal
   const [confirmingLineId, setConfirmingLineId] = useState<string | null>(null);
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
 
-  const canPromote = order.kind === 'quote' && order.status !== 'cancelled';
-  const canCancel = order.status !== 'cancelled' && order.status !== 'invoiced' && !order.lines.some((l) => l.quantityInvoiced > 0);
+  const canPromote = can('sales.order.update') && order.kind === 'quote' && order.status !== 'cancelled';
+  const canCancel = can('sales.order.cancel') && order.status !== 'cancelled' && order.status !== 'invoiced' && !order.lines.some((l) => l.quantityInvoiced > 0);
   const remainingToInvoice = order.lines.reduce((s, l) => s + remainingToInvoiceOn(l), 0);
-  const canInvoice = order.kind === 'order' && order.status !== 'cancelled' && remainingToInvoice > 0;
-  const canDeliver = canInvoice;
-  const canDelete = !order.lines.some((l) => l.quantityInvoiced > 0 || l.quantityInDraft > 0 || l.quantityDelivered > 0);
+  const canInvoice = can('sales.invoice.create') && order.kind === 'order' && order.status !== 'cancelled' && remainingToInvoice > 0;
+  const canDeliver = can('sales.order.update') && order.kind === 'order' && order.status !== 'cancelled' && remainingToInvoice > 0;
+  const canDelete = can('sales.order.delete') && !order.lines.some((l) => l.quantityInvoiced > 0 || l.quantityInDraft > 0 || l.quantityDelivered > 0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function handleDelete() {
@@ -832,7 +836,7 @@ function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: Sal
                   <td className="num">{l.unitPrice.toFixed(2)} DZD</td>
                   <td className="num">{l.discountPercent != null ? `${l.discountPercent}%` : '—'}</td>
                   <td>
-                    <button
+                    {can('sales.orderline.delete') && (                    <button
                       type="button"
                       className="btn-link danger"
                       disabled={l.quantityInvoiced > 0 || l.quantityDelivered > 0 || deletingLineId === l.id}
@@ -841,7 +845,7 @@ function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: Sal
                       onBlur={() => setConfirmingLineId((c) => (c === l.id ? null : c))}
                     >
                       {deletingLineId === l.id ? 'Suppression…' : confirmingLineId === l.id ? 'Confirmer ?' : 'Retirer'}
-                    </button>
+                    </button>)}
                   </td>
                 </tr>
               ))}

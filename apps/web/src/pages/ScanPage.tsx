@@ -58,10 +58,23 @@ interface ReceiveCartLine {
 // so the demo/dev environment has one consistent auth+nav wrapper; a real
 // Capacitor-wrapped build would drop AppShell entirely for this route.
 export function ScanPage() {
-  const { accessToken, logout } = useAuth();
+  const { accessToken, logout, can } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const allowedModes = (
+    [
+      ['scan', can('stock.movement.create')],
+      ['checkout', can('scan.counter.sell')],
+      ['receiving', can('purchasing.receipt.create')],
+      ['labels', can('scan.label.generate') || can('scan.label.print')],
+    ] as const
+  ).filter(([, ok]) => ok).map(([m]) => m);
   const [mode, setMode] = useState<'scan' | 'labels' | 'checkout' | 'receiving'>('scan');
+  // Land on the first mode this user may actually use.
+  useEffect(() => {
+    if (allowedModes.length > 0 && !allowedModes.includes(mode)) setMode(allowedModes[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedModes.join(','), mode]);
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
   const [code, setCode] = useState('');
@@ -141,7 +154,7 @@ export function ScanPage() {
   };
   const [searchParams] = useSearchParams();
   useEffect(() => {
-    if (searchParams.get('mode') === 'checkout') setMode('checkout');
+    if (searchParams.get('mode') === 'checkout' && can('scan.counter.sell')) setMode('checkout');
   }, [searchParams]);
 
   // "Réception rapide" (receiving) — the Achats-side mirror of Vente
@@ -658,18 +671,26 @@ export function ScanPage() {
         </div>
 
         <div className="toggle-row">
-          <button className={`toggle-btn${mode === 'scan' ? ' on' : ''}`} onClick={() => setMode('scan')}>
-            Scanner
-          </button>
-          <button className={`toggle-btn${mode === 'checkout' ? ' on' : ''}`} onClick={() => setMode('checkout')}>
-            Vente rapide
-          </button>
-          <button className={`toggle-btn${mode === 'receiving' ? ' on' : ''}`} onClick={() => setMode('receiving')}>
-            Réception rapide
-          </button>
-          <button className={`toggle-btn${mode === 'labels' ? ' on' : ''}`} onClick={() => setMode('labels')}>
-            Étiquettes
-          </button>
+          {allowedModes.includes('scan') && (
+            <button className={`toggle-btn${mode === 'scan' ? ' on' : ''}`} onClick={() => setMode('scan')}>
+              Scanner
+            </button>
+          )}
+          {allowedModes.includes('checkout') && (
+            <button className={`toggle-btn${mode === 'checkout' ? ' on' : ''}`} onClick={() => setMode('checkout')}>
+              Vente rapide
+            </button>
+          )}
+          {allowedModes.includes('receiving') && (
+            <button className={`toggle-btn${mode === 'receiving' ? ' on' : ''}`} onClick={() => setMode('receiving')}>
+              Réception rapide
+            </button>
+          )}
+          {allowedModes.includes('labels') && (
+            <button className={`toggle-btn${mode === 'labels' ? ' on' : ''}`} onClick={() => setMode('labels')}>
+              Étiquettes
+            </button>
+          )}
         </div>
 
         {error && <div className="error-banner">{error}</div>}
