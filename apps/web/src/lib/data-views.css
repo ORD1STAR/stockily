@@ -2307,9 +2307,24 @@ table.data tr.variant-row td {
   gap: 12px;
 }
 .st-rank li {
+  display: block;
+}
+.st-rank-link {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-md);
+  margin: -6px -8px;
+  padding: 6px 8px;
+  transition: background 0.15s var(--ease);
+}
+a.st-rank-link:hover {
+  background: var(--surface-hover);
+}
+a.st-rank-link:hover .st-rank-name {
+  color: var(--brand-700);
 }
 .st-rank-n {
   flex: none;
@@ -3310,4 +3325,23 @@ th.num .lc-th-btn {
 }
 .confirm-actions > button {
   min-width: 120px;
+}
+
+/* Statistiques: every figure opens the list behind it (deep link). */
+a.st-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), transform 0.15s var(--ease);
+}
+a.st-link:hover {
+  border-color: var(--brand-300);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+a.st-link:focus-visible {
+  box-shadow: var(--ring);
+}
+a.st-watch-item.st-link .btn-link {
+  margin-top: 4px;
 }

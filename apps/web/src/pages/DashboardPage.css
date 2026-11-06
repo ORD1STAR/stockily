@@ -212,30 +212,98 @@
   white-space: nowrap;
 }
 
-.dash-account {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
+/* Locked (not yet unlocked by the organization) apps: black & white,
+   coloured back on hover to invite the purchase. */
+.dash-module {
+  position: relative;
 }
-.dash-account-id {
+button.dash-module {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
+  padding: 10px;
+  border: 1px dashed var(--gray-200);
+  border-radius: var(--r-md);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, filter 0.2s ease;
 }
-.dash-account-org {
-  font-weight: 600;
+.dash-module.is-locked {
+  filter: grayscale(1);
+  opacity: 0.72;
+  background: var(--gray-25);
 }
-.dash-account-email {
-  font-size: 0.8rem;
+.dash-module.is-locked:hover,
+.dash-module.is-locked:focus-visible {
+  filter: grayscale(0);
+  opacity: 1;
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+}
+.dash-module-unlock {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--text-secondary);
+  background: var(--gray-100);
+}
+.dash-module.is-locked:hover .dash-module-unlock {
+  background: var(--brand-600);
+  color: #fff;
+}
+.dash-module-badge {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--warning);
+  background: var(--warning-bg);
+  white-space: nowrap;
+}
+.dash-apps-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-muted);
 }
-.dash-account-modules {
+.dash-apps-divider::after {
+  content: '';
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  height: 1px;
+  background: var(--gray-100);
+}
+.dash-apps-empty {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 8px 0;
+}
+.dash-card-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--brand-600);
+  text-decoration: none;
+}
+.dash-card-link:hover {
+  text-decoration: underline;
 }
 
 /* Skeletons */
@@ -354,4 +422,22 @@
 }
 .mobile-kpi-value.warn {
   color: var(--warning);
+}
+
+/* Locked tile: the call to action replaces the description, under the name. */
+.dash-unlock-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 650;
+  color: var(--brand-700);
+}
+.dash-module.is-locked {
+  filter: grayscale(1) contrast(0.95);
+}
+.dash-module.is-locked .dash-unlock-hint {
+  color: var(--text-secondary);
+}
+.dash-module.is-locked:hover .dash-unlock-hint {
+  color: var(--brand-700);
 }

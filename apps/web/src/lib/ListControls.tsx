@@ -40,6 +40,37 @@ const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : '');
 const fmtDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' });
 const fmtNum = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 
+/**
+ * Deep links: a list can be opened pre-filtered/sorted from the URL, e.g.
+ * `/stock?f.out=1&sort=qty:asc` or `/purchasing?f.status=Envoyé`. Select →
+ * `f.<key>=<value>`, flag → `f.<key>=1`, range → `f.<key>.min/.max`, dates →
+ * `f.<key>.from/.to`; `q=` pre-fills the search. Read once, on mount — used
+ * by the dashboard and Statistiques cards to open "exactly what to look at".
+ */
+function readUrlState(): { filters: FilterState; sort: SortState | null; query: string } {
+  const filters: FilterState = {};
+  let sort: SortState | null = null;
+  let query = '';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    params.forEach((value, name) => {
+      if (name === 'q') query = value;
+      else if (name === 'sort') {
+        const [key, dir] = value.split(':');
+        if (key) sort = { key, dir: dir === 'desc' ? 'desc' : 'asc' };
+      } else if (name.startsWith('f.')) {
+        const [key, part] = name.slice(2).split('.');
+        if (!key) return;
+        if (!part) filters[key] = value === '1' || value === 'true' ? true : value;
+        else filters[key] = { ...((filters[key] as Record<string, string> | undefined) ?? {}), [part]: value };
+      }
+    });
+  } catch {
+    /* no window (tests) */
+  }
+  return { filters, sort, query };
+}
+
 function readSort(id: string): SortState | null {
   try {
     const raw = localStorage.getItem(`stockily.sort.${id}`);
@@ -74,9 +105,24 @@ export function useListControls<T>(
   },
 ): ListControls<T> {
   const { id, filters = [], sorts } = opts;
-  const [query, setQuery] = useState('');
-  const [state, setState] = useState<FilterState>({});
-  const [sort, setSortState] = useState<SortState | null>(() => readSort(id) ?? opts.defaultSort ?? null);
+  const [fromUrl] = useState(readUrlState);
+  const [query, setQuery] = useState(fromUrl.query);
+  // Only keys this list actually defines are taken from the URL, with the
+  // right shape (a flag must be `true`, a select a string).
+  const [state, setState] = useState<FilterState>(() => {
+    const out: FilterState = {};
+    for (const f of filters) {
+      const v = fromUrl.filters[f.key];
+      if (v === undefined) continue;
+      if (f.type === 'flag') out[f.key] = v === true;
+      else if (f.type === 'select') out[f.key] = typeof v === 'string' ? v : undefined;
+      else if (typeof v === 'object') out[f.key] = v;
+    }
+    return out;
+  });
+  const [sort, setSortState] = useState<SortState | null>(() =>
+    fromUrl.sort && sorts.some((s) => s.key === fromUrl.sort?.key) ? fromUrl.sort : (readSort(id) ?? opts.defaultSort ?? null),
+  );
   const setSort = (s: SortState | null) => {
     setSortState(s);
     try {

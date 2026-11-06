@@ -41,13 +41,16 @@ const IMPLIED_READS = new Set(['sites.site.read', 'stock.product.read', 'invoici
  * caller's permissions are given — at least one real (non-implied) permission
  * on that module. This keeps menus in sync with what the API will allow.
  */
-export function entitledModuleKeys(
-  entitlements: { module: string; status: string; trialEndsAt: string | null }[],
-  permissions?: string[],
-): Set<string> {
-  const entitled = entitlements
-    .filter((e) => e.status === 'active' || (e.status === 'trial' && !!e.trialEndsAt && new Date(e.trialEndsAt).getTime() > Date.now()))
-    .map((e) => e.module);
+type EntitlementLike = { module: string; status: string; trialEndsAt: string | null; expiresAt?: string | null };
+
+/** Usable right now: an active paid period not past its end (none = no end), or an unexpired trial. */
+export function isEntitlementUsable(e: Omit<EntitlementLike, 'module'>): boolean {
+  if (e.status === 'active') return !e.expiresAt || new Date(e.expiresAt).getTime() > Date.now();
+  return e.status === 'trial' && !!e.trialEndsAt && new Date(e.trialEndsAt).getTime() > Date.now();
+}
+
+export function entitledModuleKeys(entitlements: EntitlementLike[], permissions?: string[]): Set<string> {
+  const entitled = entitlements.filter(isEntitlementUsable).map((e) => e.module);
   if (!permissions) return new Set(entitled);
   return new Set(entitled.filter((k) => permissions.some((a) => a.startsWith(`${k}.`) && !IMPLIED_READS.has(a))));
 }

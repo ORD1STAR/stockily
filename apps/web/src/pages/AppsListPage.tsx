@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth-context';
 import { Icon } from '../lib/Icon';
 import { OrganizationSettingsModal } from '../lib/OrganizationSettingsModal';
 import { PartnersModal } from '../lib/PartnersModal';
-import { MobileHeader, ModuleTiles } from '../lib/MobileChrome';
+import { ClientSpaceRow, MobileHeader, ModuleTiles } from '../lib/MobileChrome';
 import { entitledModuleKeys } from '../lib/modules';
 import './DashboardPage.css';
 
@@ -33,10 +33,10 @@ export function AppsListPage() {
         }
       />
       <ModuleTiles has={entitledKeys} />
-      {(hasInvoicing || canSeeBusiness) && (
-        <div className="mobile-section">
+      <div className="mobile-section">
           <div className="mobile-section-label">Gestion</div>
           <div className="mobile-list">
+            <ClientSpaceRow />
             {hasInvoicing && <button className="mobile-list-item" onClick={() => setShowPartners(true)}>
               <span className="mod-chip sm tone-slate">
                 <Icon name="users" size={16} />
@@ -52,8 +52,7 @@ export function AppsListPage() {
               <Icon name="chevronRight" size={16} />
             </button>}
           </div>
-        </div>
-      )}
+      </div>
       {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
     </div>

@@ -1,18 +1,33 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
-import { AppShell, initials } from '../lib/AppShell';
-import { MobileHeader, ModuleTiles } from '../lib/MobileChrome';
+import { AppShell } from '../lib/AppShell';
+import { ClientSpaceRow, MobileHeader, ModuleTiles } from '../lib/MobileChrome';
 import { inventoryApi, invoicingApi, purchasingApi, qualityApi, salesApi, stockApi, StockRow } from '../lib/api';
 import { Icon, IconName } from '../lib/Icon';
-import { entitledModuleKeys, PRODUCT_MODULES } from '../lib/modules';
+import { PurchaseModal } from '../lib/billing';
+import { entitledModuleKeys, isEntitlementUsable, ModuleNavEntry, PRODUCT_MODULES } from '../lib/modules';
 import { OrganizationSettingsModal } from '../lib/OrganizationSettingsModal';
 import { PartnersModal } from '../lib/PartnersModal';
 import { useIsMobile } from '../lib/useIsMobile';
 import './DashboardPage.css';
 
-const money = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const money = { format: (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') };
 const formatDzd = (n: number) => `${money.format(n)} DZD`;
+
+// Each card / to-do opens the list behind it, already filtered and sorted on
+// exactly what the card counts (see ListControls' URL-driven initial state).
+const LINKS = {
+  stockOut: '/stock?f.status=out&sort=qty:asc',
+  stockLow: '/stock?f.status=low&sort=qty:asc',
+  unpaid: '/invoicing?f.rest=1&sort=rest:desc',
+  salesOpen: '/sales?kind=order&f.open=1&sort=expected:asc',
+  salesLate: '/sales?kind=order&f.late=1&sort=expected:asc',
+  purchasingOpen: '/purchasing?f.open=1&sort=expected:asc',
+  purchasingLate: '/purchasing?f.late=1&sort=expected:asc',
+  nc: '/quality?f.nc=1',
+  expiry: '/quality?f.soon=1&sort=expiry:asc',
+};
 
 interface Overview {
   stockOut: StockRow[];
@@ -84,8 +99,9 @@ export function DashboardPage() {
 }
 
 function DesktopDashboard() {
-  const { me, logoutEverywhere } = useAuth();
+  const { me } = useAuth();
   const { data, loading } = useOverview();
+  const [buying, setBuying] = useState<string | null>(null);
   if (!me) return null;
   const has = entitledModuleKeys(me.entitlements, me.permissions);
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -117,7 +133,7 @@ function DesktopDashboard() {
       <div className="dash-kpis">
         {has.has('stock') && (
           <Kpi
-            to="/stock"
+            to={data && data.stockOut.length === 0 && data.stockLow.length > 0 ? LINKS.stockLow : LINKS.stockOut}
             icon="package"
             tone="rose"
             label="Ruptures de stock"
@@ -127,13 +143,13 @@ function DesktopDashboard() {
           />
         )}
         {has.has('invoicing') && (
-          <Kpi to="/invoicing" icon="wallet" tone="amber" label="Solde impayé" loading={loading} value={data?.unpaidBalance != null ? formatDzd(data.unpaidBalance) : '—'} hint={data?.unpaidCount != null ? `${data.unpaidCount} facture(s) en attente` : undefined} />
+          <Kpi to={LINKS.unpaid} icon="wallet" tone="amber" label="Solde impayé" loading={loading} value={data?.unpaidBalance != null ? formatDzd(data.unpaidBalance) : '—'} hint={data?.unpaidCount != null ? `${data.unpaidCount} facture(s) en attente` : undefined} />
         )}
         {has.has('sales') && (
-          <Kpi to="/sales" icon="trending" tone="green" label="Commandes clients" loading={loading} value={data?.sales ? String(data.sales.openOrdersCount) : '—'} hint={data?.sales ? `${data.sales.openQuotesCount} devis ouvert(s)` : undefined} />
+          <Kpi to={LINKS.salesOpen} icon="trending" tone="green" label="Commandes clients" loading={loading} value={data?.sales ? String(data.sales.openOrdersCount) : '—'} hint={data?.sales ? `${data.sales.openQuotesCount} devis ouvert(s)` : undefined} />
         )}
         {has.has('purchasing') && (
-          <Kpi to="/purchasing" icon="cart" tone="blue" label="Achats en cours" loading={loading} value={data?.purchasing ? formatDzd(data.purchasing.openOrdersValue) : '—'} hint={data?.purchasing ? `${data.purchasing.openOrdersCount} bon(s) de commande` : undefined} />
+          <Kpi to={LINKS.purchasingOpen} icon="cart" tone="blue" label="Achats en cours" loading={loading} value={data?.purchasing ? formatDzd(data.purchasing.openOrdersValue) : '—'} hint={data?.purchasing ? `${data.purchasing.openOrdersCount} bon(s) de commande` : undefined} />
         )}
       </div>
 
@@ -179,52 +195,88 @@ function DesktopDashboard() {
           )}
         </section>
 
-        <section className="dash-card">
-          <div className="dash-card-head">
-            <h3>Applications</h3>
+        <AppsCard onBuy={setBuying} />
+      </div>
+      {buying && <PurchaseModal initialModules={[buying]} onClose={() => setBuying(null)} />}
+    </AppShell>
+  );
+}
+
+/** Days before a module's trial/paid period ends, when it's soon (≤ 7 j) — shown on its tile. */
+function endingSoon(me: NonNullable<ReturnType<typeof useAuth>['me']>, key: string): string | null {
+  const e = me.entitlements.find((x) => x.module === key);
+  if (!e || !isEntitlementUsable(e)) return null;
+  const end = e.status === 'trial' ? e.trialEndsAt : e.expiresAt;
+  if (!end) return null;
+  const days = Math.ceil((new Date(end).getTime() - Date.now()) / 86_400_000);
+  if (days > 7) return null; // only the last week is worth a badge, otherwise it just crowds the tile
+  return e.status === 'trial' ? `Essai · ${days <= 1 ? 'dernier jour' : `${days} j`}` : `Expire dans ${days <= 1 ? '1 jour' : `${days} j`}`;
+}
+
+// Owned apps first, in colour; apps the organization hasn't unlocked below,
+// in black & white — clicking one opens the purchase flow for it.
+function AppsCard({ onBuy }: { onBuy: (key: string) => void }) {
+  const { me } = useAuth();
+  if (!me) return null;
+  const has = entitledModuleKeys(me.entitlements, me.permissions);
+  const orgHas = entitledModuleKeys(me.entitlements);
+  const owned = PRODUCT_MODULES.filter((m) => has.has(m.key));
+  const locked = PRODUCT_MODULES.filter((m) => !orgHas.has(m.key));
+  return (
+    <section className="dash-card">
+      <div className="dash-card-head">
+        <h3>Applications</h3>
+        <Link to="/compte?tab=modules" className="dash-card-link">
+          Gérer mes modules <Icon name="chevronRight" size={14} />
+        </Link>
+      </div>
+      {owned.length > 0 ? (
+        <div className="dash-modules">
+          {owned.map((m) => (
+            <AppTile key={m.to} m={m} badge={endingSoon(me, m.key)} />
+          ))}
+        </div>
+      ) : (
+        <div className="dash-apps-empty">Aucune application active pour le moment.</div>
+      )}
+      {locked.length > 0 && (
+        <>
+          <div className="dash-apps-divider">
+            <span>À débloquer</span>
           </div>
           <div className="dash-modules">
-            {PRODUCT_MODULES.filter((m) => has.has(m.key)).map((m) => (
-              <Link key={m.to} to={m.to} className="dash-module">
+            {locked.map((m) => (
+              <button key={m.to} type="button" className="dash-module is-locked" onClick={() => onBuy(m.key)} title={`Débloquer ${m.label}`}>
                 <span className={`mod-chip tone-${m.tone}`}>
                   <Icon name={m.icon} size={18} />
                 </span>
                 <span className="dash-module-text">
                   <span className="dash-module-label">{m.label}</span>
-                  <span className="dash-module-hint">{m.hint}</span>
+                  <span className="dash-module-hint dash-unlock-hint">
+                    <Icon name="lock" size={11} /> Non activé · Débloquer
+                  </span>
                 </span>
-              </Link>
+              </button>
             ))}
           </div>
-        </section>
-      </div>
+        </>
+      )}
+    </section>
+  );
+}
 
-      <section className="dash-card dash-account">
-        <div className="dash-account-id">
-          <span className="shell-avatar">{initials(me.organization.name)}</span>
-          <div>
-            <div className="dash-account-org">{me.organization.name}</div>
-            <div className="dash-account-email">
-              {me.user.email ?? me.user.displayName ?? (me.user.username ? `@${me.user.username}` : '')} · {me.roles.map((r) => `${r.role}${r.site ? ` (${r.site})` : ''}`).join(', ')}
-            </div>
-          </div>
-        </div>
-        <div className="dash-account-modules">
-          {me.entitlements.map((e) => {
-            const mod = PRODUCT_MODULES.find((m) => m.key === e.module);
-            return (
-              <span key={e.module} className={`pill ${e.status === 'active' ? 'success' : e.status === 'trial' ? 'info' : 'warning'}`} title={e.trialEndsAt ? `Essai jusqu'au ${new Date(e.trialEndsAt).toLocaleDateString('fr-FR')}` : undefined}>
-                {mod?.label ?? e.module}
-                {e.status === 'trial' ? ' · essai' : ''}
-              </span>
-            );
-          })}
-        </div>
-        <button className="btn-secondary" onClick={() => logoutEverywhere()}>
-          <Icon name="logout" size={15} /> Déconnecter tous les appareils
-        </button>
-      </section>
-    </AppShell>
+function AppTile({ m, badge }: { m: ModuleNavEntry; badge: string | null }) {
+  return (
+    <Link to={m.to} className="dash-module">
+      <span className={`mod-chip tone-${m.tone}`}>
+        <Icon name={m.icon} size={18} />
+      </span>
+      <span className="dash-module-text">
+        <span className="dash-module-label">{m.label}</span>
+        <span className="dash-module-hint">{m.hint}</span>
+      </span>
+      {badge && <span className="dash-module-badge">{badge}</span>}
+    </Link>
   );
 }
 
@@ -260,19 +312,19 @@ function buildTodos(data: Overview | null, has: Set<string>): Todo[] {
     return unique.slice(0, 3).join(', ') + (unique.length > 3 ? ` +${unique.length - 3}` : '');
   };
   if (has.has('stock') && data.stockOut.length) {
-    todos.push({ key: 'out', to: '/stock', icon: 'alert', tone: 'rose', title: `${new Set(data.stockOut.map((r) => r.productId)).size} article(s) en rupture sur au moins un site`, sub: names(data.stockOut) });
+    todos.push({ key: 'out', to: LINKS.stockOut, icon: 'alert', tone: 'rose', title: `${new Set(data.stockOut.map((r) => r.productId)).size} article(s) en rupture sur au moins un site`, sub: names(data.stockOut) });
   }
   if (has.has('stock') && data.stockLow.length) {
-    todos.push({ key: 'low', to: '/stock', icon: 'package', tone: 'amber', title: `${data.stockLow.length} article(s) sous le seuil minimum`, sub: names(data.stockLow) });
+    todos.push({ key: 'low', to: LINKS.stockLow, icon: 'package', tone: 'amber', title: `${data.stockLow.length} article(s) sous le seuil minimum`, sub: names(data.stockLow) });
   }
   if (data.openNc) {
-    todos.push({ key: 'nc', to: '/quality', icon: 'shield', tone: 'rose', title: `${data.openNc} non-conformité(s) ouverte(s)`, sub: 'À résoudre dans Qualité' });
+    todos.push({ key: 'nc', to: LINKS.nc, icon: 'shield', tone: 'rose', title: `${data.openNc} non-conformité(s) ouverte(s)`, sub: 'À résoudre dans Qualité' });
   }
   if (data.expiryAlerts) {
-    todos.push({ key: 'exp', to: '/quality', icon: 'clock', tone: 'amber', title: `${data.expiryAlerts} lot(s) proche(s) de la péremption`, sub: 'Vérifier les dates dans Qualité' });
+    todos.push({ key: 'exp', to: LINKS.expiry, icon: 'clock', tone: 'amber', title: `${data.expiryAlerts} lot(s) proche(s) de la péremption`, sub: 'Vérifier les dates dans Qualité' });
   }
   if (data.unpaidCount) {
-    todos.push({ key: 'unpaid', to: '/invoicing', icon: 'wallet', tone: 'amber', title: `${data.unpaidCount} facture(s) impayée(s)`, sub: data.unpaidBalance != null ? `${formatDzd(data.unpaidBalance)} restant à encaisser` : undefined });
+    todos.push({ key: 'unpaid', to: LINKS.unpaid, icon: 'wallet', tone: 'amber', title: `${data.unpaidCount} facture(s) impayée(s)`, sub: data.unpaidBalance != null ? `${formatDzd(data.unpaidBalance)} restant à encaisser` : undefined });
   }
   if (data.inventory?.isDue) {
     todos.unshift({
@@ -287,10 +339,10 @@ function buildTodos(data: Overview | null, has: Set<string>): Todo[] {
     });
   }
   if (data.purchasing?.overdueCount) {
-    todos.push({ key: 'po', to: '/purchasing', icon: 'truck', tone: 'blue', title: `${data.purchasing.overdueCount} réception(s) fournisseur en retard` });
+    todos.push({ key: 'po', to: LINKS.purchasingLate, icon: 'truck', tone: 'blue', title: `${data.purchasing.overdueCount} réception(s) fournisseur en retard` });
   }
   if (data.sales?.overdueCount) {
-    todos.push({ key: 'so', to: '/sales', icon: 'trending', tone: 'green', title: `${data.sales.overdueCount} commande(s) client en retard` });
+    todos.push({ key: 'so', to: LINKS.salesLate, icon: 'trending', tone: 'green', title: `${data.sales.overdueCount} commande(s) client en retard` });
   }
   return todos;
 }
@@ -337,19 +389,19 @@ function MobileHome() {
       {(has.has('stock') || has.has('invoicing')) && (
         <div className="mobile-kpis">
           {has.has('stock') && (
-            <Link to="/stock" className="mobile-kpi">
+            <Link to={LINKS.stockOut} className="mobile-kpi">
               <span className="mobile-kpi-label">En rupture</span>
               {loading ? <span className="dash-skeleton" /> : <span className="mobile-kpi-value bad">{data?.stockOut.length ?? 0}</span>}
             </Link>
           )}
           {has.has('stock') && (
-            <Link to="/stock" className="mobile-kpi">
+            <Link to={LINKS.stockLow} className="mobile-kpi">
               <span className="mobile-kpi-label">Seuil bas</span>
               {loading ? <span className="dash-skeleton" /> : <span className="mobile-kpi-value warn">{data?.stockLow.length ?? 0}</span>}
             </Link>
           )}
           {has.has('invoicing') && (
-            <Link to="/invoicing" className="mobile-kpi wide">
+            <Link to={LINKS.unpaid} className="mobile-kpi wide">
               <span className="mobile-kpi-label">Solde impayé</span>
               {loading ? <span className="dash-skeleton" /> : <span className="mobile-kpi-value">{data?.unpaidBalance != null ? formatDzd(data.unpaidBalance) : '—'}</span>}
             </Link>
@@ -359,10 +411,12 @@ function MobileHome() {
 
       <ModuleTiles has={has} />
 
-      {has.has('invoicing') && (
-        <div className="mobile-section">
-          <div className="mobile-section-label">Gestion</div>
-          <div className="mobile-list">
+      <div className="mobile-section">
+        <div className="mobile-section-label">Gestion</div>
+        <div className="mobile-list">
+          <ClientSpaceRow />
+          {has.has('invoicing') && (
+            <>
             <button className="mobile-list-item" onClick={() => setShowPartners(true)}>
               <span className="mod-chip sm tone-slate">
                 <Icon name="users" size={16} />
@@ -377,9 +431,10 @@ function MobileHome() {
               <span className="mobile-list-text">Paramètres du business</span>
               <Icon name="chevronRight" size={16} />
             </button>
-          </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
       {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
     </div>
