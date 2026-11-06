@@ -256,7 +256,7 @@ export class TradeService {
     if (doc.status === 'cancelled') throw new BadRequestException('Ce document est déjà annulé.');
     if (doc.invoiceId) {
       const inv = await this.prisma.invoice.findFirst({ where: { id: doc.invoiceId, deletedAt: null, status: { not: 'void' } } });
-      if (inv) throw new BadRequestException(`Ce bon est facturé (${inv.number ?? 'facture brouillon'}) — supprimez ou annulez d’abord la facture.`);
+      if (inv) throw new BadRequestException(`Ce bon est facturé (${inv.number ?? 'facture brouillon'}), supprimez ou annulez d’abord la facture.`);
     }
 
     const collectedEvents: { kind: string }[] = [];

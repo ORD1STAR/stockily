@@ -198,7 +198,7 @@ export function AdminSqlPage() {
               <>
                 <div className="sql-result-bar">
                   {result.message ?? `${result.rowCount} ligne(s)`}
-                  {result.truncated && ' — affichage limité à 1000 lignes'}
+                  {result.truncated && ', affichage limité à 1000 lignes'}
                 </div>
                 {result.columns.length > 0 && (
                   <>

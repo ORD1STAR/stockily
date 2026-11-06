@@ -3,7 +3,7 @@ import { useAuth } from './auth-context';
 import { ApiError, InventoryReminderStatus, OrganizationProfile, ReminderFrequency, inventoryApi, invoicingApi } from './api';
 import { toast } from './toast';
 
-const MAX_LOGO_DIMENSION = 240; // px — a logo printed at ~36pt on an invoice never needs more
+const MAX_LOGO_DIMENSION = 240; // px, a logo printed at ~36pt on an invoice never needs more
 const ACCEPTED_LOGO_TYPES = ['image/png', 'image/jpeg'];
 
 // Resizes/re-encodes to PNG client-side so a phone photo (several MB,
@@ -77,7 +77,7 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
     if (!file || !profile) return;
     setLogoError(null);
     if (!ACCEPTED_LOGO_TYPES.includes(file.type)) {
-      setLogoError('Format non supporté — utilisez un PNG ou un JPEG.');
+      setLogoError('Format non supporté, utilisez un PNG ou un JPEG.');
       return;
     }
     try {
@@ -123,7 +123,7 @@ export function OrganizationSettingsModal({ onClose }: { onClose: () => void }) 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>Paramètres du Business</h3>
-            <p className="modal-sub">{readOnly ? 'Consultation uniquement — vous n’avez pas la permission de modifier.' : 'Affichées sur vos factures et bons.'}</p>
+            <p className="modal-sub">{readOnly ? 'Consultation uniquement, vous n’avez pas la permission de modifier.' : 'Affichées sur vos factures et bons.'}</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
             ✕

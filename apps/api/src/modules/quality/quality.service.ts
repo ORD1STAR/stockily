@@ -143,7 +143,7 @@ export class QualityService {
         siteId: target.siteId,
         quantity: target.quantity,
         batchId: dto.batchId,
-        reason: dto.result === 'non_conforme' ? `Contrôle qualité non conforme${dto.notes ? ` — ${dto.notes}` : ''}` : 'quality_check',
+        reason: dto.result === 'non_conforme' ? `Contrôle qualité non conforme${dto.notes ? ` · ${dto.notes}` : ''}` : 'quality_check',
         performedBy,
       });
     }
@@ -180,7 +180,7 @@ export class QualityService {
           siteId: target.siteId,
           quantity: target.quantity,
           batchId: batch.id,
-          reason: 'Péremption dépassée — quarantaine automatique',
+          reason: 'Péremption dépassée, quarantaine automatique',
         });
       }
     }

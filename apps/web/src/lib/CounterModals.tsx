@@ -74,7 +74,7 @@ export function CloseSessionModal({ session, onClose, onClosed }: { session: Cou
     setBusy(true);
     try {
       const s = await countersApi.close(accessToken, session.id, Number(counted), notes.trim() || undefined);
-      toast.success(`Caisse clôturée — ${s.number}.`);
+      toast.success(`Caisse clôturée · ${s.number}.`);
       onClosed(s);
       openPdf(countersApi.zPdf(accessToken, s.id));
     } catch (err) {
@@ -105,7 +105,7 @@ export function CloseSessionModal({ session, onClose, onClosed }: { session: Cou
             {diff != null && (
               <span className={`sub ${diff < 0 ? 'bad' : diff > 0 ? 'good' : ''}`}>
                 Écart : {diff > 0 ? '+' : ''}
-                {money.format(diff)} DZD {diff === 0 ? '— caisse juste' : diff < 0 ? '— manque' : '— excédent'}
+                {money.format(diff)} DZD {diff === 0 ? '(caisse juste)' : diff < 0 ? '(manque)' : '(excédent)'}
               </span>
             )}
           </div>

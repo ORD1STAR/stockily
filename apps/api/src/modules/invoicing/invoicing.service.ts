@@ -470,13 +470,13 @@ export class InvoicingService {
     });
     if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
     if (invoice.type !== 'CUSTOMER') {
-      throw new BadRequestException('Seules les factures CLIENT passent par la finalisation — une facture FOURNISSEUR est déjà finale dès sa création.');
+      throw new BadRequestException('Seules les factures CLIENT passent par la finalisation, une facture FOURNISSEUR est déjà finale dès sa création.');
     }
     if (invoice.status !== 'draft') {
       throw new ConflictException(`La facture ${invoice.number ?? invoice.id} n'est pas un brouillon (statut : ${invoice.status}).`);
     }
     if (invoice.kind === 'proforma') {
-      throw new BadRequestException('Une proforma ne se finalise pas — convertissez-la en facture.');
+      throw new BadRequestException('Une proforma ne se finalise pas, convertissez-la en facture.');
     }
     // NIF/NIS are no longer required on a Partner (explicit user decision —
     // see the PartnersModal form and CreatePartnerDto) — finalizing an
@@ -652,7 +652,7 @@ export class InvoicingService {
 
     if (invoice.type === 'CUSTOMER' && invoice.status !== 'draft') {
       throw new BadRequestException(
-        'Seule une facture CLIENT en brouillon peut être annulée. Une facture finalisée porte une numérotation séquentielle sans trou requise pour la conformité et ne peut pas être simplement supprimée — émettez plutôt un avoir (Retours/SAV, Phase 3) une fois ce module disponible.',
+        'Seule une facture CLIENT en brouillon peut être annulée. Une facture finalisée porte une numérotation séquentielle sans trou requise pour la conformité et ne peut pas être simplement supprimée, émettez plutôt un avoir (Retours/SAV, Phase 3) une fois ce module disponible.',
       );
     }
     if (invoice.type === 'SUPPLIER' && invoice.payments.length > 0) {
@@ -675,7 +675,7 @@ export class InvoicingService {
       if (!invoice) throw new NotFoundException(`Facture inconnue : ${invoiceId}`);
       if (invoice.status === 'draft') throw new BadRequestException('Finalisez cette facture avant d\'y enregistrer un paiement.');
       if (invoice.status === 'void') throw new BadRequestException('Impossible d\'enregistrer un paiement sur une facture annulée.');
-      if (invoice.kind === 'proforma') throw new BadRequestException('Une proforma ne reçoit pas de paiement — convertissez-la d\'abord en facture.');
+      if (invoice.kind === 'proforma') throw new BadRequestException('Une proforma ne reçoit pas de paiement, convertissez-la d\'abord en facture.');
 
       const rawTotals = computeInvoiceTotals(this.toLineInputs(invoice));
       const totals = { totalTtc: Math.round((rawTotals.totalTtc + Number(invoice.stampDuty)) * 100) / 100 };

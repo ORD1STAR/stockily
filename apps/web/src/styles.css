@@ -144,8 +144,31 @@ textarea {
   font-family: inherit;
 }
 
+/* Selected text must stay readable everywhere: dark text on a light violet,
+   including over gradient (transparent-fill) headings and dark/violet bands. */
 ::selection {
   background: var(--brand-200);
+  color: var(--gray-900);
+  -webkit-text-fill-color: var(--gray-900);
+}
+.hero-accent::selection,
+.hero-accent *::selection {
+  background: var(--brand-200);
+  color: var(--gray-900);
+  -webkit-text-fill-color: var(--gray-900);
+}
+.cta-band ::selection,
+.site-footer ::selection,
+.credit-card ::selection,
+.cart-bar ::selection,
+.auth-aside ::selection,
+.site-dest-app ::selection,
+.btn-primary::selection,
+.site-btn-primary ::selection,
+.site-btn-primary::selection {
+  background: #fff;
+  color: var(--brand-800);
+  -webkit-text-fill-color: var(--brand-800);
 }
 
 :focus-visible {

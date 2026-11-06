@@ -65,7 +65,7 @@ export function AdminUserModal({ token, orgId, user, sites, onClose, onSaved }: 
         <div className="modal-header">
           <div className="modal-header-titles">
             <h3>{user.displayName ?? user.username ?? user.email}</h3>
-            <p className="modal-sub">{user.isAdmin ? `Compte administrateur (${user.roleName ?? 'admin'})` : 'Sous-utilisateur'} — aucune restriction de sécurité côté plateforme.</p>
+            <p className="modal-sub">{user.isAdmin ? `Compte administrateur (${user.roleName ?? 'admin'})` : 'Sous-utilisateur'}, aucune restriction de sécurité côté plateforme.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">✕</button>
         </div>

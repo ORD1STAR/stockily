@@ -223,7 +223,7 @@ export class CountersService {
   async zReportPdf(orgId: string, sessionId: string): Promise<Buffer> {
     const s = await this.summary(orgId, sessionId);
     const org = await this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
-    const header = [org.name, `TICKET Z — ${s.number}`, `Caisse : ${s.counter.name} (${s.counter.site.name})`];
+    const header = [org.name, `TICKET Z · ${s.number}`, `Caisse : ${s.counter.name} (${s.counter.site.name})`];
     const rows = s.byMethod.map((m) => ({ name: m.label, detail: `${m.count} vente(s)`, total: m.total }));
     const summary = [
       { label: 'Ventes', value: `${s.salesCount}` },

@@ -233,7 +233,7 @@ export class PurchasingService {
     const totalRawValue = rawValues.reduce((s, v) => s + v, 0);
     if (totalRawValue <= 0) {
       throw new BadRequestException(
-        'Impossible de répartir le landedCostAmount sur des lignes dont la valeur totale est nulle — retirez-le ou donnez un unitCost positif à au moins une ligne.',
+        'Impossible de répartir le landedCostAmount sur des lignes dont la valeur totale est nulle, retirez-le ou donnez un unitCost positif à au moins une ligne.',
       );
     }
 
@@ -638,7 +638,7 @@ export class PurchasingService {
       total += lineTotal;
       return {
         cells: {
-          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
+          product: l.product ? `${l.product.sku} · ${l.product.name}` : l.productId,
           qty: String(qty),
           unitCost: formatMoney(unitCost),
           total: formatMoney(lineTotal),

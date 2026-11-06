@@ -47,7 +47,7 @@ export class InventoryService {
     const site = await this.prisma.site.findFirst({ where: { id: dto.siteId, orgId } });
     if (!site) throw new NotFoundException(`Dépôt inconnu : ${dto.siteId}`);
     const open = await this.prisma.inventoryCount.findFirst({ where: { orgId, siteId: dto.siteId, status: 'draft' } });
-    if (open) throw new BadRequestException(`Un inventaire est déjà en cours sur ce dépôt (${open.number}) — terminez-le ou annulez-le d’abord.`);
+    if (open) throw new BadRequestException(`Un inventaire est déjà en cours sur ce dépôt (${open.number}), terminez-le ou annulez-le d’abord.`);
 
     const products = await this.prisma.product.findMany({
       where: {

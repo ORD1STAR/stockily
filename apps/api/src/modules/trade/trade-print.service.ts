@@ -301,7 +301,7 @@ export class TradePrintService {
         { label: 'Reste à payer', value: `${formatMoney(data.totals.remaining)} DZD`, accent: true },
         ...(data.unallocatedCredit > 0 ? [{ label: 'Avance non affectée', value: `${formatMoney(data.unallocatedCredit)} DZD`, separated: true }] : []),
       ],
-      footerNote: `État arrêté au ${new Date().toLocaleDateString('fr-FR')} — généré par Stockily.`,
+      footerNote: `État arrêté au ${new Date().toLocaleDateString('fr-FR')}, généré par Stockily.`,
     });
   }
 }

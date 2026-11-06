@@ -79,5 +79,5 @@ const VERB: Record<string, string> = { POST: 'Création', PUT: 'Mise à jour', P
 export function describeEntry(method: string, path: string): string {
   const what = RESOURCE.find(([re]) => re.test(path))?.[1] ?? path.replace(/^\/api\//, '');
   const isAction = /\/(finalize|void|convert|payments|sales|cancel|close|open|movements|validate|award|invoice)(\/|$|\?)/.test(path);
-  return isAction && what !== 'Mouvement de stock' ? what : `${what} — ${VERB[method] ?? method}`;
+  return isAction && what !== 'Mouvement de stock' ? what : `${what} · ${VERB[method] ?? method}`;
 }

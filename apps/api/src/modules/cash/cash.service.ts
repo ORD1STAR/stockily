@@ -169,7 +169,7 @@ export class CashService {
         amount: m.amount,
         method: 'especes',
         label: m.direction === 'out' ? 'Sortie de caisse comptoir' : 'Entrée de caisse comptoir',
-        description: `${m.reason} — ${m.session.counter.name}`,
+        description: `${m.reason} · ${m.session.counter.name}`,
         partner: null,
         product: null,
         document: null,
@@ -284,7 +284,7 @@ export class CashService {
       } else if ((dto.direction === 'in' && !partner.isCustomer) || (dto.direction === 'out' && !partner.isSupplier)) {
         throw new BadRequestException(dto.direction === 'in' ? 'Seul un client peut verser sur son compte.' : 'Seul un fournisseur peut être payé sur son compte.');
       }
-      const notes = [description, product ? `Produit : ${product.name}` : null].filter(Boolean).join(' — ') || undefined;
+      const notes = [description, product ? `Produit : ${product.name}` : null].filter(Boolean).join(' · ') || undefined;
       const payment = await this.trade.createPayment(orgId, userId, {
         partnerId: partner.id,
         direction: dto.direction,

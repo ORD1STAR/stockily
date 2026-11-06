@@ -33,9 +33,9 @@ const DEMO_EMAIL = 'demo@stockily.dz';
 const DEMO_PASSWORD_HASH_NOTE = null; // set below via bcryptjs, kept out of this constant so it isn't mistaken for the real hash
 
 const SITES = [
-  { key: 'alger', name: 'Alger — Entrepôt Central' },
-  { key: 'oran', name: 'Oran — Dépôt Nord' },
-  { key: 'constantine', name: 'Constantine — Point de vente' },
+  { key: 'alger', name: 'Alger · Entrepôt Central' },
+  { key: 'oran', name: 'Oran · Dépôt Nord' },
+  { key: 'constantine', name: 'Constantine · Point de vente' },
 ];
 
 const CATEGORIES = ['Épicerie', 'Entretien', 'Frais', 'Accessoires'];
@@ -45,7 +45,7 @@ const PRODUCTS = [
   { sku: 'SEM-25K-FIN', name: 'Semoule fine 25kg', category: 'Épicerie', isLotTracked: true, minThreshold: 30, cost: 2450 },
   { sku: 'DET-5L-LIQ', name: 'Détergent liquide 5L', category: 'Entretien', isLotTracked: true, minThreshold: 40, cost: 890 },
   { sku: 'CONS-400G-TOM', name: 'Conserve tomate 400g', category: 'Épicerie', isLotTracked: true, minThreshold: 60, cost: 145 },
-  { sku: 'YAO-12X100G', name: 'Yaourt nature — pack 12x100g', category: 'Frais', isLotTracked: true, minThreshold: 100, cost: 210 },
+  { sku: 'YAO-12X100G', name: 'Yaourt nature, pack 12x100g', category: 'Frais', isLotTracked: true, minThreshold: 100, cost: 210 },
   { sku: 'HUI-5L-TOUR', name: 'Huile de tournesol 5L', category: 'Épicerie', isLotTracked: true, minThreshold: 25, cost: 1780 },
   { sku: 'SAV-BAR-125G', name: 'Savon de Marseille 125g', category: 'Entretien', isLotTracked: true, minThreshold: 20, cost: 95 },
   { sku: 'CEI-105-NR', name: 'Ceinture cuir noir 105cm', category: 'Accessoires', isLotTracked: false, minThreshold: 15, cost: 1250 },
@@ -128,14 +128,14 @@ function inDays(days: number): string {
 async function main() {
   const stockModule = await prisma.module.findUnique({ where: { key: 'stock' } });
   if (!stockModule) {
-    throw new Error('Modules are not seeded — run `npm run db:seed` before `npm run db:seed:demo`.');
+    throw new Error('Modules are not seeded, run `npm run db:seed` before `npm run db:seed:demo`.');
   }
   const phase1Modules = await prisma.module.findMany({
     where: { key: { in: ['stock', 'quality', 'invoicing', 'sites', 'scan'] } },
   });
   const superAdminRole = await prisma.role.findFirst({ where: { name: 'Super Admin', isSystem: true } });
   if (!superAdminRole) {
-    throw new Error('System roles are not seeded — run `npm run db:seed` before `npm run db:seed:demo`.');
+    throw new Error('System roles are not seeded, run `npm run db:seed` before `npm run db:seed:demo`.');
   }
 
   console.log('Creating demo organization...');
@@ -155,7 +155,7 @@ async function main() {
     await prisma.userRole.create({ data: { userId: user.id, roleId: superAdminRole.id, siteId: null } });
   }
 
-  console.log('Granting active entitlements (demo org — not a trial)...');
+  console.log('Granting active entitlements (demo org, not a trial)...');
   for (const m of phase1Modules) {
     await prisma.organizationModuleEntitlement.upsert({
       where: { orgId_moduleId: { orgId: org.id, moduleId: m.id } },
@@ -211,7 +211,7 @@ async function main() {
   // dataset was already built by a prior run — skip straight to done.
   const alreadySeeded = await prisma.batch.findFirst({ where: { orgId: org.id, lotNumber: BATCH_DEMOS[0].lotNumber } });
   if (alreadySeeded) {
-    console.log('Demo data already fully seeded for this org — skipping (re-run against a fresh database to reseed from scratch).');
+    console.log('Demo data already fully seeded for this org, skipping (re-run against a fresh database to reseed from scratch).');
     console.log(`Log in with ${DEMO_EMAIL} / Demo1234!`);
     return; // main()'s own .finally() below still disconnects prisma
   }
@@ -282,7 +282,7 @@ async function main() {
     }
   }
 
-  console.log('Creating historical batches (already depleted — nothing left in the ledger)...');
+  console.log('Creating historical batches (already depleted, nothing left in the ledger)...');
   for (const demo of HISTORICAL_BATCH_DEMOS) {
     const productId = productIdBySku.get(demo.sku)!;
     const batch = await quality.createBatch({
@@ -389,11 +389,11 @@ async function main() {
     }
   }
 
-  await createAndFinalize('SARL Épicerie El Baraka', [{ description: "Huile d'olive 1L — carton de 12", quantity: 40, unitPrice: 980 }], 1);
-  await createAndFinalize('Ets Boudiaf & Fils', [{ description: 'Semoule fine 25kg — palette', quantity: 20, unitPrice: 2450 }], 0.5);
+  await createAndFinalize('SARL Épicerie El Baraka', [{ description: "Huile d'olive 1L, carton de 12", quantity: 40, unitPrice: 980 }], 1);
+  await createAndFinalize('Ets Boudiaf & Fils', [{ description: 'Semoule fine 25kg, palette', quantity: 20, unitPrice: 2450 }], 0.5);
   await createAndFinalize('Superette Aïn Naadja', [{ description: 'Assortiment épicerie', quantity: 1, unitPrice: 27850 }], 0);
   await createAndFinalize(null, [{ description: 'Vente comptoir', quantity: 1, unitPrice: 6200 }], 1);
-  await createAndFinalize('Grossiste Nord Distribution', [{ description: "Huile de tournesol 5L — lot", quantity: 50, unitPrice: 6112 }], 1);
+  await createAndFinalize('Grossiste Nord Distribution', [{ description: "Huile de tournesol 5L, lot", quantity: 50, unitPrice: 6112 }], 1);
 
   console.log(`Demo seed complete. Log in with ${DEMO_EMAIL} / Demo1234!`);
 }

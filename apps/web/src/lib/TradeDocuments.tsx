@@ -343,7 +343,7 @@ export function DocumentDetailModal({
     setBusy(true);
     try {
       await tradeApi.cancel(accessToken, type, doc.id);
-      toast.success(`${doc.number} annulé — stock rétabli.`);
+      toast.success(`${doc.number} annulé, stock rétabli.`);
       notifyDataChanged('partners');
       onChanged();
       await load();

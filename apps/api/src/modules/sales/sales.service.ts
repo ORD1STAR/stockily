@@ -256,13 +256,13 @@ export class SalesService {
       throw new BadRequestException('Cette commande a déjà été facturée, elle ne peut plus être supprimée.');
     }
     if (order.lines.some((l) => Number(l.quantityDelivered) > 0)) {
-      throw new BadRequestException('Cette commande a déjà des bons de livraison — annulez-les d’abord.');
+      throw new BadRequestException('Cette commande a déjà des bons de livraison, annulez-les d’abord.');
     }
     const draftLines = await this.prisma.invoiceLine.count({
       where: { salesOrderLineId: { in: order.lines.map((l) => l.id) }, invoice: { status: 'draft', deletedAt: null } },
     });
     if (draftLines > 0) {
-      throw new BadRequestException('Une facture brouillon existe pour cette commande — supprimez-la d\'abord depuis Factures.');
+      throw new BadRequestException('Une facture brouillon existe pour cette commande, supprimez-la d\'abord depuis Factures.');
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -328,7 +328,7 @@ export class SalesService {
       include: { lines: { where: { deletedAt: null }, include: { product: true, taxRate: true } } },
     });
     if (!order) throw new NotFoundException(`Commande de vente inconnue : ${salesOrderId}`);
-    if (order.kind !== 'order') throw new BadRequestException('Seule une commande peut être facturée — transformez d\'abord le devis.');
+    if (order.kind !== 'order') throw new BadRequestException('Seule une commande peut être facturée, transformez d\'abord le devis.');
     if (order.status === 'cancelled') throw new BadRequestException('Impossible de facturer une commande annulée.');
 
     // quantityInvoiced only moves when a facture is finalized, so quantities
@@ -474,7 +474,7 @@ export class SalesService {
       total += lineTotal;
       return {
         cells: {
-          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.description,
+          product: l.product ? `${l.product.sku} · ${l.product.name}` : l.description,
           qty: String(qty),
           unitPrice: formatMoney(unitPrice),
           discount: discountPercent ? `${discountPercent}%` : '—',
@@ -528,7 +528,7 @@ export class SalesService {
       const invoiced = Number(l.quantityInvoiced);
       return {
         cells: {
-          product: l.product ? `${l.product.sku} — ${l.product.name}` : l.description,
+          product: l.product ? `${l.product.sku} · ${l.product.name}` : l.description,
           ordered: String(ordered),
           delivered: String(invoiced),
           remaining: String(Math.max(0, ordered - invoiced)),
