@@ -3,6 +3,7 @@ import { AppShell } from '../lib/AppShell';
 import { Icon } from '../lib/Icon';
 import { SearchableSelect } from '../lib/SearchableSelect';
 import { useListControls } from '../lib/ListControls';
+import { useHasModule } from '../lib/useHasModule';
 import { useAuth } from '../lib/auth-context';
 import { toast } from '../lib/toast';
 import { ApiError, CashEntryView, CashJournal, CashMethod, CashOpenDocument, Partner, Site, StockRow, cashApi, invoicingApi, sitesApi, stockApi } from '../lib/api';
@@ -58,7 +59,11 @@ export function CashPage() {
   const [data, setData] = useState<CashJournal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dir, setDir] = useState<'all' | 'in' | 'out'>('all');
+  // `?dir=in|out` (Statistiques deep link) preselects the direction.
+  const [dir, setDir] = useState<'all' | 'in' | 'out'>(() => {
+    const d = new URLSearchParams(window.location.search).get('dir');
+    return d === 'in' || d === 'out' ? d : 'all';
+  });
   const [form, setForm] = useState<'in' | 'out' | null>(null);
   const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
 
@@ -367,7 +372,12 @@ function CashEntryModal({
   onSaved: () => void;
 }) {
   const { accessToken } = useAuth();
+  const has = useHasModule();
+  // What the entry can be attached to depends on the modules the org has.
+  const withStock = has('stock');
+  const withPartners = has('invoicing');
   const [direction, setDirection] = useState(initialDirection);
+  const withDocs = has(direction === 'in' ? 'sales' : 'purchasing');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<CashMethod>('especes');
   const [date, setDate] = useState(iso(new Date()));
@@ -385,13 +395,13 @@ function CashEntryModal({
   const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !withPartners) return;
     invoicingApi.listPartners(accessToken).then(setPartners).catch(() => setPartners([]));
-  }, [accessToken]);
+  }, [accessToken, withPartners]);
   const productSite = siteId || sites[0]?.id;
   useEffect(() => {
-    if (accessToken && productSite && showMore) stockApi.listProducts(accessToken, productSite).then(setProducts).catch(() => setProducts([]));
-  }, [accessToken, productSite, showMore]);
+    if (accessToken && withStock && productSite && showMore) stockApi.listProducts(accessToken, productSite).then(setProducts).catch(() => setProducts([]));
+  }, [accessToken, withStock, productSite, showMore]);
 
   const partner = partners.find((p) => p.id === partnerId) ?? null;
   // A versement on the account only makes sense in the partner's own direction.
@@ -509,12 +519,14 @@ function CashEntryModal({
             <input id="cash-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={isIn ? 'ex. Versement, apport, remboursement…' : 'ex. Loyer, électricité, transport, salaire…'} maxLength={300} />
           </div>
 
-          <div className="field-row">
-            <label>{isIn ? 'Client' : 'Fournisseur'} (facultatif)</label>
-            <SearchableSelect value={partnerId} onChange={setPartnerId} options={partnerOptions} placeholder="Rechercher un client ou un fournisseur…" emptyLabel="— Aucun —" />
-          </div>
+          {withPartners && (
+            <div className="field-row">
+              <label>{isIn ? 'Client' : 'Fournisseur'} (facultatif)</label>
+              <SearchableSelect value={partnerId} onChange={setPartnerId} options={partnerOptions} placeholder="Rechercher un client ou un fournisseur…" emptyLabel="Aucun" />
+            </div>
+          )}
 
-          {partner && canApply && (
+          {withDocs && partner && canApply && (
             <div className="field-row">
               <label htmlFor="cash-doc">{isIn ? 'Bon de livraison' : 'Bon de réception'} (facultatif)</label>
               <select
@@ -527,7 +539,7 @@ function CashEntryModal({
                   if (d && !amount) setAmount(String(d.remaining));
                 }}
               >
-                <option value="">{docsLoading ? 'Chargement…' : docs.length ? '— Aucun bon : versement sur le compte —' : 'Aucun bon à payer'}</option>
+                <option value="">{docsLoading ? 'Chargement…' : docs.length ? 'Aucun bon : versement sur le compte' : 'Aucun bon à payer'}</option>
                 {docs.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.number} · {new Date(d.date).toLocaleDateString('fr-FR')} · reste {DA(d.remaining)}
@@ -544,21 +556,24 @@ function CashEntryModal({
             </label>
           )}
 
-          {!showMore ? (
+          {/* The product link needs the Stock module; the depot only needs several sites. */}
+          {!withStock && sites.length <= 1 ? null : !showMore ? (
             <button type="button" className="btn-link cash-more" onClick={() => setShowMore(true)}>
-              + Produit{sites.length > 1 ? ', dépôt' : ''}
+              + {[withStock ? 'Produit' : null, sites.length > 1 ? 'dépôt' : null].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase())}
             </button>
           ) : (
             <div className="field-grid">
-              <div className="field-row">
-                <label>Produit (facultatif)</label>
-                <SearchableSelect value={productId} onChange={setProductId} options={productOptions} placeholder="Rechercher un produit…" emptyLabel="— Aucun —" />
-              </div>
+              {withStock && (
+                <div className="field-row">
+                  <label>Produit (facultatif)</label>
+                  <SearchableSelect value={productId} onChange={setProductId} options={productOptions} placeholder="Rechercher un produit…" emptyLabel="Aucun" />
+                </div>
+              )}
               {sites.length > 1 && (
                 <div className="field-row">
                   <label htmlFor="cash-site">Dépôt</label>
                   <select id="cash-site" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-                    <option value="">— Non précisé —</option>
+                    <option value="">Non précisé</option>
                     {sites.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
