@@ -2,6 +2,14 @@ import { StrictMode } from 'react';
 import * as ReactDOM from 'react-dom/client';
 import App from './app/app';
 import { REFRESH_TOKEN_STORAGE_KEY } from './lib/api';
+import { reloadOnceForNewVersion } from './lib/RouteErrorBoundary';
+
+// Vite fires this when a lazy page/chunk can't be fetched (an old tab after a
+// deploy): one reload picks up the new version instead of leaving a blank page.
+window.addEventListener('vite:preloadError', (e) => {
+  e.preventDefault();
+  reloadOnceForNewVersion();
+});
 
 // Desktop app: right after a PC is activated, the shell opens the app with
 // a one-time session in the URL fragment (#stockily-rt=…, never sent to any

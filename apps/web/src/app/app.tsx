@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom';
+import { Navigate, Route, BrowserRouter, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
 import { ConfirmProvider } from '../lib/ConfirmDialog';
 import { ProtectedRoute } from '../lib/ProtectedRoute';
+import { RouteErrorBoundary } from '../lib/RouteErrorBoundary';
 import { ToastContainer } from '../lib/toast';
 // The shared component layer is global, not per-page: otherwise a button
 // or modal could look different depending on which route loaded first.
@@ -51,11 +52,18 @@ function RouteFallback() {
   );
 }
 
+// Keyed by the path so an error on one page never sticks to the next one.
+function GuardedRoutes({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return <RouteErrorBoundary key={pathname}>{children}</RouteErrorBoundary>;
+}
+
 export function App() {
   return (
     <AuthProvider>
       <ConfirmProvider>
       <BrowserRouter>
+        <GuardedRoutes>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -204,6 +212,7 @@ export function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </GuardedRoutes>
       </BrowserRouter>
       <ToastContainer />
       </ConfirmProvider>
