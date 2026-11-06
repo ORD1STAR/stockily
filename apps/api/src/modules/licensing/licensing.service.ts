@@ -51,14 +51,24 @@ export class LicensingService {
     return { used, total: Math.max(1, sites) * org.seatsPerSite, seatsPerSite: org.seatsPerSite, sites };
   }
 
-  /** Module keys the org is currently entitled to (active, or a valid unexpired trial). */
+  /**
+   * Module keys the org is currently entitled to (active, or a valid
+   * unexpired trial). A self-service module (it has an end date) is dropped
+   * when one of its dependencies is no longer usable, mirroring the server's
+   * ModuleEntitlementGuard so a device can't keep what the server would refuse.
+   */
   private async activeModuleKeys(orgId: string): Promise<string[]> {
     const rows = await this.prisma.organizationModuleEntitlement.findMany({
       where: { orgId },
-      include: { module: { select: { key: true } } },
+      include: { module: { select: { key: true, dependencies: true } } },
     });
+    const now = Date.now();
+    const usable = (e: (typeof rows)[number]) =>
+      (e.status === 'active' && (!e.expiresAt || e.expiresAt.getTime() > now)) || (e.status === 'trial' && !!e.trialEndsAt && e.trialEndsAt.getTime() > now);
+    const ok = new Set(rows.filter(usable).map((e) => e.module.key));
     return rows
-      .filter((e) => e.status === 'active' || (e.status === 'trial' && !!e.trialEndsAt && e.trialEndsAt.getTime() > Date.now()))
+      .filter(usable)
+      .filter((e) => !(e.status === 'active' && e.expiresAt) || e.module.dependencies.every((d) => ok.has(d)))
       .map((e) => e.module.key);
   }
 
@@ -189,7 +199,7 @@ export class LicensingService {
       throw new UnauthorizedException({
         statusCode: 401,
         error: device.status === 'revoked' ? 'device_revoked' : 'device_deactivated',
-        message: device.status === 'revoked' ? 'Cet appareil a été révoqué.' : 'Cet appareil a été désactivé — reconnectez-vous pour le réactiver.',
+        message: device.status === 'revoked' ? 'Cet appareil a été révoqué.' : 'Cet appareil a été désactivé, reconnectez-vous pour le réactiver.',
       });
     }
     if (fingerprint && compositeFingerprint(fingerprint.motherboardHash, fingerprint.diskHash, fingerprint.macHash) !== device.fingerprintHash) {

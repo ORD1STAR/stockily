@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { BrandMark } from '../lib/AppShell';
 import { Icon, IconName } from '../lib/Icon';
 import './auth-pages.css';
@@ -39,6 +40,9 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
       </aside>
 
       <main className="auth-main">
+        <Link to="/" className="auth-back">
+          <Icon name="chevronLeft" size={16} /> Retour au site
+        </Link>
         <div className="auth-card">
           <div className="auth-mobile-brand">
             <BrandMark size={34} />

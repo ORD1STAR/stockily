@@ -29,5 +29,7 @@ import { AdminController } from './admin.controller';
     // and setTenantOnTransaction is harmless under a BYPASSRLS role.
     { provide: ADMIN_MEMBERS, useFactory: (p: AdminPrismaService) => new MembersService(p as unknown as PrismaService), inject: [AdminPrismaService] },
   ],
+  // Reused by BillingModule (self-service subscription, also server-only).
+  exports: [AdminPrismaService],
 })
 export class AdminModule {}

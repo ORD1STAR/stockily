@@ -29,11 +29,29 @@ export interface TokenPair {
   refreshToken: string;
 }
 
+/** Signup/login do not always open a session: the server may first ask for the 6-digit code it just emailed. */
+export interface OtpChallenge {
+  otpRequired: true;
+  challengeId: string;
+  /** 'verify_email' = confirming a new address; 'login' = the second factor. */
+  purpose: 'verify_email' | 'login';
+  /** Masked address the code went to. */
+  email: string;
+  /** Seconds before another code can be requested. */
+  resendIn: number;
+}
+export type AuthResult = TokenPair | OtpChallenge;
+export const needsOtp = (r: AuthResult): r is OtpChallenge => 'otpRequired' in r;
+
 export const authApi = {
   signup: (data: { organizationName: string; email: string; password: string }) =>
-    rawRequest<TokenPair>('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
+    rawRequest<AuthResult>('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: { identifier: string; password: string }) =>
-    rawRequest<TokenPair>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+    rawRequest<AuthResult>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  verifyOtp: (challengeId: string, code: string) =>
+    rawRequest<TokenPair>('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  resendOtp: (challengeId: string) =>
+    rawRequest<OtpChallenge>('/auth/otp/resend', { method: 'POST', body: JSON.stringify({ challengeId }) }),
   refresh: (refreshToken: string) =>
     rawRequest<TokenPair>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
   logout: (refreshToken: string) =>
@@ -1164,11 +1182,25 @@ export interface LocalStatus {
   readOnly: boolean;
   revoked: string | null;
   licenseExpiresAt: string | null;
+  /** Modules in the device's signed license. */
+  modules?: string[];
   lastPushAt: string | null;
   lastPullAt: string | null;
   lastError: string | null;
   pending: number;
   failed: number;
+}
+
+/** App update progress (desktop only): the shell does the work, the UI follows. */
+export interface AppUpdateState {
+  phase: 'idle' | 'checking' | 'uptodate' | 'available' | 'downloading' | 'error';
+  current: string;
+  version?: string;
+  notes?: string;
+  downloaded?: number;
+  total?: number;
+  error?: string;
+  checkedAt?: string;
 }
 
 export interface OutboxEntryView {
@@ -1195,6 +1227,13 @@ export const localApi = {
     }
   },
   syncNow: (token: string) => authedRequest<{ started: boolean }>('/local/sync', token, { method: 'POST' }),
+  update: (token: string) => authedRequest<AppUpdateState>('/local/update', token),
+  /** Opens an https page (payment) in the user's own browser. */
+  openExternal: (token: string, url: string) => authedRequest<{ opened: boolean }>('/local/open-external', token, { method: 'POST', body: JSON.stringify({ url }) }),
+  /** Renews the signed license online right now; returns the modules it now contains. */
+  refreshLicense: (token: string) => authedRequest<{ modules: string[] }>('/local/license/refresh', token, { method: 'POST' }),
+  checkUpdate: (token: string) => authedRequest<AppUpdateState>('/local/update/check', token, { method: 'POST' }),
+  installUpdate: (token: string) => authedRequest<AppUpdateState>('/local/update/install', token, { method: 'POST' }),
   outbox: (token: string, status?: string) => authedRequest<OutboxEntryView[]>(`/local/outbox${status ? `?status=${status}` : ''}`, token),
   retry: (token: string, id: string) => authedRequest<{ ok: boolean }>(`/local/outbox/${id}/retry`, token, { method: 'POST' }),
   discard: (token: string, id: string) => authedRequest<{ ok: boolean }>(`/local/outbox/${id}/discard`, token, { method: 'POST' }),
@@ -1239,4 +1278,156 @@ export const membersApi = {
   update: (token: string, id: string, data: Partial<Omit<MemberInput, 'username'>> & { isActive?: boolean }) =>
     authedRequest<MemberView>(`/members/${id}`, token, { method: 'PATCH', body: JSON.stringify(data) }),
   deactivate: (token: string, id: string) => authedRequest<MemberView>(`/members/${id}`, token, { method: 'DELETE' }),
+};
+
+// ───────────────────────── Abonnement (Tarifs / Espace client) ─────────────────────────
+
+export interface CatalogModule {
+  key: string;
+  name: string;
+  tagline: string;
+  features: string[];
+  monthlyPrice: number;
+  dependencies: string[];
+  /** Present when the price is per unit (Multi-sites: per site beyond the first). */
+  unit?: string;
+}
+export interface CatalogPack {
+  key: string;
+  name: string;
+  tagline: string;
+  modules: string[];
+  highlight?: boolean;
+  monthlyPrice: number;
+}
+export interface CatalogDuration {
+  months: number;
+  billedMonths: number;
+  label: string;
+  badge?: string;
+}
+export interface Catalog {
+  currency: string;
+  /** true = purchases go through Chargily Pay; false = activation is offered. */
+  onlinePayment: boolean;
+  modules: CatalogModule[];
+  packs: CatalogPack[];
+  durations: CatalogDuration[];
+  upcoming: string[];
+}
+export interface BillingModuleState {
+  key: string;
+  name: string;
+  monthlyPrice: number;
+  state: 'active' | 'trial' | 'expired' | 'none';
+  endsAt: string | null;
+  daysLeft: number | null;
+  /** Multi-sites: extra sites paid for (null = no cap, e.g. trial). */
+  siteQuota: number | null;
+}
+export interface QuoteItem {
+  key: string;
+  label: string;
+  months: number;
+  unitPrice: number;
+  /** Amount charged (after the free months). */
+  total: number;
+  /** Amount at full price, before the free months. */
+  fullTotal: number;
+  /** Set when a dependency is extended to cover a module that needs it. */
+  note?: string;
+}
+export interface Quote {
+  amount: number;
+  discount: number;
+  items: QuoteItem[];
+  modules: { key: string; expiresAt: string }[];
+}
+
+export interface PlatformPaymentView {
+  id: string;
+  number: string | null;
+  kind: 'purchase' | 'renewal' | string;
+  amount: number;
+  currency: string;
+  method: string | null;
+  status: string;
+  items: { key: string; label: string; months: number; unitPrice: number; total: number }[];
+  checkoutId: string | null;
+  trackId: string | null;
+  checkoutUrl: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+export interface BillingOverview {
+  organization: { id: string; name: string };
+  canManage: boolean;
+  sitesUsed: number;
+  modules: BillingModuleState[];
+  payments: PlatformPaymentView[];
+}
+export interface AccountProfile {
+  id: string;
+  email: string | null;
+  username: string | null;
+  displayName: string | null;
+  phone: string | null;
+  /** Email one-time code at each login. Always false for users without an email. */
+  twoFactorEnabled: boolean;
+  emailVerified: boolean;
+}
+
+export interface DownloadInfo {
+  platform: 'windows' | string;
+  available: boolean;
+  version?: string;
+  size?: number;
+  sha256?: string;
+  publishedAt?: string;
+  notes?: string;
+  fileName?: string;
+}
+export const downloadsApi = {
+  list: () => rawRequest<DownloadInfo[]>('/downloads'),
+  /** Same-origin link to the installer; the server decides which file it is. */
+  url: (platform: string) => `${API_BASE}/downloads/${platform}/latest`,
+};
+
+export const billingApi = {
+  catalog: () => rawRequest<Catalog>('/billing/catalog'),
+  overview: (token: string) => authedRequest<BillingOverview>('/billing/me', token),
+  quote: (token: string, data: { modules: string[]; months: number; extraSites?: number }) =>
+    authedRequest<Quote>('/billing/quote', token, { method: 'POST', body: JSON.stringify(data) }),
+  purchase: (token: string, data: { modules: string[]; months: number; packKey?: string; extraSites?: number }) =>
+    authedRequest<{ payment: PlatformPaymentView; modules: { key: string; expiresAt: string }[]; checkoutUrl: string | null }>('/billing/purchase', token, { method: 'POST', body: JSON.stringify(data) }),
+  syncPayment: (token: string, id: string) => authedRequest<{ payment: PlatformPaymentView }>(`/billing/payments/${id}/sync`, token, { method: 'POST' }),
+  fetchPaymentPdf: async (token: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/billing/payments/${id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => undefined));
+    return res.blob();
+  },
+};
+
+export interface SuggestionInput {
+  email: string;
+  name?: string;
+  activity?: string;
+  area?: string;
+  need: string;
+  priority?: string;
+  currentTool?: string;
+  website?: string;
+}
+export const suggestionsApi = {
+  send: (data: SuggestionInput) => rawRequest<{ ok: true }>('/suggestions', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+export const accountApi = {
+  get: (token: string) => authedRequest<AccountProfile>('/account', token),
+  update: (token: string, data: Partial<Pick<AccountProfile, 'email' | 'username' | 'displayName' | 'phone'>>) =>
+    authedRequest<AccountProfile>('/account', token, { method: 'PATCH', body: JSON.stringify(data) }),
+  setTwoFactor: (token: string, enabled: boolean, password?: string) =>
+    authedRequest<AccountProfile>('/account/two-factor', token, { method: 'POST', body: JSON.stringify({ enabled, password }) }),
+  changePassword: (token: string, currentPassword: string, newPassword: string) =>
+    authedRequest<{ ok: true }>('/account/password', token, { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
 };

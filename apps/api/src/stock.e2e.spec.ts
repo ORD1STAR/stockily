@@ -7,6 +7,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { grantModule } from './e2e-grant';
 import { runWithTenant } from '@org/infra-db';
 
 process.env.DATABASE_URL = 'postgresql://stockily:stockily@localhost:5432/stockily_test?schema=public';
@@ -44,6 +45,7 @@ describe('Stock + Sites e2e', () => {
       .expect(201);
     accessToken = signup.body.accessToken;
     orgId = signup.body.organization.id;
+    await grantModule(process.env.DATABASE_URL as string, orgId, 'sites');
 
     const siteA = await request(app.getHttpServer())
       .post('/api/sites')

@@ -9,6 +9,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { grantModule } from './e2e-grant';
 
 process.env.DATABASE_URL = 'postgresql://stockily:stockily@localhost:5432/stockily_invoicing_test?schema=public';
 // Milestone 8 (RLS) — the running app must connect as the restricted,
@@ -41,6 +42,7 @@ describe('Invoicing e2e', () => {
       .send({ organizationName: 'Invoicing E2E Org', email, password })
       .expect(201);
     accessToken = signup.body.accessToken;
+    await grantModule(process.env.DATABASE_URL as string, signup.body.organization.id, 'sites');
 
     const auth = () => ({ Authorization: `Bearer ${accessToken}` });
 

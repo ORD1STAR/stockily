@@ -44,6 +44,8 @@ model Organization {
   taxArticle    String?
   phone         String?
   email         String?
+  // Chargily Pay customer created for this org (our org id is stored in its metadata).
+  chargilyCustomerId String?
   // A data: URL (already resized/compressed client-side before upload) —
   // simplest storage for a small logo image without standing up object
   // storage or a multipart upload endpoint for what's a rare, low-volume
@@ -125,6 +127,13 @@ model OrganizationModuleEntitlement {
   // when status = "trial" — ModuleEntitlementGuard treats a trial as active
   // only while now() < trialEndsAt; null for non-trial statuses.
   trialEndsAt DateTime?
+  // End of the paid period for status = "active" (bought from the Espace
+  // client / Tarifs). Null = no end date (e.g. granted by a platform admin).
+  // Past this date the module is no longer usable, whatever the status says.
+  expiresAt   DateTime?
+  // Multi-sites only: how many sites BEYOND the first (free for life) the
+  // org has paid for. Null = no cap (trials and admin grants).
+  siteQuota   Int?
 
   organization Organization @relation(fields: [orgId], references: [id])
   module       Module       @relation(fields: [moduleId], references: [id])
@@ -171,6 +180,7 @@ model User {
   // (owner) user, who logs in by email.
   username     String?  @unique
   displayName  String?
+  phone        String?
   passwordHash String
   // Sub-users are soft-disabled, never deleted (keeps audit/FK history);
   // login refuses an inactive user.
@@ -179,13 +189,43 @@ model User {
   // org's first user.
   createdById  String?
   createdAt    DateTime @default(now())
+  // Set once the owner proves they control the mailbox (6-digit code sent at
+  // signup). Null = not verified yet: such an account cannot log in. Users
+  // without an email (sub-users) never need it.
+  emailVerifiedAt  DateTime?
+  // Email one-time code at each login (second factor). On by default for new
+  // accounts; the owner can switch it off in Espace client > Sécurité.
+  twoFactorEnabled Boolean   @default(true)
 
   organization   Organization    @relation(fields: [orgId], references: [id])
   userRoles      UserRole[]
   refreshTokens  RefreshToken[]
+  authChallenges AuthChallenge[]
 
   @@index([orgId])
   @@map("users")
+}
+
+// A pending one-time code sent by email: either to verify the mailbox after
+// signup ('verify_email') or as the second factor of a login ('login'). Only
+// a keyed hash of the code is stored; it expires, allows a few attempts and a
+// limited number of re-sends, and is single-use.
+model AuthChallenge {
+  id         String    @id @default(uuid())
+  userId     String
+  purpose    String // 'verify_email' | 'login'
+  codeHash   String
+  attempts   Int       @default(0)
+  sendCount  Int       @default(1)
+  expiresAt  DateTime
+  lastSentAt DateTime  @default(now())
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_challenges")
 }
 
 model RefreshToken {
@@ -1424,12 +1464,46 @@ model PlatformPayment {
   amount    Decimal   @db.Decimal(12, 2)
   currency  String    @default("DZD")
   method    String?
-  status    String    @default("pending") // pending | paid | failed | refunded
+  status    String    @default("pending") // pending | paid | failed | canceled | refunded
   reference String?
   notes     String?
   paidAt    DateTime?
   createdAt DateTime  @default(now())
+  // purchase (modules/pack bought) | Legacy: topup (balance system) and renewal (auto-renew), both removed.
+  kind      String    @default("purchase")
+  // Human-facing invoice number, e.g. STK-2026-000012.
+  number    String?   @unique
+  // Line items: [{ key, label, months, unitPrice, total }].
+  items     Json?
+  userId    String?
+  // Chargily Pay checkout behind this payment (pending until its webhook / a sync says paid),
+  // and the purchase request to apply once it is paid.
+  checkoutId  String? @unique
+  checkoutUrl String?
+  // Chargily's own invoice id for the paid checkout (the tracking id), known once paid.
+  trackId     String?
+  request     Json?
 
   @@index([orgId, createdAt])
   @@map("platform_payments")
+}
+
+// Feature suggestions sent from the public site ("Proposer des ajouts").
+// Platform-level, RLS deny-all like the other platform tables: only the
+// superuser client (public endpoint + admin console) touches it.
+model FeatureSuggestion {
+  id         String   @id @default(uuid())
+  email      String
+  name       String?
+  activity   String?
+  area       String?
+  need       String
+  priority   String?
+  currentTool String?
+  status     String   @default("new") // new | reviewing | planned | done | declined
+  adminNote  String?
+  createdAt  DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("feature_suggestions")
 }

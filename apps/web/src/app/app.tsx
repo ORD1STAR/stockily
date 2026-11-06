@@ -35,6 +35,11 @@ const DevicesPage = lazy(() => import('../pages/DevicesPage'));
 const MembersPage = lazy(() => import('../pages/MembersPage'));
 const AdminApp = lazy(() => import('../admin/AdminApp'));
 const SyncPage = lazy(() => import('../pages/SyncPage'));
+// Public marketing site (vitrine) + Espace client.
+const HomePage = lazy(() => import('../site/HomePage'));
+const AboutPage = lazy(() => import('../site/AboutPage'));
+const PricingPage = lazy(() => import('../site/PricingPage'));
+const AccountPage = lazy(() => import('../site/AccountPage'));
 
 // A blank instant during a chunk fetch reads as broken more than a plain
 // "Chargement…" would — on a fast connection this never even paints.
@@ -53,6 +58,17 @@ export function App() {
       <BrowserRouter>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/a-propos" element={<AboutPage />} />
+            <Route path="/tarifs" element={<PricingPage />} />
+            <Route
+              path="/compte"
+              element={
+                <ProtectedRoute>
+                  <AccountPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route
@@ -185,7 +201,7 @@ export function App() {
             />
             {/* Platform-admin console — its own session/login, separate from the tenant app. */}
             <Route path="/admin/*" element={<AdminApp />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </BrowserRouter>

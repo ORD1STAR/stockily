@@ -9,7 +9,7 @@ import { frenchValidationExceptionFactory } from './app/validation-messages';
 import { isLocalMode, localEnv } from './local/local-env';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix, { exclude: ['health'] });
   app.use(helmet());

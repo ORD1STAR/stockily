@@ -308,7 +308,7 @@ async function main() {
   // overwritten by a reseed. Phase 2+ modules are left unpriced for the
   // admin to set.
   console.log('Seeding default module prices...');
-  const DEFAULT_PRICES: Record<string, number> = { stock: 4500, quality: 3000, invoicing: 4000, sites: 1500, scan: 2000 };
+  const DEFAULT_PRICES: Record<string, number> = { stock: 4500, quality: 3000, invoicing: 4000, sites: 1500, scan: 2000, purchasing: 3500, sales: 3500, cash: 2500, stats: 2000 };
   for (const [moduleKey, monthlyPrice] of Object.entries(DEFAULT_PRICES)) {
     const existing = await prisma.modulePrice.findUnique({ where: { moduleKey } });
     if (!existing) await prisma.modulePrice.create({ data: { moduleKey, monthlyPrice } });

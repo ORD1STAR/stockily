@@ -4,6 +4,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
+import { grantModule } from './e2e-grant';
 
 process.env.DATABASE_URL = 'postgresql://stockily:stockily@localhost:5432/stockily_test?schema=public';
 process.env.APP_DATABASE_URL = 'postgresql://stockily_app:stockily_app@localhost:5432/stockily_test?schema=public';
@@ -37,6 +38,7 @@ describe('Members & flexible login e2e', () => {
 
     const signup = await api().post('/api/auth/signup').send({ organizationName: 'Membres Org', email, password }).expect(201);
     ownerToken = signup.body.accessToken;
+    await grantModule(process.env.DATABASE_URL as string, signup.body.organization.id, 'sites');
     const sites = await api().get('/api/sites').set(as(ownerToken)).expect(200);
     siteA = sites.body[0].id;
     siteB = (await api().post('/api/sites').set(as(ownerToken)).send({ name: 'Dépôt B' }).expect(201)).body.id;
