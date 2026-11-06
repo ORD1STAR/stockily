@@ -6,8 +6,8 @@ import { MembersService } from '../modules/members/members.service';
 export const ADMIN_MEMBERS = 'ADMIN_MEMBERS_SERVICE';
 
 const now = () => new Date();
-const isValid = (status: string, trialEndsAt: Date | null) =>
-  status === 'active' || (status === 'trial' && !!trialEndsAt && trialEndsAt.getTime() > Date.now());
+const isValid = (status: string, trialEndsAt: Date | null, expiresAt: Date | null = null) =>
+  (status === 'active' && (!expiresAt || expiresAt.getTime() > Date.now())) || (status === 'trial' && !!trialEndsAt && trialEndsAt.getTime() > Date.now());
 
 @Injectable()
 export class AdminService {
@@ -19,19 +19,20 @@ export class AdminService {
   ) {}
 
   async dashboard() {
-    const [orgCount, byPlan, userCount, activeDevices, entitlements, recentOrgs, moduleCatalog] = await Promise.all([
+    const [orgCount, byPlan, userCount, activeDevices, entitlements, recentOrgs, moduleCatalog, newSuggestions] = await Promise.all([
       this.prisma.organization.count(),
       this.prisma.organization.groupBy({ by: ['plan'], _count: true }),
       this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.deviceActivation.count({ where: { status: 'active' } }),
-      this.prisma.organizationModuleEntitlement.findMany({ select: { moduleId: true, status: true, trialEndsAt: true } }),
+      this.prisma.organizationModuleEntitlement.findMany({ select: { moduleId: true, status: true, trialEndsAt: true, expiresAt: true } }),
       this.prisma.organization.findMany({ orderBy: { createdAt: 'desc' }, take: 8, select: { id: true, name: true, plan: true, createdAt: true } }),
       this.prisma.module.findMany({ select: { id: true, key: true, name: true } }),
+      this.prisma.featureSuggestion.count({ where: { status: 'new' } }),
     ]);
     const keyById = new Map(moduleCatalog.map((m) => [m.id, m]));
     const adoption = new Map<string, number>();
     for (const e of entitlements) {
-      if (!isValid(e.status, e.trialEndsAt)) continue;
+      if (!isValid(e.status, e.trialEndsAt, e.expiresAt)) continue;
       const m = keyById.get(e.moduleId);
       if (m) adoption.set(m.key, (adoption.get(m.key) ?? 0) + 1);
     }
@@ -44,6 +45,7 @@ export class AdminService {
         .map((m) => ({ key: m.key, name: m.name, orgs: adoption.get(m.key) ?? 0 }))
         .sort((a, b) => b.orgs - a.orgs),
       recentOrganizations: recentOrgs,
+      newSuggestions,
     };
   }
 
@@ -63,11 +65,11 @@ export class AdminService {
     const ids = orgs.map((o) => o.id);
     const [devices, ents] = await Promise.all([
       this.prisma.deviceActivation.groupBy({ by: ['orgId'], where: { orgId: { in: ids }, status: 'active' }, _count: true }),
-      this.prisma.organizationModuleEntitlement.findMany({ where: { orgId: { in: ids } }, select: { orgId: true, status: true, trialEndsAt: true } }),
+      this.prisma.organizationModuleEntitlement.findMany({ where: { orgId: { in: ids } }, select: { orgId: true, status: true, trialEndsAt: true, expiresAt: true } }),
     ]);
     const deviceCount = new Map(devices.map((d) => [d.orgId, d._count]));
     const activeModules = new Map<string, number>();
-    for (const e of ents) if (isValid(e.status, e.trialEndsAt)) activeModules.set(e.orgId, (activeModules.get(e.orgId) ?? 0) + 1);
+    for (const e of ents) if (isValid(e.status, e.trialEndsAt, e.expiresAt)) activeModules.set(e.orgId, (activeModules.get(e.orgId) ?? 0) + 1);
     return orgs.map((o) => ({
       id: o.id,
       name: o.name,
@@ -117,7 +119,8 @@ export class AdminService {
             dependencies: m.dependencies,
             status: e?.status ?? 'none',
             trialEndsAt: e?.trialEndsAt ?? null,
-            active: e ? isValid(e.status, e.trialEndsAt) : false,
+            expiresAt: e?.expiresAt ?? null,
+            active: e ? isValid(e.status, e.trialEndsAt, e.expiresAt) : false,
           };
         }),
       sites,
@@ -140,8 +143,8 @@ export class AdminService {
     const module = await this.moduleByKey(key);
 
     if (action === 'activate' && module.dependencies.length > 0 && !force) {
-      const ents = await this.prisma.organizationModuleEntitlement.findMany({ where: { orgId }, select: { moduleId: true, status: true, trialEndsAt: true } });
-      const activeIds = new Set(ents.filter((e) => isValid(e.status, e.trialEndsAt)).map((e) => e.moduleId));
+      const ents = await this.prisma.organizationModuleEntitlement.findMany({ where: { orgId }, select: { moduleId: true, status: true, trialEndsAt: true, expiresAt: true } });
+      const activeIds = new Set(ents.filter((e) => isValid(e.status, e.trialEndsAt, e.expiresAt)).map((e) => e.moduleId));
       const deps = await this.prisma.module.findMany({ where: { key: { in: module.dependencies } } });
       const missing = deps.filter((d) => !activeIds.has(d.id)).map((d) => d.name);
       if (missing.length > 0) {
@@ -158,7 +161,8 @@ export class AdminService {
     const row = await this.prisma.organizationModuleEntitlement.upsert({
       where: { orgId_moduleId: { orgId, moduleId: module.id } },
       create: { orgId, moduleId: module.id, status, trialEndsAt: null, activatedAt: now() },
-      update: { status, trialEndsAt: null },
+      // An admin grant has no end date (expiresAt null) — unlike a self-service purchase.
+      update: { status, trialEndsAt: null, ...(action === 'activate' ? { expiresAt: null } : {}) },
     });
     return { key, status: row.status };
   }
@@ -247,6 +251,23 @@ export class AdminService {
   }
 
   // ───────── Payments ─────────
+  async listSuggestions() {
+    const rows = await this.prisma.featureSuggestion.findMany({ orderBy: { createdAt: 'desc' }, take: 500 });
+    return rows;
+  }
+
+  async updateSuggestion(id: string, data: { status?: string; adminNote?: string }) {
+    const exists = await this.prisma.featureSuggestion.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Proposition introuvable.');
+    return this.prisma.featureSuggestion.update({ where: { id }, data: { ...(data.status ? { status: data.status } : {}), ...(data.adminNote !== undefined ? { adminNote: data.adminNote || null } : {}) } });
+  }
+
+  async deleteSuggestion(id: string) {
+    const res = await this.prisma.featureSuggestion.deleteMany({ where: { id } });
+    if (res.count === 0) throw new NotFoundException('Proposition introuvable.');
+    return { ok: true };
+  }
+
   async listPayments() {
     const payments = await this.prisma.platformPayment.findMany({ orderBy: { createdAt: 'desc' }, take: 500 });
     const orgIds = [...new Set(payments.map((p) => p.orgId))];
@@ -259,7 +280,10 @@ export class AdminService {
       currency: p.currency,
       method: p.method,
       status: p.status,
-      reference: p.reference,
+      reference: p.reference ?? p.number,
+      checkoutId: p.checkoutId,
+      trackId: p.trackId,
+      kind: p.kind,
       paidAt: p.paidAt,
       createdAt: p.createdAt,
     }));

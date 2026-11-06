@@ -17,7 +17,7 @@ export function AdminPaymentsPage() {
   }, [accessToken]);
 
   return (
-    <AdminShell title="Paiements" subtitle="Paiements d'abonnement des organisations. L'intégration de l'API de paiement viendra plus tard — cette liste se remplira alors.">
+    <AdminShell title="Paiements" subtitle="Paiements d'abonnement des organisations. Paiements en ligne via Chargily Pay (mode test tant que la clé est de test).">
       {loading ? (
         <div className="page-loader"><span className="spinner" /> Chargement…</div>
       ) : rows.length === 0 ? (
@@ -25,7 +25,7 @@ export function AdminPaymentsPage() {
       ) : (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>Date</th><th>Organisation</th><th>Montant</th><th>Méthode</th><th>Référence</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Date</th><th>Organisation</th><th>Montant</th><th>Méthode</th><th>Facture</th><th>Checkout ID</th><th>Track ID</th><th>Statut</th></tr></thead>
             <tbody>
               {rows.map((p) => (
                 <tr key={p.id}>
@@ -34,6 +34,8 @@ export function AdminPaymentsPage() {
                   <td>{p.amount.toLocaleString('fr-FR')} {p.currency}</td>
                   <td>{p.method ?? '—'}</td>
                   <td>{p.reference ?? '—'}</td>
+                  <td className="mono" style={{ fontSize: '0.78rem' }}>{p.checkoutId ?? '—'}</td>
+                  <td className="mono" style={{ fontSize: '0.78rem' }}>{p.trackId ?? '—'}</td>
                   <td><span className={`pill ${STATUS[p.status] ?? 'info'}`}>{p.status}</span></td>
                 </tr>
               ))}

@@ -60,6 +60,7 @@ export interface AdminDashboard {
   activeDevices: number;
   moduleAdoption: { key: string; name: string; orgs: number }[];
   recentOrganizations: { id: string; name: string; plan: string; createdAt: string }[];
+  newSuggestions: number;
 }
 
 export interface AdminOrgRow {
@@ -109,6 +110,20 @@ export interface AdminPrice {
   isActive: boolean;
 }
 
+export interface AdminSuggestion {
+  id: string;
+  email: string;
+  name: string | null;
+  activity: string | null;
+  area: string | null;
+  need: string;
+  priority: string | null;
+  currentTool: string | null;
+  status: 'new' | 'reviewing' | 'planned' | 'done' | 'declined';
+  adminNote: string | null;
+  createdAt: string;
+}
+
 export interface AdminPayment {
   id: string;
   org: string;
@@ -117,6 +132,8 @@ export interface AdminPayment {
   method: string | null;
   status: string;
   reference: string | null;
+  checkoutId: string | null;
+  trackId: string | null;
   paidAt: string | null;
   createdAt: string;
 }
@@ -167,6 +184,9 @@ export const adminApi = {
   pricing: (t: string) => adminReq<AdminPrice[]>('/admin/pricing', t),
   setPrice: (t: string, moduleKey: string, monthlyPrice: number, isActive: boolean) => adminReq<AdminPrice>(`/admin/pricing/${moduleKey}`, t, { method: 'PATCH', body: JSON.stringify({ monthlyPrice, isActive }) }),
   payments: (t: string) => adminReq<AdminPayment[]>('/admin/payments', t),
+  suggestions: (t: string) => adminReq<AdminSuggestion[]>('/admin/suggestions', t),
+  updateSuggestion: (t: string, id: string, data: { status?: string; adminNote?: string }) => adminReq<AdminSuggestion>(`/admin/suggestions/${id}`, t, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSuggestion: (t: string, id: string) => adminReq<{ ok: boolean }>(`/admin/suggestions/${id}`, t, { method: 'DELETE' }),
   logs: (t: string) => adminReq<AdminLogRow[]>('/admin/logs', t),
   schema: (t: string) => adminReq<SchemaTable[]>('/admin/schema', t),
   sql: (t: string, sql: string, write?: boolean, confirm?: string) => adminReq<SqlResult>('/admin/sql', t, { method: 'POST', body: JSON.stringify({ sql, write, confirm }) }),
