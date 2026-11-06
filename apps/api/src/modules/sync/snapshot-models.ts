@@ -17,6 +17,7 @@ const EXCLUDED = new Set([
   'AdminAuditLog',
   'ModulePrice',
   'PlatformPayment',
+  'FeatureSuggestion',
 ]);
 
 export interface SnapshotModel {

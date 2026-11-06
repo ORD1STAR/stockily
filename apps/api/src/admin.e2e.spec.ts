@@ -72,6 +72,21 @@ describe('Platform admin e2e', () => {
     expect(detail.body.modules.find((m: { key: string }) => m.key === 'cash').active).toBe(true);
   });
 
+  it('suggestions: a visitor proposal reaches the admin, who can triage and delete it; tenants cannot read it', async () => {
+    const email = `visitor-${Date.now()}@example.com`;
+    await api().post('/api/suggestions').send({ email, need: 'Gérer les retours clients par produit.', area: 'sales', priority: 'must_have' }).expect(201);
+    await api().get('/api/admin/suggestions').set(bearer(tenantToken)).expect(401);
+    const list = await api().get('/api/admin/suggestions').set(bearer(adminToken)).expect(200);
+    const row = list.body.find((r: { email: string }) => r.email === email);
+    expect(row).toBeTruthy();
+    expect(row.status).toBe('new');
+    const upd = await api().patch(`/api/admin/suggestions/${row.id}`).set(bearer(adminToken)).send({ status: 'planned', adminNote: 'Prévu au prochain trimestre' }).expect(200);
+    expect(upd.body.status).toBe('planned');
+    await api().patch(`/api/admin/suggestions/${row.id}`).set(bearer(adminToken)).send({ status: 'bogus' }).expect(400);
+    await api().delete(`/api/admin/suggestions/${row.id}`).set(bearer(adminToken)).expect(200);
+    await api().delete(`/api/admin/suggestions/${row.id}`).set(bearer(adminToken)).expect(404);
+  });
+
   it('blocks a module whose dependencies are not active, unless forced', async () => {
     // delivery depends on sales (not active for a fresh trial org)
     const blocked = await api().post(`/api/admin/organizations/${orgId}/modules/delivery`).set(bearer(adminToken)).send({ action: 'activate' }).expect(400);

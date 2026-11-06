@@ -8,6 +8,7 @@ import { AdminPricingPage } from './AdminPricingPage';
 import { AdminPaymentsPage } from './AdminPaymentsPage';
 import { AdminLogsPage } from './AdminLogsPage';
 import { AdminSqlPage } from './AdminSqlPage';
+import { AdminSuggestionsPage } from './AdminSuggestionsPage';
 
 function AdminRoutes() {
   const { admin, accessToken, loading } = useAdminAuth();
@@ -24,6 +25,7 @@ function AdminRoutes() {
       <Route path="/" element={<AdminDashboardPage />} />
       <Route path="/organizations" element={<AdminOrganizationsPage />} />
       <Route path="/organizations/:id" element={<AdminOrgDetailPage />} />
+      <Route path="/suggestions" element={<AdminSuggestionsPage />} />
       <Route path="/pricing" element={<AdminPricingPage />} />
       <Route path="/payments" element={<AdminPaymentsPage />} />
       <Route path="/logs" element={<AdminLogsPage />} />

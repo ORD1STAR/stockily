@@ -7,6 +7,7 @@ import './admin.css';
 const NAV: { to: string; label: string; icon: Parameters<typeof Icon>[0]['name'] }[] = [
   { to: '/admin', label: 'Tableau de bord', icon: 'grid' },
   { to: '/admin/organizations', label: 'Organisations', icon: 'building' },
+  { to: '/admin/suggestions', label: 'Propositions', icon: 'sparkles' },
   { to: '/admin/pricing', label: 'Tarifs', icon: 'wallet' },
   { to: '/admin/payments', label: 'Paiements', icon: 'receipt' },
   { to: '/admin/logs', label: 'Journaux', icon: 'clock' },

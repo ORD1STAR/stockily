@@ -25,6 +25,10 @@ export function AdminDashboardPage() {
             <div className="admin-kpi"><div className="num">{d.organizations}</div><div className="label">Organisations</div></div>
             <div className="admin-kpi"><div className="num">{d.activeUsers}</div><div className="label">Utilisateurs actifs</div></div>
             <div className="admin-kpi"><div className="num">{d.activeDevices}</div><div className="label">Appareils actifs</div></div>
+            <a className="admin-kpi" href="/admin/suggestions" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="num">{d.newSuggestions}</div>
+              <div className="label">Nouvelles propositions</div>
+            </a>
             {d.byPlan.map((p) => (
               <div className="admin-kpi" key={p.plan}><div className="num">{p.count}</div><div className="label">Plan « {p.plan} »</div></div>
             ))}

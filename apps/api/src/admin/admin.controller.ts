@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Ip, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Ip, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CreateMemberDto, UpdateMemberDto } from '../modules/members/members.dto';
 import { AdminAuthGuard, AuthenticatedAdmin, CurrentAdmin } from './admin-auth.guard';
 import { AdminAuditService } from './admin-audit.service';
 import { AdminService } from './admin.service';
 import { AdminSqlService } from './admin-sql.service';
+import { UpdateSuggestionDto } from '../modules/suggestions/suggestions.dto';
 import { AdminUpdateUserDto, RunSqlDto, SetDeviceDto, SetModuleDto, SetPriceDto, SetSeatsDto } from './admin.dto';
 
 const SQL_WRITE_PHRASE = 'JE CONFIRME';
@@ -100,6 +101,25 @@ export class AdminController {
   @Get('payments')
   payments() {
     return this.admin.listPayments();
+  }
+
+  @Get('suggestions')
+  suggestions() {
+    return this.admin.listSuggestions();
+  }
+
+  @Patch('suggestions/:id')
+  async updateSuggestion(@CurrentAdmin() a: AuthenticatedAdmin, @Param('id') id: string, @Body() dto: UpdateSuggestionDto, @Ip() ip: string) {
+    const result = await this.admin.updateSuggestion(id, dto);
+    await this.audit.log(a, 'suggestion.update', { id, status: dto.status }, ip);
+    return result;
+  }
+
+  @Delete('suggestions/:id')
+  async deleteSuggestion(@CurrentAdmin() a: AuthenticatedAdmin, @Param('id') id: string, @Ip() ip: string) {
+    const result = await this.admin.deleteSuggestion(id);
+    await this.audit.log(a, 'suggestion.delete', { id }, ip);
+    return result;
   }
 
   @Get('logs')

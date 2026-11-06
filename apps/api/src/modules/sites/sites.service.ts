@@ -13,6 +13,21 @@ export class SitesService {
   ) {}
 
   async createSite(orgId: string, dto: CreateSiteDto) {
+    // The first site is free for life; beyond it, a PAID Multi-sites period
+    // allows as many extra sites as were bought (siteQuota). Trials and
+    // admin grants carry no quota (null) and are not capped.
+    const ent = await this.prisma.organizationModuleEntitlement.findFirst({
+      where: { orgId, module: { key: 'sites' }, status: 'active' },
+      select: { siteQuota: true, expiresAt: true },
+    });
+    if (ent && ent.siteQuota != null && (!ent.expiresAt || ent.expiresAt.getTime() > Date.now())) {
+      const active = await this.prisma.site.count({ where: { orgId, isActive: true } });
+      if (active >= 1 + ent.siteQuota) {
+        throw new BadRequestException(
+          `Votre abonnement Multi-sites couvre ${ent.siteQuota} site${ent.siteQuota > 1 ? 's' : ''} supplémentaire${ent.siteQuota > 1 ? 's' : ''} (le premier est gratuit). Ajoutez des sites depuis l’Espace client.`,
+        );
+      }
+    }
     return this.prisma.site.create({ data: { orgId, name: dto.name, address: dto.address ?? null } });
   }
 

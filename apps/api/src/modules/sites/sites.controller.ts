@@ -15,11 +15,15 @@ import { UpdateTransferDto } from './dto/update-transfer.dto';
 
 @Controller('sites')
 @UseGuards(JwtAuthGuard, ModuleEntitlementGuard, PermissionGuard, SiteScopeGuard)
-@RequiresModule('sites')
+// No class-level @RequiresModule: LISTING sites must work for everyone (the
+// first site is free for life and almost every page needs the site list).
+// Only what goes beyond the free site (adding sites, transfers between them)
+// requires the Multi-sites module, which is not part of the free trial.
 export class SitesController {
   constructor(private readonly sites: SitesService) {}
 
   @Post()
+  @RequiresModule('sites')
   @RequiresPermission('sites', 'sites.site.write')
   @UseInterceptors(AuditInterceptor)
   @Audit('site', 'sites.site.created')
@@ -34,6 +38,7 @@ export class SitesController {
   }
 
   @Post('transfers')
+  @RequiresModule('sites')
   @RequiresPermission('sites', 'sites.transfer.create')
   @UseInterceptors(AuditInterceptor)
   @Audit('stock_transfer', 'sites.transfer.created')
@@ -42,12 +47,14 @@ export class SitesController {
   }
 
   @Get('transfers')
+  @RequiresModule('sites')
   @RequiresPermission('sites', 'sites.transfer.read')
   listTransfers(@CurrentUser() user: AuthenticatedUser) {
     return this.sites.listTransfers(user.orgId);
   }
 
   @Patch('transfers/:id')
+  @RequiresModule('sites')
   @RequiresPermission('sites', 'sites.transfer.update')
   @UseInterceptors(AuditInterceptor)
   @Audit('stock_transfer', 'sites.transfer.updated')
