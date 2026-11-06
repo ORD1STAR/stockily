@@ -43,10 +43,66 @@ mod imp {
 pub use imp::{protect, unprotect};
 
 #[cfg(not(windows))]
-pub fn protect(_: &[u8]) -> Result<Vec<u8>, String> {
-    Err("Windows uniquement".into())
+mod imp_unix {
+    //! Linux: no DPAPI, so the license is sealed with AES-256-GCM under a key
+    //! derived from this machine's id and the current user. Same intent as
+    //! DPAPI: the file is useless if copied to another machine or account.
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+    use sha2::{Digest, Sha256};
+
+    fn key() -> Result<[u8; 32], String> {
+        let id = ["/etc/machine-id", "/var/lib/dbus/machine-id"]
+            .iter()
+            .find_map(|p| std::fs::read_to_string(p).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or("Identifiant de la machine introuvable.")?;
+        let uid = std::env::var("USER").unwrap_or_default();
+        let mut h = Sha256::new();
+        h.update(b"stockily-desktop-license-v1|linux|");
+        h.update(id.as_bytes());
+        h.update(b"|");
+        h.update(uid.as_bytes());
+        Ok(h.finalize().into())
+    }
+
+    pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+        let cipher = Aes256Gcm::new_from_slice(&key()?).map_err(|_| "Chiffrement impossible.".to_string())?;
+        let nonce: [u8; 12] = rand::random();
+        let mut out = nonce.to_vec();
+        out.extend(cipher.encrypt(Nonce::from_slice(&nonce), data).map_err(|_| "Chiffrement de la licence impossible.".to_string())?);
+        Ok(out)
+    }
+
+    pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+        if data.len() < 13 {
+            return Err("Licence illisible.".into());
+        }
+        let cipher = Aes256Gcm::new_from_slice(&key()?).map_err(|_| "Déchiffrement impossible.".to_string())?;
+        cipher.decrypt(Nonce::from_slice(&data[..12]), &data[12..]).map_err(|_| "Licence illisible.".to_string())
+    }
 }
+
 #[cfg(not(windows))]
-pub fn unprotect(_: &[u8]) -> Result<Vec<u8>, String> {
-    Err("Windows uniquement".into())
+pub use imp_unix::{protect, unprotect};
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seals_and_opens_a_license() {
+        let sealed = protect(b"header.payload.signature").unwrap();
+        assert!(!sealed.windows(7).any(|w| w == b"payload"), "the token must not appear in clear");
+        assert_eq!(unprotect(&sealed).unwrap(), b"header.payload.signature");
+    }
+
+    #[test]
+    fn refuses_tampered_or_truncated_data() {
+        let mut sealed = protect(b"secret").unwrap();
+        let last = sealed.len() - 1;
+        sealed[last] ^= 1;
+        assert!(unprotect(&sealed).is_err());
+        assert!(unprotect(&[1, 2, 3]).is_err());
+    }
 }

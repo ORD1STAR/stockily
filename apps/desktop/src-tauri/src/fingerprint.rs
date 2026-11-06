@@ -107,5 +107,77 @@ fn machine_guid() -> Option<String> {
 
 #[cfg(not(windows))]
 pub fn collect() -> Result<Fingerprint, String> {
-    Err("Stockily Desktop ne fonctionne que sous Windows.".into())
+    use std::fs;
+    let read = |p: &str| fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default();
+    let clean = |v: String| if is_junk(&v) { String::new() } else { v };
+
+    // Board identity. DMI serials are usually root-only, so the install's
+    // machine-id is the dependable part (same fallback as the Windows build).
+    let uuid = clean(read("/sys/class/dmi/id/product_uuid"));
+    let board = clean(read("/sys/class/dmi/id/board_serial"));
+    let mut motherboard = format!("{uuid}|{board}");
+    if uuid.is_empty() && board.is_empty() {
+        let id = read("/etc/machine-id");
+        motherboard = if id.is_empty() { read("/var/lib/dbus/machine-id") } else { id };
+    }
+
+    // System disk serial: sysfs first, then the stable /dev/disk/by-id names
+    // (they embed the serial and are world-readable), then the root fs UUID.
+    let mut disk = String::new();
+    if let Ok(entries) = fs::read_dir("/sys/block") {
+        let mut names: Vec<String> = entries.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        names.sort();
+        for n in names.iter().filter(|n| !n.starts_with("loop") && !n.starts_with("ram") && !n.starts_with("zram") && !n.starts_with("dm-")) {
+            for f in ["device/serial", "serial", "device/wwid"] {
+                let v = clean(read(&format!("/sys/block/{n}/{f}")));
+                if !v.is_empty() {
+                    disk = v;
+                    break;
+                }
+            }
+            if !disk.is_empty() {
+                break;
+            }
+        }
+    }
+    if disk.is_empty() {
+        if let Ok(entries) = fs::read_dir("/dev/disk/by-id") {
+            let mut names: Vec<String> = entries.flatten().map(|e| e.file_name().to_string_lossy().to_string())
+                .filter(|n| (n.starts_with("ata-") || n.starts_with("nvme-") || n.starts_with("scsi-")) && !n.contains("-part") && !n.starts_with("nvme-eui")).collect();
+            names.sort();
+            disk = names.into_iter().next().unwrap_or_default();
+        }
+    }
+    if disk.is_empty() {
+        if let Ok(entries) = fs::read_dir("/dev/disk/by-uuid") {
+            let mut names: Vec<String> = entries.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+            names.sort();
+            disk = names.into_iter().next().unwrap_or_default();
+        }
+    }
+
+    let mac = mac_address::get_mac_address().ok().flatten().map(|m| m.to_string()).unwrap_or_default();
+
+    if motherboard.trim_matches('|').is_empty() && disk.is_empty() && mac.is_empty() {
+        return Err("Impossible d'identifier cet ordinateur.".into());
+    }
+    Ok(Fingerprint {
+        motherboard_hash: component("mb", &motherboard),
+        disk_hash: component("disk", &disk),
+        mac_hash: component("mac", &mac),
+    })
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collects_a_stable_fingerprint() {
+        let a = collect().expect("a Linux box has at least a machine-id");
+        let b = collect().unwrap();
+        assert_eq!(a.composite(), b.composite());
+        assert_eq!(a.composite().len(), 64);
+        assert_ne!(a.motherboard_hash, a.disk_hash);
+    }
 }
