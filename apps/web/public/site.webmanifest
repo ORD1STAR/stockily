@@ -1,0 +1,27 @@
+{
+  "name": "Stockily",
+  "short_name": "Stockily",
+  "description": "Gestion de stock, ventes et factures",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f6f6f8",
+  "theme_color": "#5a3bcc",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
