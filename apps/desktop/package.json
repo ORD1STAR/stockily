@@ -1,8 +1,8 @@
 {
   "name": "@org/desktop",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
-  "description": "Stockily desktop app (Windows): offline-capable, license-locked shell around the Stockily web app + a local API.",
+  "description": "Stockily desktop app (Windows and Linux): offline-capable, license-locked shell around the Stockily web app + a local API.",
   "scripts": {
     "runtime": "node scripts/build-runtime.mjs",
     "tauri": "tauri",

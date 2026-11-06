@@ -1,0 +1,48 @@
+name: Desktop installer (Windows)
+
+# Builds the signed Windows installer + its updater signature. Run by hand
+# (Actions > Desktop installer > Run workflow) with the version to release;
+# then download the two files from the run's artifacts and publish them on the
+# server with apps/desktop/scripts/publish-release.mjs (see docs/DESKTOP_RELEASES.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (X.Y.Z)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install
+      - run: node apps/desktop/scripts/set-version.mjs ${{ inputs.version }}
+      - name: Production license public key
+        shell: bash
+        run: printf '%s' "$LICENSE_PUBLIC_KEY" > license_public.pem
+        env:
+          LICENSE_PUBLIC_KEY: ${{ secrets.STOCKILY_LICENSE_PUBLIC_KEY }}
+      - name: Build, sign
+        working-directory: apps/desktop
+        run: npm run package
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          STOCKILY_LICENSE_PUBLIC_KEY_FILE: ${{ github.workspace }}/license_public.pem
+          STOCKILY_REMOTE_ORIGIN: https://stockily.ordi-tech.com
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stockily-windows-${{ inputs.version }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/Stockily_${{ inputs.version }}_x64-setup.exe
+            apps/desktop/src-tauri/target/release/bundle/nsis/Stockily_${{ inputs.version }}_x64-setup.exe.sig

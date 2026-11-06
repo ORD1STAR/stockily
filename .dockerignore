@@ -6,3 +6,8 @@ docs
 *.md
 .env
 .vscode
+
+# Desktop app build output and published installers: never part of the API/web images.
+**/src-tauri/target
+**/src-tauri/resources
+releases
