@@ -40,6 +40,7 @@ const SyncPage = lazy(() => import('../pages/SyncPage'));
 const HomePage = lazy(() => import('../site/HomePage'));
 const AboutPage = lazy(() => import('../site/AboutPage'));
 const PricingPage = lazy(() => import('../site/PricingPage'));
+const DownloadPage = lazy(() => import('../site/DownloadPage'));
 const AccountPage = lazy(() => import('../site/AccountPage'));
 
 // A blank instant during a chunk fetch reads as broken more than a plain
@@ -69,6 +70,7 @@ export function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/a-propos" element={<AboutPage />} />
             <Route path="/tarifs" element={<PricingPage />} />
+            <Route path="/telecharger" element={<DownloadPage />} />
             <Route
               path="/compte"
               element={
