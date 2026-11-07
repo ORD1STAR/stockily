@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, GrantableModule, MemberView, Site, membersApi, sitesApi } from '../lib/api';
@@ -66,7 +67,7 @@ export function MembersPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <div className="table-wrap">
           <table className="data">

@@ -1,4 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, ReactNode } from 'react';
+import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Navigate, Route, BrowserRouter, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
 import { ConfirmProvider } from '../lib/ConfirmDialog';
@@ -53,6 +55,24 @@ function RouteFallback() {
   );
 }
 
+// Signed-in module routes: while the module's code loads, keep the sidebar and show the page skeleton
+// in the content area (instead of blanking the whole screen).
+function AppRoute({ children }: { children: ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <Suspense
+        fallback={
+          <AppShell>
+            <PageSkeleton />
+          </AppShell>
+        }
+      >
+        {children}
+      </Suspense>
+    </ProtectedRoute>
+  );
+}
+
 // Keyed by the path so an error on one page never sticks to the next one.
 function GuardedRoutes({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
@@ -84,129 +104,129 @@ export function App() {
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <DashboardPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/apps"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <AppsListPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/stock"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <StockPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/sites"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <SitesPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/quality"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <QualityPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/invoicing"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <InvoicingPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/scan"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <ScanPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/purchasing"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <PurchasingPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/sales"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <SalesPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/inventory"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <InventoryPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/counters"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <CountersPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/stats"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <StatsPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/cash"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <CashPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/devices"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <DevicesPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/members"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <MembersPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             <Route
               path="/sync"
               element={
-                <ProtectedRoute>
+                <AppRoute>
                   <SyncPage />
-                </ProtectedRoute>
+                </AppRoute>
               }
             />
             {/* Platform-admin console — its own session/login, separate from the tenant app. */}

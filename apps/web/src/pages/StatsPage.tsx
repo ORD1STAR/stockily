@@ -1,8 +1,9 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '../lib/AppShell';
-import { PartnersModal } from '../lib/PartnersModal';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { useAuth } from '../lib/auth-context';
+import { entitledModuleKeys } from '../lib/modules';
 import { ApiError, Site, StatsGranularity, StatsOverview, sitesApi, statsApi } from '../lib/api';
 
 const da0 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
@@ -63,6 +64,14 @@ const shortDate = (isoDay: string) => {
   const d = new Date(`${isoDay}T00:00:00`);
   return d.toLocaleDateString('fr-FR', d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
 };
+/** Builds a deep link that opens a list pre-filtered (see ListControls' readUrlState). */
+const deepLink = (path: string, params: Record<string, string | undefined>) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+  const str = q.toString();
+  return str ? `${path}?${str}` : path;
+};
+
 const spanLabel = (from: string, to: string) => (from === to ? `le ${shortDate(from)}` : `du ${shortDate(from)} au ${shortDate(to)}`);
 function bucketLabel(key: string, g: StatsGranularity, long = false) {
   if (g === 'year') return key;
@@ -99,8 +108,9 @@ export function StatsPage() {
   const [data, setData] = useState<StatsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showPartners, setShowPartners] = useState(false);
   const range = useMemo(() => rangeFor(preset, customFrom, customTo), [preset, customFrom, customTo]);
+  const { me } = useAuth();
+  const has = entitledModuleKeys(me?.entitlements ?? [], me?.permissions ?? []);
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -165,14 +175,12 @@ export function StatsPage() {
 
       {!data ? (
         loading && (
-          <div className="page-loader">
-            <span className="spinner" /> Chargement…
-          </div>
+          <PageSkeleton />
         )
       ) : (
         <div className={`st-page${loading ? ' is-loading' : ''}`}>
-          <Headline data={data} vs={range.compareLabel} />
-          <Watchlist data={data} onPartners={() => setShowPartners(true)} />
+          <Headline data={data} vs={range.compareLabel} range={range} has={has} />
+          <Watchlist data={data} has={has} />
           <div className="st-row st-row-chart">
             <SalesChart data={data} />
             <PaymentsCard data={data} />
@@ -182,24 +190,23 @@ export function StatsPage() {
               title="Produits les plus vendus"
               empty="Aucune vente de produit sur la période."
               total={data.sales.totalTtc}
-              items={data.sales.topProducts.map((p) => ({ id: p.id, name: p.name, value: p.revenue, meta: `${da0.format(p.quantity)} vendu(s)` }))}
+              items={data.sales.topProducts.map((p) => ({ id: p.id, name: p.name, value: p.revenue, meta: `${da0.format(p.quantity)} vendu(s)`, to: has.has('stock') ? deepLink('/stock', { q: p.name }) : undefined }))}
             />
             <RankCard
               title="Meilleurs clients"
               empty="Aucun client sur la période."
               total={data.sales.totalTtc}
-              items={data.sales.topCustomers.map((c) => ({ id: c.id, name: c.name, value: c.revenue, meta: `${c.count} vente(s)` }))}
+              items={data.sales.topCustomers.map((c) => ({ id: c.id, name: c.name, value: c.revenue, meta: `${c.count} vente(s)`, to: has.has('invoicing') ? deepLink('/invoicing', { 'f.type': 'CUSTOMER', 'f.partner': c.name, 'f.date.from': range.from, 'f.date.to': range.to, sort: 'date:desc' }) : undefined }))}
             />
             <RankCard
               title="Principaux fournisseurs"
               empty="Aucun achat sur la période."
               total={data.purchases.total}
-              items={data.purchases.topSuppliers.map((s) => ({ id: s.id, name: s.name, value: s.amount, meta: `${s.count} réception(s)` }))}
+              items={data.purchases.topSuppliers.map((s) => ({ id: s.id, name: s.name, value: s.amount, meta: `${s.count} réception(s)`, to: has.has('purchasing') ? deepLink('/purchasing', { tab: 'receipts', 'f.supplier': s.name, 'f.date.from': range.from, 'f.date.to': range.to, sort: 'date:desc' }) : undefined }))}
             />
           </div>
         </div>
       )}
-      {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
     </AppShell>
   );
 }
@@ -239,35 +246,59 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-function Headline({ data, vs }: { data: StatsOverview; vs: string }) {
+function Headline({ data, vs, range, has }: { data: StatsOverview; vs: string; range: Range; has: Set<string> }) {
   const { sales, purchases, payments, previous } = data;
   const creditShare = sales.totalTtc > 0 ? (payments.credit / sales.totalTtc) * 100 : 0;
+  const period = { 'f.date.from': range.from, 'f.date.to': range.to };
+  // Each figure opens the list behind it, filtered on the same period.
+  const salesLink = has.has('invoicing') ? deepLink('/invoicing', { 'f.type': 'CUSTOMER', ...period, sort: 'date:desc' }) : undefined;
+  const salesByAmount = has.has('invoicing') ? deepLink('/invoicing', { 'f.type': 'CUSTOMER', ...period, sort: 'total:desc' }) : undefined;
+  const collectedLink = has.has('cash')
+    ? deepLink('/cash', { dir: 'in', ...period, sort: 'date:desc' })
+    : has.has('invoicing')
+      ? deepLink('/invoicing', { 'f.type': 'CUSTOMER', ...period, 'f.rest': payments.credit > 0 ? '1' : undefined, sort: 'rest:desc' })
+      : undefined;
+  const purchasesLink = has.has('purchasing')
+    ? deepLink('/purchasing', { tab: 'receipts', ...period, sort: 'date:desc' })
+    : has.has('invoicing')
+      ? deepLink('/invoicing', { 'f.type': 'SUPPLIER', ...period, sort: 'date:desc' })
+      : undefined;
+  const hero = (
+    <>
+      <div className="st-label">Chiffre d’affaires TTC</div>
+      <div className="st-hero-value">
+        {da0.format(sales.totalTtc)} <span>DA</span>
+      </div>
+      <Delta cur={sales.totalTtc} prev={previous.salesTtc} suffix={vs} />
+      <Sparkline values={data.series.map((s) => s.sales)} />
+      <div className="st-hero-foot">
+        <span>
+          HT <b>{DA(sales.totalHt)}</b>
+        </span>
+        <span>
+          Panier moyen <b>{DA(sales.averageBasket)}</b>
+        </span>
+      </div>
+    </>
+  );
   return (
     <div className="st-headline">
-      <div className="st-hero">
-        <div className="st-label">Chiffre d’affaires TTC</div>
-        <div className="st-hero-value">
-          {da0.format(sales.totalTtc)} <span>DA</span>
-        </div>
-        <Delta cur={sales.totalTtc} prev={previous.salesTtc} suffix={vs} />
-        <Sparkline values={data.series.map((s) => s.sales)} />
-        <div className="st-hero-foot">
-          <span>
-            HT <b>{DA(sales.totalHt)}</b>
-          </span>
-          <span>
-            Panier moyen <b>{DA(sales.averageBasket)}</b>
-          </span>
-        </div>
-      </div>
+      {salesByAmount ? (
+        <Link to={salesByAmount} className="st-hero st-link" title="Voir les factures clients de la période, par montant">
+          {hero}
+        </Link>
+      ) : (
+        <div className="st-hero">{hero}</div>
+      )}
       <div className="st-kpis">
-        <Kpi label="Bénéfice estimé" value={DA(sales.estimatedMargin)} hint={sales.marginRate ? `Marge de ${da0.format(sales.marginRate)} % sur les produits` : 'Sur les produits vendus'}>
+        <Kpi to={salesByAmount} label="Bénéfice estimé" value={DA(sales.estimatedMargin)} hint={sales.marginRate ? `Marge de ${da0.format(sales.marginRate)} % sur les produits` : 'Sur les produits vendus'}>
           <Delta cur={sales.estimatedMargin} prev={previous.margin} suffix={vs} />
         </Kpi>
-        <Kpi label="Nombre de ventes" value={da0.format(sales.count)} hint={sales.count ? `Panier moyen ${DA(sales.averageBasket)}` : 'Aucune vente'}>
+        <Kpi to={salesLink} label="Nombre de ventes" value={da0.format(sales.count)} hint={sales.count ? `Panier moyen ${DA(sales.averageBasket)}` : 'Aucune vente'}>
           <Delta cur={sales.count} prev={previous.count} suffix={vs} />
         </Kpi>
         <Kpi
+          to={collectedLink}
           label="Encaissé"
           value={DA(payments.collected)}
           hint={payments.credit > 0 ? `${DA(payments.credit)} à crédit (${da0.format(creditShare)} % des ventes)` : 'Tout est encaissé'}
@@ -275,7 +306,7 @@ function Headline({ data, vs }: { data: StatsOverview; vs: string }) {
         >
           <Delta cur={payments.collected} prev={previous.collected} suffix={vs} />
         </Kpi>
-        <Kpi label="Achats" value={DA(purchases.total)} hint={`${purchases.count} réception(s) / facture(s)`}>
+        <Kpi to={purchasesLink} label="Achats" value={DA(purchases.total)} hint={`${purchases.count} réception(s) / facture(s)`}>
           <Delta cur={purchases.total} prev={previous.purchases} neutral suffix={vs} />
         </Kpi>
       </div>
@@ -283,33 +314,37 @@ function Headline({ data, vs }: { data: StatsOverview; vs: string }) {
   );
 }
 
-function Kpi({ label, value, hint, warn, children }: { label: string; value: string; hint: string; warn?: boolean; children: ReactNode }) {
-  return (
-    <div className="st-kpi">
+function Kpi({ to, label, value, hint, warn, children }: { to?: string; label: string; value: string; hint: string; warn?: boolean; children: ReactNode }) {
+  const body = (
+    <>
       <div className="st-label">{label}</div>
       <div className="st-kpi-value">{value}</div>
       {children}
       <div className={`st-kpi-hint${warn ? ' is-warn' : ''}`}>{hint}</div>
-    </div>
+    </>
+  );
+  return to ? (
+    <Link to={to} className="st-kpi st-link">
+      {body}
+    </Link>
+  ) : (
+    <div className="st-kpi">{body}</div>
   );
 }
 
 // ───────────────────────── À surveiller ─────────────────────────
 
-function Watchlist({ data, onPartners }: { data: StatsOverview; onPartners: () => void }) {
+function Watchlist({ data, has }: { data: StatsOverview; has: Set<string> }) {
   const { balances, stock } = data;
-  const items: { key: string; tone: 'ok' | 'warn' | 'bad'; label: string; value: string; detail: string; action: ReactNode }[] = [
+  const items: { key: string; tone: 'ok' | 'warn' | 'bad'; label: string; value: string; detail: string; to?: string; cta: string }[] = [
     {
       key: 'customers',
       tone: balances.customers.total > 0 ? 'warn' : 'ok',
       label: 'Les clients vous doivent',
       value: DA(balances.customers.total),
       detail: balances.customers.count ? `${balances.customers.count} client(s)${balances.customers.top[0] ? ` · surtout ${balances.customers.top[0].name}` : ''}` : 'Aucune créance',
-      action: (
-        <button type="button" className="btn-link" onClick={onPartners}>
-          Voir les clients →
-        </button>
-      ),
+      to: has.has('invoicing') ? deepLink('/invoicing', { 'f.type': 'CUSTOMER', 'f.rest': '1', sort: 'rest:desc' }) : undefined,
+      cta: 'Voir les factures clients impayées →',
     },
     {
       key: 'suppliers',
@@ -317,11 +352,8 @@ function Watchlist({ data, onPartners }: { data: StatsOverview; onPartners: () =
       label: 'Vous devez aux fournisseurs',
       value: DA(balances.suppliers.total),
       detail: balances.suppliers.count ? `${balances.suppliers.count} fournisseur(s)${balances.suppliers.top[0] ? ` · surtout ${balances.suppliers.top[0].name}` : ''}` : 'Aucune dette',
-      action: (
-        <button type="button" className="btn-link" onClick={onPartners}>
-          Voir les fournisseurs →
-        </button>
-      ),
+      to: has.has('invoicing') ? deepLink('/invoicing', { 'f.type': 'SUPPLIER', 'f.rest': '1', sort: 'rest:desc' }) : undefined,
+      cta: 'Voir les factures fournisseurs à régler →',
     },
     {
       key: 'stock',
@@ -336,11 +368,10 @@ function Watchlist({ data, onPartners }: { data: StatsOverview; onPartners: () =
               .map((p) => p.name)
               .join(', ')
           : `Stock valorisé à ${DA(stock.value)}`,
-      action: (
-        <Link className="btn-link" to="/stock">
-          Voir le stock →
-        </Link>
-      ),
+      to: has.has('stock')
+        ? deepLink('/stock', { 'f.status': stock.outOfStockCount > 0 ? 'out' : stock.lowStockCount > 0 ? 'low' : undefined, sort: stock.outOfStockCount + stock.lowStockCount > 0 ? 'qty:asc' : 'name:asc' })
+        : undefined,
+      cta: stock.outOfStockCount > 0 ? 'Voir les produits en rupture →' : stock.lowStockCount > 0 ? 'Voir les produits sous le seuil →' : 'Voir le stock →',
     },
     {
       key: 'lots',
@@ -348,28 +379,42 @@ function Watchlist({ data, onPartners }: { data: StatsOverview; onPartners: () =
       label: 'Lots périmés',
       value: `${stock.expired.length} lot(s)`,
       detail: stock.expiringSoon.length ? `${stock.expiringSoon.length} expirent dans les 30 jours` : 'Aucun lot proche de sa date',
-      action: (
-        <Link className="btn-link" to="/quality">
-          Voir les lots →
-        </Link>
-      ),
+      to: has.has('quality')
+        ? deepLink('/quality', { 'f.expired': stock.expired.length > 0 ? '1' : undefined, 'f.soon': stock.expired.length === 0 && stock.expiringSoon.length > 0 ? '1' : undefined, sort: 'expiry:asc' })
+        : undefined,
+      cta: stock.expired.length > 0 ? 'Voir les lots périmés →' : stock.expiringSoon.length > 0 ? 'Voir les lots qui expirent →' : 'Voir les lots →',
     },
   ];
+  // A card about another module's data only makes sense when that module is active.
+  const needs: Record<string, string> = { customers: 'invoicing', suppliers: 'invoicing', stock: 'stock', lots: 'quality' };
+  const shown = items.filter((it) => has.has(needs[it.key] ?? it.key));
+  if (shown.length === 0) return null;
   return (
     <section className="st-watch" aria-label="À surveiller">
-      {items.map((it) => (
-        <div key={it.key} className={`st-watch-item is-${it.tone}`}>
-          <div className="st-watch-top">
-            <span className="st-watch-dot" aria-hidden>
-              {it.tone === 'ok' ? '✓' : '!'}
-            </span>
-            <span className="st-label">{it.label}</span>
+      {shown.map((it) => {
+        const body = (
+          <>
+            <div className="st-watch-top">
+              <span className="st-watch-dot" aria-hidden>
+                {it.tone === 'ok' ? '✓' : '!'}
+              </span>
+              <span className="st-label">{it.label}</span>
+            </div>
+            <div className="st-watch-value">{it.value}</div>
+            <div className="st-watch-detail">{it.detail}</div>
+            {it.to && <span className="btn-link">{it.cta}</span>}
+          </>
+        );
+        return it.to ? (
+          <Link key={it.key} to={it.to} className={`st-watch-item st-link is-${it.tone}`}>
+            {body}
+          </Link>
+        ) : (
+          <div key={it.key} className={`st-watch-item is-${it.tone}`}>
+            {body}
           </div>
-          <div className="st-watch-value">{it.value}</div>
-          <div className="st-watch-detail">{it.detail}</div>
-          {it.action}
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -518,7 +563,7 @@ function PaymentsCard({ data }: { data: StatsOverview }) {
 
 // ───────────────────────── Classements ─────────────────────────
 
-function RankCard({ title, items, total, empty }: { title: string; items: { id: string; name: string; value: number; meta: string }[]; total: number; empty: string }) {
+function RankCard({ title, items, total, empty }: { title: string; items: { id: string; name: string; value: number; meta: string; to?: string }[]; total: number; empty: string }) {
   const top = items.slice(0, 6);
   const max = Math.max(...top.map((i) => i.value), 1);
   return (
@@ -532,6 +577,7 @@ function RankCard({ title, items, total, empty }: { title: string; items: { id: 
         <ol className="st-rank">
           {top.map((it, i) => (
             <li key={it.id}>
+              <RankLink to={it.to}>
               <span className="st-rank-n">{i + 1}</span>
               <div className="st-rank-body">
                 <div className="st-rank-line">
@@ -548,11 +594,22 @@ function RankCard({ title, items, total, empty }: { title: string; items: { id: 
                   {total > 0 && <> · {da0.format((it.value / total) * 100)} % du total</>}
                 </div>
               </div>
+              </RankLink>
             </li>
           ))}
         </ol>
       )}
     </div>
+  );
+}
+
+function RankLink({ to, children }: { to?: string; children: ReactNode }) {
+  return to ? (
+    <Link to={to} className="st-rank-link">
+      {children}
+    </Link>
+  ) : (
+    <div className="st-rank-link is-static">{children}</div>
   );
 }
 

@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { ReminderBanner } from '../lib/InventoryReminder';
 import { useAuth } from '../lib/auth-context';
@@ -96,9 +97,7 @@ export function InventoryPage() {
       {reminder && <ReminderBanner reminder={reminder} />}
 
       {counts === null ? (
-        <div className="page-loader">
-          <span className="spinner" /> Chargement…
-        </div>
+        <PageSkeleton />
       ) : counts.length === 0 ? (
         <div className="center-message">
           <span className="center-message-icon">
@@ -573,7 +572,7 @@ function ValidateModal({ count, onClose, onValidated }: { count: InventoryCountV
     setSubmitting(true);
     try {
       const v = await inventoryApi.validate(accessToken, count.id, zeroUncounted);
-      toast.success(`Inventaire ${v.number} validé — stock corrigé.`);
+      toast.success(`Inventaire ${v.number} validé, stock corrigé.`);
       onValidated(v);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Échec de la validation.');

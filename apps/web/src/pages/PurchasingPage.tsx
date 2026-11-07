@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { PartnersModal } from '../lib/PartnersModal';
 import { useAuth } from '../lib/auth-context';
@@ -59,7 +60,11 @@ export function PurchasingPage() {
   const [showReceiveFor, setShowReceiveFor] = useState<PurchaseOrderView | null>(null);
   const [rfqGroupId, setRfqGroupId] = useState<string | null>(null);
   const [showPartners, setShowPartners] = useState(false);
-  const [tab, setTab] = useState<'orders' | 'receipts' | 'returns'>('orders');
+  // `?tab=receipts|returns` (Statistiques deep link) opens that tab.
+  const [tab, setTab] = useState<'orders' | 'receipts' | 'returns'>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'receipts' || t === 'returns' ? t : 'orders';
+  });
   const [receipts, setReceipts] = useState<PurchaseReceiptView[]>([]);
   const [returns, setReturns] = useState<TradeDocumentView[]>([]);
   const [openReceiptId, setOpenReceiptId] = useState<string | null>(null);
@@ -123,6 +128,9 @@ export function PurchasingPage() {
       { key: 'date', label: 'Créé le', type: 'dates', value: (o) => o.createdAt },
       { key: 'site', label: 'Dépôt', type: 'select', value: (o) => o.site.name },
       { key: 'pending', label: 'Reste à recevoir', type: 'flag', test: (o) => o.status !== 'cancelled' && o.status !== 'rfq_rejected' && progress(o) < 1 },
+      // Same definition as the "Achats en cours" dashboard card.
+      { key: 'open', label: 'En cours (confirmés)', type: 'flag', test: (o) => o.status === 'confirmed' || o.status === 'partially_received' },
+      { key: 'late', label: 'Réception en retard', type: 'flag', test: (o) => (o.status === 'confirmed' || o.status === 'partially_received') && !!o.expectedDate && new Date(o.expectedDate).getTime() < Date.now() },
     ],
     sorts: [
       { key: 'number', label: 'N°', value: (o) => o.number, desc: true },
@@ -131,6 +139,7 @@ export function PurchasingPage() {
       { key: 'status', label: 'Statut', value: (o) => STATUS_LABEL[o.status] },
       { key: 'progress', label: 'Reçu (%)', value: progress, desc: true },
       { key: 'date', label: 'Créé le', value: (o) => o.createdAt, desc: true },
+      { key: 'expected', label: 'Réception prévue', value: (o) => o.expectedDate },
     ],
   });
   const uniqueProducts = Array.from(new Map(products.map((p) => [p.productId, p])).values());
@@ -165,7 +174,7 @@ export function PurchasingPage() {
       {error && <div className="error-banner">{error}</div>}
       {!loading && sites.length === 0 && <p className="sub">Créez d&apos;abord un site (module Multi-Sites) pour passer une commande.</p>}
       {!loading && sites.length > 0 && suppliers.length === 0 && (
-        <p className="sub">Aucun fournisseur enregistré — ajoutez-en un depuis Fournisseurs &amp; clients.</p>
+        <p className="sub">Aucun fournisseur enregistré, ajoutez-en un depuis Fournisseurs &amp; clients.</p>
       )}
 
       {dashboard && (
@@ -208,7 +217,7 @@ export function PurchasingPage() {
       {tab === 'returns' && <DocumentTable listId="supplier-returns" docs={returns} partnerLabel="Fournisseur" onOpen={(d) => setOpenReturnId(d.id)} />}
 
       {tab === 'orders' && (loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <>
         {poList.toolbar()}
@@ -789,7 +798,7 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
           .filter((l) => quantities[l.id] > 0)
           .map((l) => ({
             productId: l.productId,
-            description: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
+            description: l.product ? `${l.product.sku} · ${l.product.name}` : l.productId,
             quantity: quantities[l.id],
             unitPrice: l.unitCost,
           })),
@@ -810,7 +819,7 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
       <div className="modal">
         <div className="modal-header">
           <div className="modal-header-titles">
-            <h3>Facture fournisseur — {order.number}</h3>
+            <h3>Facture fournisseur · {order.number}</h3>
             <p className="modal-sub">Pour les quantités reçues · à finaliser dans Factures.</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
@@ -831,7 +840,7 @@ function SupplierInvoiceModal({ order, onClose, onInvoiced }: { order: PurchaseO
             </div>
             {receivedLines.map((l) => (
               <div key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 220px' }}>{l.product ? `${l.product.sku} — ${l.product.name}` : l.productId}</div>
+                <div style={{ flex: '1 1 220px' }}>{l.product ? `${l.product.sku} · ${l.product.name}` : l.productId}</div>
                 <input
                   type="number"
                   min={0}
@@ -905,7 +914,7 @@ function ReceiveModal({
           return {
             purchaseOrderLineId: l.id,
             productId: l.productId,
-            productLabel: l.product ? `${l.product.sku} — ${l.product.name}` : l.productId,
+            productLabel: l.product ? `${l.product.sku} · ${l.product.name}` : l.productId,
             isLotTracked: p?.isLotTracked ?? false,
             quantity: l.quantityOrdered - l.quantityReceived,
             unitCost: l.unitCost,
@@ -917,7 +926,7 @@ function ReceiveModal({
     }
     const first = products[0];
     return first
-      ? [{ productId: first.productId, productLabel: `${first.sku} — ${first.name}`, isLotTracked: first.isLotTracked, quantity: 1, unitCost: 0, discountPercent: '', newLotNumber: '', qualityResult: '' }]
+      ? [{ productId: first.productId, productLabel: `${first.sku} · ${first.name}`, isLotTracked: first.isLotTracked, quantity: 1, unitCost: 0, discountPercent: '', newLotNumber: '', qualityResult: '' }]
       : [];
   });
   const [submitting, setSubmitting] = useState(false);
@@ -972,7 +981,7 @@ function ReceiveModal({
       <div className="modal xwide">
         <div className="modal-header">
           <div className="modal-header-titles">
-            <h3>{order ? `Bon de réception — ${order.number ?? ''}` : 'Bon de réception (réception libre)'}</h3>
+            <h3>{order ? `Bon de réception · ${order.number ?? ''}` : 'Bon de réception (réception libre)'}</h3>
             <p className="modal-sub">{order ? `${order.supplier.name} · le stock entre à la validation.` : 'Livraison sans bon de commande · le stock entre à la validation.'}</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer">
@@ -1012,7 +1021,7 @@ function ReceiveModal({
 
           <div className="field-grid">
             <div className="field-row">
-              <label>Frais annexes (transport/douane/assurance) — montant global (optionnel)</label>
+              <label>Frais annexes (transport/douane/assurance), montant global (optionnel)</label>
               <input
                 type="number"
                 min={0}
@@ -1055,7 +1064,7 @@ function ReceiveModal({
                         value={l.productId}
                         onChange={(v) => {
                           const p = products.find((pr) => pr.productId === v);
-                          updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v, isLotTracked: p?.isLotTracked ?? false });
+                          updateLine(i, { productId: v, productLabel: p ? `${p.sku} · ${p.name}` : v, isLotTracked: p?.isLotTracked ?? false });
                         }}
                         options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
                         placeholder="Produit…"
@@ -1114,7 +1123,7 @@ function ReceiveModal({
                     className="control li-select"
                     aria-label="Contrôle qualité (optionnel)"
                   >
-                    <option value="">— Non contrôlé</option>
+                    <option value="">Non contrôlé</option>
                     <option value="conforme">Conforme</option>
                     <option value="non_conforme">Non conforme</option>
                   </select>
@@ -1307,7 +1316,7 @@ function ReceiptDetailModal({ receiptId, onClose, onChanged }: { receiptId: stri
     setBusy(true);
     try {
       await purchasingApi.cancelReceipt(accessToken, r.id);
-      toast.success(`${r.number} annulé — stock retiré.`);
+      toast.success(`${r.number} annulé, stock retiré.`);
       onChanged();
       load();
     } catch (err) {
@@ -1448,7 +1457,7 @@ function LastPriceHint({ productId, supplierId, onApply }: { productId: string; 
   return (
     <p className="sub" style={{ margin: 0 }}>
       Dernier prix payé{lastPrice.supplier ? ` (${lastPrice.supplier.name})` : ''} : {lastPrice.unitCost.toFixed(2)} DZD le{' '}
-      {new Date(lastPrice.receivedAt).toLocaleDateString('fr-FR')} —{' '}
+      {new Date(lastPrice.receivedAt).toLocaleDateString('fr-FR')} ·{' '}
       <button type="button" className="btn-link" onClick={() => onApply(lastPrice.unitCost)}>
         Utiliser ce prix
       </button>
@@ -1531,7 +1540,7 @@ function RfqFormModal({
             <label>Fournisseurs à comparer (2 minimum)</label>
             {suppliers.length < 2 && (
               <div className="error-banner">
-                {suppliers.length === 0 ? 'Aucun fournisseur enregistré' : 'Un seul fournisseur enregistré'} — il en faut au moins 2 pour comparer
+                {suppliers.length === 0 ? 'Aucun fournisseur enregistré' : 'Un seul fournisseur enregistré'}, il en faut au moins 2 pour comparer
                 leurs prix.{' '}
                 <button type="button" className="btn-link" onClick={onAddSupplier}>
                   Ajouter un fournisseur
@@ -1599,7 +1608,7 @@ function RfqFormModal({
             + Ajouter un article
           </button>
 
-          {products.length === 0 && <div className="error-banner">Aucun produit en stock — créez d'abord un produit pour pouvoir le comparer.</div>}
+          {products.length === 0 && <div className="error-banner">Aucun produit en stock, créez d'abord un produit pour pouvoir le comparer.</div>}
           {error && <div className="error-banner">{error}</div>}
           <div className="modal-footer">
             <button type="button" className="btn-secondary" onClick={onClose}>
@@ -1760,7 +1769,7 @@ function RfqComparisonModal({ groupId, onClose, onAwarded }: { groupId: string; 
                   const label = candidates.flatMap((c) => c.lines).find((l) => l.productId === pid);
                   return (
                     <tr key={pid}>
-                      <td>{label?.product ? `${label.product.sku} — ${label.product.name}` : pid}</td>
+                      <td>{label?.product ? `${label.product.sku} · ${label.product.name}` : pid}</td>
                       {candidates.map((c) => {
                         const line = c.lines.find((l) => l.productId === pid);
                         if (!line) return <td key={c.id}>—</td>;

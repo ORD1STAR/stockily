@@ -1,8 +1,10 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useListControls } from '../lib/ListControls';
+import { useHasModule } from '../lib/useHasModule';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, InvoiceView, Partner, Site, StockRow, TaxRate, invoicingApi, sitesApi, stockApi } from '../lib/api';
@@ -38,6 +40,7 @@ const FILTERS: { label: string; value: string | undefined }[] = [
 ];
 
 export function InvoicingPage() {
+  const withStock = useHasModule()('stock');
   const { accessToken, can } = useAuth();
   const [invoices, setInvoices] = useState<InvoiceView[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -62,7 +65,8 @@ export function InvoicingPage() {
         invoicingApi.listPartners(accessToken),
         sitesApi.list(accessToken),
         invoicingApi.listTaxRates(accessToken),
-        stockApi.listProducts(accessToken, 'all'),
+        // Product lines are optional: without the Stock module every line is a free-text/service line.
+        withStock ? stockApi.listProducts(accessToken, 'all').catch(() => [] as StockRow[]) : Promise.resolve([] as StockRow[]),
       ]);
       setInvoices(filter === 'proforma' ? invoiceRows : invoiceRows.filter((i) => i.kind !== 'proforma'));
       setPartners(partnerRows);
@@ -74,7 +78,7 @@ export function InvoicingPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, filter]);
+  }, [accessToken, filter, withStock]);
 
   useEffect(() => {
     load();
@@ -168,7 +172,7 @@ export function InvoicingPage() {
       <div className="panel-head">
         <div>
           <h2>Gestion des Factures</h2>
-          <div className="sub">Numérotation séquentielle unique — organisation entière</div>
+          <div className="sub">Numérotation séquentielle unique, organisation entière</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(can('invoicing.invoice.create') || can('invoicing.taxrate.write')) && (
@@ -215,7 +219,7 @@ export function InvoicingPage() {
       )}
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -680,6 +684,8 @@ function CreateInvoiceModal({
   onCreated: () => void;
 }) {
   const { accessToken } = useAuth();
+  // The product picker and the carton input only exist with the Stock module.
+  const withStock = useHasModule()('stock');
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [partnerId, setPartnerId] = useState('');
   const [kind, setKind] = useState<'invoice' | 'proforma'>(initialKind);
@@ -704,7 +710,7 @@ function CreateInvoiceModal({
 
   function selectProduct(index: number, productId: string) {
     const product = uniqueProducts.find((p) => p.productId === productId);
-    updateLine(index, { productId, description: product ? `${product.sku} — ${product.name}` : '' });
+    updateLine(index, { productId, description: product ? `${product.sku} · ${product.name}` : '' });
   }
 
   async function submit(e: FormEvent) {
@@ -804,9 +810,9 @@ function CreateInvoiceModal({
           </div>
           <div className="line-items">
             <div className="line-item line-item-head">
-              <span className="li-grow">Produit (vide = service)</span>
+              {withStock && <span className="li-grow">Produit (vide = service)</span>}
               <span className="li-grow">Désignation</span>
-              <span className="li-num">Cartons</span>
+              {withStock && <span className="li-num">Cartons</span>}
               <span className="li-num">Quantité</span>
               <span className="li-money">Prix unitaire HT</span>
               <span className="li-select">TVA</span>
@@ -816,15 +822,17 @@ function CreateInvoiceModal({
               const product = uniqueProducts.find((p) => p.productId === line.productId);
               return (
                 <div key={i} className="line-item">
-                  <div className="li-grow">
-                    <SearchableSelect
-                      value={line.productId}
-                      onChange={(v) => selectProduct(i, v)}
-                      placeholder="Rechercher un produit…"
-                      emptyLabel="— aucun (service) —"
-                      options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
-                    />
-                  </div>
+                  {withStock && (
+                    <div className="li-grow">
+                      <SearchableSelect
+                        value={line.productId}
+                        onChange={(v) => selectProduct(i, v)}
+                        placeholder="Rechercher un produit…"
+                        emptyLabel="Aucun (service)"
+                        options={uniqueProducts.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
+                      />
+                    </div>
+                  )}
                   <input
                     value={line.description}
                     onChange={(e) => updateLine(i, { description: e.target.value })}
@@ -833,11 +841,11 @@ function CreateInvoiceModal({
                     className="control li-grow"
                     required
                   />
-                  {line.productId ? (
+                  {withStock && (line.productId ? (
                     <CartonInput unitsPerCarton={product?.unitsPerCarton} quantity={Number(line.quantity) || 0} onQuantityChange={(q) => updateLine(i, { quantity: String(q) })} />
                   ) : (
                     <span className="li-num" />
-                  )}
+                  ))}
                   <input
                     type="number"
                     min="0.001"

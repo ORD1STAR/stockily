@@ -1,14 +1,18 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Site, StockRow, Transfer, sitesApi, stockApi } from '../lib/api';
 import { notifyDataChanged } from '../lib/data-events';
 import { toast } from '../lib/toast';
+import { useHasModule } from '../lib/useHasModule';
 import '../lib/data-views.css';
 
 export function SitesPage() {
   const { accessToken, can } = useAuth();
+  // Transfers move stock: they need the Stock module.
+  const withStock = useHasModule()('stock');
   const [sites, setSites] = useState<Site[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [products, setProducts] = useState<StockRow[]>([]);
@@ -26,7 +30,8 @@ export function SitesPage() {
       const [siteList, transferList, productRows] = await Promise.all([
         sitesApi.list(accessToken),
         sitesApi.listTransfers(accessToken),
-        stockApi.listProducts(accessToken, 'all'),
+        // Products only matter for transfers (Stock module): never let their absence block the page.
+        stockApi.listProducts(accessToken, 'all').catch(() => [] as StockRow[]),
       ]);
       setSites(siteList);
       setTransfers(transferList);
@@ -53,7 +58,7 @@ export function SitesPage() {
       <div className="panel-head">
         <div>
           <h2>Transferts Multi-Sites</h2>
-          <div className="sub">Vue consolidée — {sites.length} site(s) actif(s)</div>
+          <div className="sub">Vue consolidée · {sites.length} site(s) actif(s)</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {can('sites.site.write') && (
@@ -61,7 +66,7 @@ export function SitesPage() {
               <Icon name="plus" size={16} /> Nouveau site
             </button>
           )}
-          {can('sites.transfer.create') && (
+          {can('sites.transfer.create') && withStock && (
             <button className="btn-primary" onClick={() => setShowTransferForm(true)} disabled={sites.length < 2}>
               <Icon name="plus" size={16} /> Transfert inter-site
             </button>
@@ -72,7 +77,7 @@ export function SitesPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <>
           <div className="site-grid">
@@ -186,7 +191,7 @@ function SiteFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         <form onSubmit={handleSubmit} className="field-form">
           <div className="field-row">
             <label>Nom</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Alger — Entrepôt Central" required />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Alger · Entrepôt Central" required />
           </div>
           <div className="field-row">
             <label>Adresse (optionnel)</label>
@@ -272,7 +277,7 @@ function TransferFormModal({
             <select value={productId} onChange={(e) => setProductId(e.target.value)} required>
               {uniqueProducts.map((p) => (
                 <option key={p.productId} value={p.productId}>
-                  {p.sku} — {p.name}
+                  {p.sku} · {p.name}
                 </option>
               ))}
             </select>

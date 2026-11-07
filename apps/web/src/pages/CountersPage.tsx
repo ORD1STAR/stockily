@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { toast } from '../lib/toast';
@@ -49,9 +50,7 @@ export function CountersPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {counters === null ? (
-        <div className="page-loader">
-          <span className="spinner" /> Chargement…
-        </div>
+        <PageSkeleton />
       ) : counters.length === 0 ? (
         <div className="center-message">
           <span className="center-message-icon">

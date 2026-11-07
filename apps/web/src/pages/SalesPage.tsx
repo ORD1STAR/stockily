@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ActionMenu } from '../lib/ActionMenu';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { useDataChangeListener } from '../lib/data-events';
@@ -25,6 +26,7 @@ import {
   tradeApi,
 } from '../lib/api';
 import { useListControls } from '../lib/ListControls';
+import { useHasModule } from '../lib/useHasModule';
 import { DocumentDetailModal, DocumentFormModal, DocumentTable } from '../lib/TradeDocuments';
 import '../lib/data-views.css';
 
@@ -49,6 +51,9 @@ function statusPillClass(status: string): string {
 }
 
 export function SalesPage() {
+  const has = useHasModule();
+  // Delivery notes, returns and negotiated prices work on stock products: they need the Stock module.
+  const withStock = has('stock');
   const { accessToken, can } = useAuth();
   const [orders, setOrders] = useState<SalesOrderView[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -57,7 +62,11 @@ export function SalesPage() {
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [kindFilter, setKindFilter] = useState<'all' | 'quote' | 'order'>('all');
+  // `?kind=order|quote` (dashboard / Statistiques deep links) preselects the toggle.
+  const [kindFilter, setKindFilter] = useState<'all' | 'quote' | 'order'>(() => {
+    const k = new URLSearchParams(window.location.search).get('kind');
+    return k === 'order' || k === 'quote' ? k : 'all';
+  });
   const [showFormKind, setShowFormKind] = useState<'quote' | 'order' | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<SalesOrderView | null>(null);
   const [showPricing, setShowPricing] = useState(false);
@@ -95,7 +104,7 @@ export function SalesPage() {
         salesApi.listOrders(accessToken),
         sitesApi.list(accessToken),
         invoicingApi.listPartners(accessToken),
-        stockApi.listProducts(accessToken, 'all'),
+        withStock ? stockApi.listProducts(accessToken, 'all').catch(() => [] as StockRow[]) : Promise.resolve([] as StockRow[]),
         invoicingApi.listTaxRates(accessToken),
         salesApi.getDashboard(accessToken),
         tradeApi.listSales(accessToken),
@@ -113,7 +122,7 @@ export function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, withStock]);
 
   useEffect(() => {
     load();
@@ -136,10 +145,14 @@ export function SalesPage() {
       { key: 'date', label: 'Créé le', type: 'dates', value: (o) => o.createdAt },
       { key: 'site', label: 'Dépôt', type: 'select', value: (o) => o.site.name },
       { key: 'total', label: 'Total', type: 'range', unit: 'DA', value: orderTotal },
+      // Same definitions as the "Commandes clients" dashboard card.
+      { key: 'open', label: 'En cours (à livrer / facturer)', type: 'flag', test: (o) => (o.kind === 'order' && (o.status === 'confirmed' || o.status === 'partially_invoiced')) || (o.kind === 'quote' && (o.status === 'draft' || o.status === 'sent')) },
+      { key: 'late', label: 'En retard', type: 'flag', test: (o) => o.kind === 'order' && (o.status === 'confirmed' || o.status === 'partially_invoiced') && !!o.expectedDate && new Date(o.expectedDate).getTime() < Date.now() },
     ],
     sorts: [
       { key: 'number', label: 'N°', value: (o) => o.number, desc: true },
       { key: 'kind', label: 'Type', value: (o) => o.kind },
+      { key: 'expected', label: 'Livraison prévue', value: (o) => o.expectedDate },
       { key: 'customer', label: 'Client', value: (o) => o.customer.name },
       { key: 'site', label: 'Dépôt', value: (o) => o.site.name },
       { key: 'status', label: 'Statut', value: (o) => STATUS_LABEL[o.status] ?? o.status },
@@ -179,11 +192,13 @@ export function SalesPage() {
           <ActionMenu
             items={[
               ...(can('sales.order.create') ? [
-                { label: 'Bon de livraison', hint: 'Sortie de stock, avec ou sans commande', icon: 'truck' as const, onClick: () => setDocForm('delivery_note'), disabled: sites.length === 0 },
-                { label: 'Retour client', hint: 'Marchandise rendue par un client', icon: 'chevronLeft' as const, onClick: () => setDocForm('customer_return'), disabled: sites.length === 0 },
+                ...(withStock ? [
+                  { label: 'Bon de livraison', hint: 'Sortie de stock, avec ou sans commande', icon: 'truck' as const, onClick: () => setDocForm('delivery_note'), disabled: sites.length === 0 },
+                  { label: 'Retour client', hint: 'Marchandise rendue par un client', icon: 'chevronLeft' as const, onClick: () => setDocForm('customer_return'), disabled: sites.length === 0 },
+                ] : []),
                 { label: 'Nouveau devis', hint: 'Proposition de prix au client', icon: 'receipt' as const, onClick: () => setShowFormKind('quote'), disabled: sites.length === 0 || customers.length === 0 },
               ] : []),
-              { label: 'Tarifs négociés', hint: can('sales.pricing.write') ? 'Prix et remises par client' : 'Consulter les prix par client', icon: 'handshake' as const, onClick: () => setShowPricing(true) },
+              ...(withStock ? [{ label: 'Tarifs négociés', hint: can('sales.pricing.write') ? 'Prix et remises par client' : 'Consulter les prix par client', icon: 'handshake' as const, onClick: () => setShowPricing(true) }] : []),
             ]}
           />
           {can('sales.order.create') && (
@@ -197,7 +212,7 @@ export function SalesPage() {
       {error && <div className="error-banner">{error}</div>}
       {!loading && sites.length === 0 && <p className="sub">Créez d&apos;abord un site (module Multi-Sites) pour passer une commande.</p>}
       {!loading && sites.length > 0 && customers.length === 0 && (
-        <p className="sub">Aucun client enregistré — ajoutez-en un depuis Fournisseurs &amp; clients.</p>
+        <p className="sub">Aucun client enregistré, ajoutez-en un depuis Fournisseurs &amp; clients.</p>
       )}
 
       {dashboard && (
@@ -228,7 +243,7 @@ export function SalesPage() {
             ['delivery_note', 'Bons de livraison', deliveryNotes.length],
             ['customer_return', 'Retours clients', customerReturns.length],
           ] as const
-        ).map(([k, label, count]) => (
+        ).filter(([k]) => withStock || k === 'orders').map(([k, label, count]) => (
           <button key={k} type="button" role="tab" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
             {label}
             <span className="tab-count">{count}</span>
@@ -281,7 +296,7 @@ export function SalesPage() {
       )}
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -406,8 +421,8 @@ interface DraftLine {
   taxRateId: string;
 }
 
-function blankLine(defaultTaxRateId: string): DraftLine {
-  return { productId: '', productLabel: '', description: '', isService: false, quantity: 1, unitPrice: '', discountPercent: '', taxRateId: defaultTaxRateId };
+function blankLine(defaultTaxRateId: string, isService = false): DraftLine {
+  return { productId: '', productLabel: '', description: '', isService, quantity: 1, unitPrice: '', discountPercent: '', taxRateId: defaultTaxRateId };
 }
 
 function OrderFormModal({
@@ -428,11 +443,13 @@ function OrderFormModal({
   onSaved: () => void;
 }) {
   const { accessToken } = useAuth();
+  // Without the Stock module there are no products: every line is a service line.
+  const withStock = useHasModule()('stock');
   const defaultTaxRateId = taxRates.find((t) => t.isDefault)?.id ?? '';
   const [siteId, setSiteId] = useState(sites[0]?.id ?? '');
   const [customerId, setCustomerId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
-  const [lines, setLines] = useState<DraftLine[]>([blankLine(defaultTaxRateId)]);
+  const [lines, setLines] = useState<DraftLine[]>([blankLine(defaultTaxRateId, !withStock)]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shortageMessage, setShortageMessage] = useState<string | null>(null);
@@ -561,13 +578,14 @@ function OrderFormModal({
                           value={l.productId}
                           onChange={(v) => {
                             const p = products.find((pr) => pr.productId === v);
-                            updateLine(i, { productId: v, productLabel: p ? `${p.sku} — ${p.name}` : v });
+                            updateLine(i, { productId: v, productLabel: p ? `${p.sku} · ${p.name}` : v });
                           }}
                           options={products.map((p) => ({ value: p.productId, label: p.name, sublabel: p.sku }))}
                           placeholder="Produit…"
                         />
                       </div>
                     )}
+                    {withStock && (
                     <button
                       type="button"
                       className="btn-link"
@@ -577,6 +595,7 @@ function OrderFormModal({
                     >
                       {l.isService ? 'Produit' : 'Service'}
                     </button>
+                    )}
                   </div>
                   {l.isService ? (
                     <span className="li-num" />
@@ -636,13 +655,13 @@ function OrderFormModal({
               );
             })}
           </div>
-          <button type="button" className="btn-link" onClick={() => setLines((ls) => [...ls, blankLine(defaultTaxRateId)])}>
+          <button type="button" className="btn-link" onClick={() => setLines((ls) => [...ls, blankLine(defaultTaxRateId, !withStock)])}>
             + Ajouter un article
           </button>
 
           {kind === 'order' && (
             <p className="sub" style={{ marginTop: 4 }}>
-              Une commande réserve immédiatement le stock disponible pour chaque ligne produit.
+              {withStock ? 'Une commande réserve immédiatement le stock disponible pour chaque ligne produit.' : 'Ajoutez le module Stock pour réserver automatiquement les produits.'}
             </p>
           )}
 
@@ -673,6 +692,7 @@ function OrderFormModal({
 
 function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: SalesOrderView; onClose: () => void; onChanged: () => void; onDeliver: () => void }) {
   const { accessToken, can } = useAuth();
+  const withStock = useHasModule()('stock');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shortageMessage, setShortageMessage] = useState<string | null>(null);
@@ -902,11 +922,11 @@ function OrderDetailModal({ order, onClose, onChanged, onDeliver }: { order: Sal
               </button>
             )}
             {canInvoice && (
-              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)} title="Facture directe (le stock sort à la finalisation)">
+              <button type="button" className="btn-primary" onClick={() => setShowInvoice(true)} title={withStock ? 'Facture directe (le stock sort à la finalisation)' : 'Facture directe'}>
                 Facturer
               </button>
             )}
-            {canDeliver && (
+            {canDeliver && withStock && (
               <button type="button" className="btn-primary" onClick={onDeliver}>
                 Livrer (bon de livraison)
               </button>
@@ -987,7 +1007,7 @@ function InvoiceOrderModal({ order, onClose, onInvoiced }: { order: SalesOrderVi
             const remaining = remainingToInvoiceOn(l);
             return (
               <div key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 220px' }}>{l.product ? `${l.product.sku} — ${l.product.name}` : l.description}</div>
+                <div style={{ flex: '1 1 220px' }}>{l.product ? `${l.product.sku} · ${l.product.name}` : l.description}</div>
                 <input
                   type="number"
                   min={0}
@@ -1118,7 +1138,7 @@ function PricingModal({ customers, products, onClose }: { customers: Partner[]; 
                 {(prices ?? []).map((p) => (
                   <tr key={p.id}>
                     <td>{p.partner?.name ?? p.partnerId}</td>
-                    <td>{p.product ? `${p.product.sku} — ${p.product.name}` : p.productId}</td>
+                    <td>{p.product ? `${p.product.sku} · ${p.product.name}` : p.productId}</td>
                     <td>{p.unitPrice != null ? `${p.unitPrice.toFixed(2)} DZD` : '—'}</td>
                     <td>{p.discountPercent != null ? `${p.discountPercent}%` : '—'}</td>
                     <td style={{ textAlign: 'right' }}>

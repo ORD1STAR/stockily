@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, Batch, InventoryReminderStatus, Partner, ProductCategory, ProductDetail, ProductUsage, Site, StockRow, inventoryApi, invoicingApi, qualityApi, sitesApi, stockApi } from '../lib/api';
@@ -11,6 +12,7 @@ import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useStockRealtime } from '../lib/realtime';
 import { SearchableSelect } from '../lib/SearchableSelect';
 import { useListControls } from '../lib/ListControls';
+import { useHasModule } from '../lib/useHasModule';
 import '../lib/data-views.css';
 
 const STATUS_LABEL: Record<StockRow['status'], string> = { ok: 'OK', low: 'Bas', out: 'Rupture' };
@@ -242,7 +244,7 @@ export function StockPage() {
           </div>
         </div>
       ) : loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <>
           {list.toolbar()}
@@ -387,6 +389,8 @@ function SkuDetailModal({
 }) {
   const { accessToken, can } = useAuth();
   const [detail, setDetail] = useState(initialDetail);
+  // Lots (expiry, quality checks) are a Quality-module feature.
+  const withQuality = useHasModule()('quality');
   const [batches, setBatches] = useState<Batch[] | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [usage, setUsage] = useState<ProductUsage | null>(null);
@@ -420,9 +424,9 @@ function SkuDetailModal({
   const settingsDirty = priceDirty || price2Dirty || cartonDirty || barcodeDirty;
 
   useEffect(() => {
-    if (!accessToken || !detail.isLotTracked) return;
-    qualityApi.listBatches(accessToken, detail.id).then(setBatches);
-  }, [accessToken, detail.id, detail.isLotTracked]);
+    if (!accessToken || !detail.isLotTracked || !withQuality) return;
+    qualityApi.listBatches(accessToken, detail.id).then(setBatches).catch(() => setBatches([]));
+  }, [accessToken, detail.id, detail.isLotTracked, withQuality]);
 
   // A binary flag — saves immediately on toggle, no separate confirm step.
   async function saveLotTracked(next: boolean) {
@@ -612,7 +616,7 @@ function SkuDetailModal({
                 </tbody>
               </table>
             </div>
-            {detail.isLotTracked && (
+            {detail.isLotTracked && withQuality && (
               <div className="modal-section">
                 <div className="modal-section-label">Lots</div>
                 {batches === null ? (
@@ -663,6 +667,8 @@ function SkuDetailModal({
 
         {tab === 'settings' && (
           <div className="settings-list">
+            {withQuality && (
+              <>
             <div className="setting-row">
               <div className="setting-text">
                 <div className="setting-title">Suivi par lot</div>
@@ -676,6 +682,8 @@ function SkuDetailModal({
               </label>
             </div>
             {lotTrackedError && <div className="error-banner">{lotTrackedError}</div>}
+              </>
+            )}
 
             <div className="setting-row">
               <div className="setting-text">
@@ -740,7 +748,7 @@ function SkuDetailModal({
               {confirmingDelete && (
                 <p className="sub" style={{ width: '100%', margin: 0 }}>
                   {usageSummary.length > 0
-                    ? `Ce produit a ${usageSummary.join(', ')} — il sera masqué de la liste, l'historique reste visible sur les documents existants.`
+                    ? `Ce produit a ${usageSummary.join(', ')}, il sera masqué de la liste, l'historique reste visible sur les documents existants.`
                     : "Ce produit n'est utilisé nulle part pour le moment."}
                 </p>
               )}
@@ -1002,7 +1010,7 @@ function ProductEditModal({
           <div className="field-row">
             <label>Famille</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">— aucune —</option>
+              <option value="">Aucune</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -1050,6 +1058,7 @@ function ProductFormModal({
   const [barcode, setBarcode] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
+  const withQuality = useHasModule()('quality');
   const [isLotTracked, setIsLotTracked] = useState(false);
   const [minThreshold, setMinThreshold] = useState<number | ''>('');
   const [maxThreshold, setMaxThreshold] = useState<number | ''>('');
@@ -1123,7 +1132,7 @@ function ProductFormModal({
           <div className="field-row">
             <label>Famille existante</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!!newCategoryName.trim()}>
-              <option value="">— aucune —</option>
+              <option value="">Aucune</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -1135,6 +1144,7 @@ function ProductFormModal({
             <label>Ou nouvelle famille</label>
             <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Laisser vide si non applicable" />
           </div>
+          {withQuality && (
           <div className="field-row">
             <label>Suivi par lot (péremption, contrôle qualité)</label>
             <div className="toggle-row">
@@ -1146,6 +1156,7 @@ function ProductFormModal({
               </button>
             </div>
           </div>
+          )}
           <div className="field-grid">
             <div className="field-row">
               <label>Seuil min (optionnel)</label>
@@ -1216,6 +1227,8 @@ function MovementFormModal({
   const [unitCost, setUnitCost] = useState<number | ''>('');
   const [toSiteId, setToSiteId] = useState(sites[1]?.id ?? sites[0]?.id ?? '');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>('increase');
+  // Suppliers and customers belong to the Invoicing module.
+  const withPartners = useHasModule()('invoicing');
   const [partnerId, setPartnerId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1324,26 +1337,26 @@ function MovementFormModal({
               </select>
             </div>
           )}
-          {type === 'IN' && (
+          {withPartners && type === 'IN' && (
             <div className="field-row">
               <label>Fournisseur (optionnel)</label>
               <SearchableSelect
                 value={partnerId}
                 onChange={setPartnerId}
                 placeholder="Rechercher un fournisseur…"
-                emptyLabel="— non spécifié —"
+                emptyLabel="Non spécifié"
                 options={suppliers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
               />
             </div>
           )}
-          {type === 'OUT' && (
+          {withPartners && type === 'OUT' && (
             <div className="field-row">
               <label>Client (optionnel)</label>
               <SearchableSelect
                 value={partnerId}
                 onChange={setPartnerId}
                 placeholder="Rechercher un client…"
-                emptyLabel="— non spécifié —"
+                emptyLabel="Non spécifié"
                 options={customers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
               />
             </div>
@@ -1459,7 +1472,7 @@ function BarcodeScanButton({ onScanned }: { onScanned: (code: string) => void })
       controlsRef.current = controls;
     } catch {
       setScanning(false);
-      setError("Impossible d'accéder à la caméra — saisissez le code manuellement.");
+      setError("Impossible d'accéder à la caméra, saisissez le code manuellement.");
     }
   }, [close]);
 

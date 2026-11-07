@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
 import { ApiError, DeviceView, ReplayView, SeatUsage, licensingApi } from '../lib/api';
@@ -64,7 +65,7 @@ export function DevicesPage() {
     setBusyId(d.id);
     try {
       await licensingApi.deactivate(accessToken, d.id);
-      toast.success('Appareil désactivé — poste libéré.');
+      toast.success('Appareil désactivé, poste libéré.');
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Échec de la désactivation.');
@@ -87,7 +88,7 @@ export function DevicesPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <>
           {seats && (

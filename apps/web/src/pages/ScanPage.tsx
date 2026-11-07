@@ -3,11 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CloseSessionModal, OpenSessionModal, openPdf } from '../lib/CounterModals';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { MobileHeader } from '../lib/MobileChrome';
 import { useAuth } from '../lib/auth-context';
 import { CAMERA_CONSTRAINTS, createBarcodeReader } from '../lib/barcodeScanner';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useHasModule } from '../lib/useHasModule';
 import {
   ApiError,
   Batch,
@@ -61,11 +63,13 @@ export function ScanPage() {
   const { accessToken, logout, can } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  // Parts of Scan that borrow from other modules only exist when those are active.
+  const has = useHasModule();
   const allowedModes = (
     [
       ['scan', can('stock.movement.create')],
       ['checkout', can('scan.counter.sell')],
-      ['receiving', can('purchasing.receipt.create')],
+      ['receiving', can('purchasing.receipt.create') && has('purchasing')],
       ['labels', can('scan.label.generate') || can('scan.label.print')],
     ] as const
   ).filter(([, ok]) => ok).map(([m]) => m);
@@ -321,7 +325,7 @@ export function ScanPage() {
       startDecoding();
     } catch {
       setCameraActive(false);
-      setError("Impossible d'accéder à la caméra — utilisez la saisie manuelle ou une douchette.");
+      setError("Impossible d'accéder à la caméra, utilisez la saisie manuelle ou une douchette.");
     }
   }
 
@@ -361,7 +365,7 @@ export function ScanPage() {
       setQuantity(1);
       setSelectedBatchId(r.suggestedBatch?.id ?? '');
       setStep('action');
-      if (r.product.isLotTracked) {
+      if (r.product.isLotTracked && has('quality')) {
         const batches = await qualityApi.listBatches(accessToken, r.product.id);
         setExistingBatches(batches.filter((b) => b.status === 'active'));
       }
@@ -393,7 +397,7 @@ export function ScanPage() {
       }
       const existing = prev[idx];
       if (r.availableQuantity != null && existing.quantity >= r.availableQuantity) {
-        setError(`Stock insuffisant pour ${r.product.name} — ${r.availableQuantity} disponible(s).`);
+        setError(`Stock insuffisant pour ${r.product.name} · ${r.availableQuantity} disponible(s).`);
         return prev;
       }
       const next = [...prev];
@@ -430,7 +434,7 @@ export function ScanPage() {
     setCheckoutPartnerId(newPartnerId);
     if (!newPartnerId || !accessToken || cart.length === 0) return;
     try {
-      const prices = await salesApi.listPricing(accessToken, newPartnerId);
+      const prices = has('sales') ? await salesApi.listPricing(accessToken, newPartnerId) : [];
       if (prices.length === 0) return;
       setCart((prev) =>
         prev.map((l) => {
@@ -605,7 +609,7 @@ export function ScanPage() {
       if (resolution.product.isLotTracked && lotMode === 'new' && batchId) {
         await qualityApi.recordCheck(accessToken, { productId: resolution.product.id, batchId, result: newLotResult });
       }
-      setConfirmMessage(`Entrée enregistrée — ${quantity} unité(s) de ${resolution.product.name}.`);
+      setConfirmMessage(`Entrée enregistrée · ${quantity} unité(s) de ${resolution.product.name}.`);
       setStep('confirm');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Échec de l'entrée.");
@@ -624,7 +628,7 @@ export function ScanPage() {
         batchId: resolution.suggestedBatch?.id,
         partnerId: partnerId || undefined,
       });
-      setConfirmMessage(`Sortie enregistrée — ${quantity} unité(s) de ${resolution.product.name}.`);
+      setConfirmMessage(`Sortie enregistrée · ${quantity} unité(s) de ${resolution.product.name}.`);
       setStep('confirm');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Échec de la sortie.');
@@ -713,7 +717,7 @@ export function ScanPage() {
           )}
           {cameraActive && (mode === 'checkout' || mode === 'receiving') && (
             <p className="sub" style={{ textAlign: 'center' }}>
-              Scan continu — présentez chaque article devant la caméra.
+              Scan continu, présentez chaque article devant la caméra.
             </p>
           )}
         </div>
@@ -894,10 +898,10 @@ export function ScanPage() {
                   <div className="field-row">
                     <label>Lot</label>
                     <select value={selectedBatchId} onChange={(e) => setSelectedBatchId(e.target.value)}>
-                      <option value="">— choisir —</option>
+                      <option value="">Choisir…</option>
                       {existingBatches.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.lotNumber} {b.expiryDate ? `— ${new Date(b.expiryDate).toLocaleDateString('fr-FR')}` : ''}
+                          {b.lotNumber} {b.expiryDate ? `· ${new Date(b.expiryDate).toLocaleDateString('fr-FR')}` : ''}
                         </option>
                       ))}
                     </select>
@@ -939,7 +943,7 @@ export function ScanPage() {
                 value={partnerId}
                 onChange={setPartnerId}
                 placeholder="Rechercher un fournisseur…"
-                emptyLabel="— non spécifié —"
+                emptyLabel="Non spécifié"
                 options={partners.filter((p) => p.isSupplier).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
               />
             </div>
@@ -986,7 +990,7 @@ export function ScanPage() {
             {resolution.suggestedBatch && (
               <div className="note-box">
                 Lot suggéré (FEFO) : <b className="mono">{resolution.suggestedBatch.lotNumber}</b>
-                {resolution.suggestedBatch.expiryDate && ` — expire le ${new Date(resolution.suggestedBatch.expiryDate).toLocaleDateString('fr-FR')}`}
+                {resolution.suggestedBatch.expiryDate && `, expire le ${new Date(resolution.suggestedBatch.expiryDate).toLocaleDateString('fr-FR')}`}
               </div>
             )}
             <div className="field-row">
@@ -995,7 +999,7 @@ export function ScanPage() {
                 value={partnerId}
                 onChange={setPartnerId}
                 placeholder="Rechercher un client…"
-                emptyLabel="— non spécifié —"
+                emptyLabel="Non spécifié"
                 options={partners.filter((p) => p.isCustomer).map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
               />
             </div>
@@ -1042,7 +1046,7 @@ export function ScanPage() {
             <div className="field-row">
               <label>Site de destination</label>
               <select value={toSiteId} onChange={(e) => setToSiteId(e.target.value)}>
-                <option value="">— choisir —</option>
+                <option value="">Choisir…</option>
                 {sites
                   .filter((s) => s.id !== siteId)
                   .map((s) => (
@@ -1180,7 +1184,7 @@ function CheckoutPanel({
       <div className="till-bar">
         {counters.length === 0 ? (
           <span className="sub">
-            Aucun comptoir — créez une caisse dans <a href="/counters">Comptoirs</a>.
+            Aucun comptoir, créez une caisse dans <a href="/counters">Comptoirs</a>.
           </span>
         ) : (
           <>
@@ -1188,7 +1192,7 @@ function CheckoutPanel({
               {!counter && <option value="">Choisir une caisse…</option>}
               {counters.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} — {c.site.name}
+                  {c.name} · {c.site.name}
                 </option>
               ))}
             </select>
@@ -1214,7 +1218,7 @@ function CheckoutPanel({
       {checkoutConfirm && (
         <div className="link-banner">
           <span>
-            Vente <b>{checkoutConfirm.number}</b> — {checkoutConfirm.total.toFixed(2)} DZD {checkoutConfirm.paid ? 'encaissés' : 'à crédit'}
+            Vente <b>{checkoutConfirm.number}</b> : {checkoutConfirm.total.toFixed(2)} DZD {checkoutConfirm.paid ? 'encaissés' : 'à crédit'}
             {checkoutConfirm.change > 0 && (
               <>
                 {' '}
@@ -1283,7 +1287,7 @@ function CheckoutPanel({
           ))}
         </div>
       )}
-      {cart.length === 0 && <p className="cart-empty">Le panier est vide — scannez un article pour commencer une vente.</p>}
+      {cart.length === 0 && <p className="cart-empty">Le panier est vide, scannez un article pour commencer une vente.</p>}
 
       {cart.length > 0 && (
         <>
@@ -1293,7 +1297,7 @@ function CheckoutPanel({
               value={checkoutPartnerId}
               onChange={setCheckoutPartnerId}
               placeholder="Rechercher un client…"
-              emptyLabel="— non spécifié —"
+              emptyLabel="Non spécifié"
               options={customers.map((p) => ({ value: p.id, label: p.name, sublabel: p.nif }))}
             />
           </div>
@@ -1392,7 +1396,7 @@ function ReceivingPanel({
       <h3>Réception rapide</h3>
       {confirm && (
         <div className="note-box">
-          Réception enregistrée — {confirm.lines.length} ligne(s), {confirm.lines.reduce((s, l) => s + l.quantityReceived, 0)} unité(s) au
+          Réception enregistrée · {confirm.lines.length} ligne(s), {confirm.lines.reduce((s, l) => s + l.quantityReceived, 0)} unité(s) au
           total.
         </div>
       )}
@@ -1451,12 +1455,12 @@ function ReceivingPanel({
           ))}
         </div>
       )}
-      {cart.length === 0 && <p className="cart-empty">Le panier est vide — scannez un article pour commencer une réception.</p>}
+      {cart.length === 0 && <p className="cart-empty">Le panier est vide, scannez un article pour commencer une réception.</p>}
 
       {cart.length > 0 && (
         <>
           <div className="field-row">
-            <label>Frais annexes (transport/douane/assurance) — montant global (optionnel)</label>
+            <label>Frais annexes (transport/douane/assurance), montant global (optionnel)</label>
             <input type="number" min={0} step="any" value={landedCost} onChange={(e) => setLandedCost(e.target.value)} placeholder="0.00" />
           </div>
           <div className="cart-total">
@@ -1554,7 +1558,7 @@ function LabelsPanel() {
         <select value={productId} onChange={(e) => setProductId(e.target.value)}>
           {products.map((p) => (
             <option key={p.productId} value={p.productId}>
-              {p.sku} — {p.name}
+              {p.sku} · {p.name}
             </option>
           ))}
         </select>
@@ -1564,7 +1568,7 @@ function LabelsPanel() {
       </button>
       {error && <div className="error-banner">{error}</div>}
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
         <table className="lot-mini-table">
           <thead>

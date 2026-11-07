@@ -1,7 +1,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '../lib/AppShell';
+import { PageSkeleton } from '../lib/PageSkeleton';
 import { Icon } from '../lib/Icon';
 import { useAuth } from '../lib/auth-context';
+import { useListControls } from '../lib/ListControls';
 import { ApiError, Batch, NonConformity, Site, StockRow, qualityApi, sitesApi, stockApi } from '../lib/api';
 import { toast } from '../lib/toast';
 import '../lib/data-views.css';
@@ -102,7 +104,7 @@ export function QualityPage() {
         const product = productById.get(n.productId);
         return {
           key: n.id,
-          lotLabel: '— (sans lot)',
+          lotLabel: '(sans lot)',
           productId: n.productId,
           productName: product?.name ?? n.productId,
           productSku: product?.sku ?? '',
@@ -118,6 +120,27 @@ export function QualityPage() {
     return [...batchRows, ...directRows];
   }, [batches, nonConformities, productById]);
 
+  // Deep links: /quality?f.nc=1 (non-conformités ouvertes), ?f.soon=1 (péremption < 30 j).
+  const qList = useListControls(rows, {
+    id: 'quality',
+    noun: ['ligne', 'lignes'],
+    searchPlaceholder: 'Lot, produit, référence…',
+    search: (r) => [r.lotLabel, r.productName, r.productSku],
+    filters: [
+      { key: 'state', label: 'État', type: 'select', value: (r) => r.statusLabel },
+      { key: 'nc', label: 'Non-conformités ouvertes', type: 'flag', test: (r) => !!r.openNonConformityId },
+      { key: 'soon', label: 'Péremption < 30 j', type: 'flag', test: (r) => { const d = daysRemaining(r.expiryDate); return d != null && d >= 0 && d <= 30; } },
+      { key: 'expired', label: 'Lots expirés', type: 'flag', test: (r) => { const d = daysRemaining(r.expiryDate); return d != null && d < 0; } },
+    ],
+    sorts: [
+      { key: 'lot', label: 'N° de lot', value: (r) => r.lotLabel },
+      { key: 'product', label: 'Produit', value: (r) => r.productName },
+      { key: 'qty', label: 'Quantité', value: (r) => r.quantity, desc: true },
+      { key: 'expiry', label: 'Péremption', value: (r) => r.expiryDate },
+      { key: 'state', label: 'État', value: (r) => ({ danger: 0, warning: 1, ok: 2 })[r.status] },
+    ],
+  });
+
   const stats = {
     active: batches.filter((b) => b.status === 'active').length,
     nearExpiry: expiringSoon,
@@ -129,7 +152,7 @@ export function QualityPage() {
       <div className="panel-head">
         <div>
           <h2>Qualité</h2>
-          <div className="sub">Lots, péremption et non-conformités — toutes activités confondues</div>
+          <div className="sub">Lots, péremption et non-conformités, toutes activités confondues</div>
         </div>
         {can('quality.check.create') && (
           <button className="btn-primary" onClick={() => setShowCheckForm(true)}>
@@ -140,7 +163,7 @@ export function QualityPage() {
 
       <div className="note-box">
         Les produits non suivis par lot (ex. ceinture, textile) n&#39;ont ni numéro de lot ni péremption, mais peuvent tout de même faire
-        l&#39;objet d&#39;un contrôle qualité — par exemple un défaut constaté à la livraison. Ces contrôles apparaissent ci-dessous sans
+        l&#39;objet d&#39;un contrôle qualité, par exemple un défaut constaté à la livraison. Ces contrôles apparaissent ci-dessous sans
         numéro de lot.
       </div>
 
@@ -162,24 +185,26 @@ export function QualityPage() {
       </div>
 
       {loading ? (
-        <div className="page-loader"><span className="spinner" /> Chargement…</div>
+        <PageSkeleton />
       ) : (
+        <>
+        {qList.toolbar()}
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th>N° de lot</th>
-                <th>Produit</th>
-                <th className="num">Qté</th>
-                <th>Péremption</th>
+                {qList.th('lot', 'N° de lot')}
+                {qList.th('product', 'Produit')}
+                {qList.th('qty', 'Qté', 'num')}
+                {qList.th('expiry', 'Péremption')}
                 <th>Jours restants</th>
                 <th>Contrôle qualité</th>
-                <th>État</th>
+                {qList.th('state', 'État')}
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {qList.rows.map((r) => {
                 const days = daysRemaining(r.expiryDate);
                 return (
                   <tr key={r.key}>
@@ -208,16 +233,17 @@ export function QualityPage() {
                   </tr>
                 );
               })}
-              {rows.length === 0 && (
+              {qList.rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '24px 0' }}>
-                    Aucun lot ni contrôle qualité pour le moment.
+                    {rows.length === 0 ? 'Aucun lot ni contrôle qualité pour le moment.' : 'Aucune ligne ne correspond aux filtres.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {showCheckForm && (
@@ -401,7 +427,7 @@ function QualityCheckModal({ products, onClose, onSaved }: { products: StockRow[
             <select value={productId} onChange={(e) => setProductId(e.target.value)} required>
               {products.map((p) => (
                 <option key={p.productId} value={p.productId}>
-                  {p.sku} — {p.name} {p.isLotTracked ? '' : '(non suivi par lot)'}
+                  {p.sku} · {p.name} {p.isLotTracked ? '' : '(non suivi par lot)'}
                 </option>
               ))}
             </select>
@@ -424,10 +450,10 @@ function QualityCheckModal({ products, onClose, onSaved }: { products: StockRow[
                 <div className="field-row">
                   <label>Lot existant</label>
                   <select value={batchId} onChange={(e) => setBatchId(e.target.value)} required>
-                    {existingBatches.length === 0 && <option value="">Aucun lot actif — utilisez &#34;Nouveau lot&#34;</option>}
+                    {existingBatches.length === 0 && <option value="">Aucun lot actif, utilisez &#34;Nouveau lot&#34;</option>}
                     {existingBatches.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.lotNumber} {b.expiryDate ? `— expire ${new Date(b.expiryDate).toLocaleDateString('fr-FR')}` : ''}
+                        {b.lotNumber} {b.expiryDate ? `· expire ${new Date(b.expiryDate).toLocaleDateString('fr-FR')}` : ''}
                       </option>
                     ))}
                   </select>
