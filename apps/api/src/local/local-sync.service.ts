@@ -32,7 +32,10 @@ export class LocalSyncService implements OnApplicationBootstrap, OnModuleDestroy
   private remoteTokens = new Map<string, { token: string; until: number }>();
   private pullRequested = false;
 
-  constructor(private readonly state: LocalStateService) {}
+  constructor(private readonly state: LocalStateService) {
+    // A license renewed on demand (module bought online): pull the data it unlocks.
+    state.onRenewed(() => this.requestPull());
+  }
 
   async onApplicationBootstrap() {
     // First start after activation: nothing to log into yet — load the org
@@ -154,7 +157,7 @@ export class LocalSyncService implements OnApplicationBootstrap, OnModuleDestroy
         await this.admin.localOutboxEntry.update({ where: { id: e.id }, data: { attempts: { increment: 1 }, lastError: err instanceof Error ? err.message : String(err) } });
         throw err;
       }
-      if (this.state.revoked) throw new Error('Appareil désactivé — synchronisation arrêtée.');
+      if (this.state.revoked) throw new Error('Appareil désactivé, synchronisation arrêtée.');
       const json = (await r.json().catch(() => null)) as { message?: unknown } | null;
 
       if (r.ok) {
@@ -169,7 +172,7 @@ export class LocalSyncService implements OnApplicationBootstrap, OnModuleDestroy
       const message = json?.message ? (Array.isArray(json.message) ? json.message.join(', ') : String(json.message)) : `HTTP ${r.status}`;
       if (r.status >= 500 || r.status === 429) {
         await this.admin.localOutboxEntry.update({ where: { id: e.id }, data: { attempts: { increment: 1 }, lastError: message, httpStatus: r.status } });
-        throw new Error(`Le serveur a répondu ${r.status} — nouvel essai plus tard.`);
+        throw new Error(`Le serveur a répondu ${r.status}, nouvel essai plus tard.`);
       }
       // Business rejection (e.g. stock already sold by another poste): the
       // server is authoritative; park it for a human, keep going with the rest.

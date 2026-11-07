@@ -5,9 +5,9 @@ import { REQUIRES_MODULE_KEY } from '../decorators/requires-module.decorator';
 import { ModuleEntitlementException } from '../exceptions/module-entitlement.exception';
 import { EntitlementCacheService } from '../services/entitlement-cache.service';
 import { isLocalMode } from '../../../local/local-env';
-import { getLocalActiveModuleKeys } from '../../../local/local-entitlements';
+import { getLocalActiveModuleKeys, refreshLocalEntitlements } from '../../../local/local-entitlements';
 
-type CachedEntitlement = { status: string; trialEndsAt: Date | null } | null;
+type CachedEntitlement = { status: string; trialEndsAt: Date | null; expiresAt: Date | null; deps: string[] } | null;
 
 // Second guard in the chain — must run before PermissionGuard (docs/Action
 // Plan.md §4): a role permission must never be able to outlive a lapsed
@@ -41,31 +41,53 @@ export class ModuleEntitlementGuard implements CanActivate {
       const keys = getLocalActiveModuleKeys();
       if (keys) {
         if (keys.has(moduleKey)) return true;
+        // Not in the license we hold — but it may have been bought online since the last
+        // renewal. Ask the server before saying no (no-op when offline).
+        await refreshLocalEntitlements();
+        if (getLocalActiveModuleKeys()?.has(moduleKey)) return true;
         throw new ModuleEntitlementException(moduleKey);
       }
     }
 
+    const entitlement = await this.load(orgId, moduleKey);
+
+    // A bought period ends at expiresAt (null = no end date) — enforced here
+    // directly, not only by BillingScheduler's hourly status flip.
+    if (!this.isUsable(entitlement)) throw new ModuleEntitlementException(moduleKey);
+
+    // A module bought in self-service (it has an end date) cannot outlive the
+    // modules it depends on: if one of them lapsed (e.g. Factures under
+    // Ventes), the module is paused with a clear reason instead of limping on.
+    // Admin grants (no end date) and trials are exempt, so an admin's
+    // "forced" activation without dependencies keeps working.
+    if (entitlement?.status === 'active' && entitlement.expiresAt) {
+      for (const dep of entitlement.deps) {
+        const depEnt = await this.load(orgId, dep);
+        if (!this.isUsable(depEnt)) throw new ModuleEntitlementException(moduleKey, dep);
+      }
+    }
+    return true;
+  }
+
+  private isUsable(e: CachedEntitlement): boolean {
+    if (!e) return false;
+    if (e.status === 'active') return !e.expiresAt || e.expiresAt.getTime() > Date.now();
+    return e.status === 'trial' && !!e.trialEndsAt && e.trialEndsAt.getTime() > Date.now();
+  }
+
+  /** The org's entitlement for a module (and that module's dependencies), cached briefly. */
+  private async load(orgId: string, moduleKey: string): Promise<CachedEntitlement> {
     const cacheKey = `${orgId}:${moduleKey}`;
     let entitlement = this.cache.get<CachedEntitlement>(cacheKey);
-
     if (entitlement === undefined) {
       const module = await this.prisma.module.findUnique({ where: { key: moduleKey } });
       if (!module) throw new NotFoundException(`Module inconnu : ${moduleKey}`);
-
       const row = await this.prisma.organizationModuleEntitlement.findUnique({
         where: { orgId_moduleId: { orgId, moduleId: module.id } },
       });
-      entitlement = row ? { status: row.status, trialEndsAt: row.trialEndsAt } : null;
+      entitlement = row ? { status: row.status, trialEndsAt: row.trialEndsAt, expiresAt: row.expiresAt, deps: module.dependencies ?? [] } : null;
       this.cache.set(cacheKey, entitlement);
     }
-
-    const isActive = entitlement?.status === 'active';
-    const isValidTrial =
-      entitlement?.status === 'trial' && !!entitlement.trialEndsAt && entitlement.trialEndsAt.getTime() > Date.now();
-
-    if (!isActive && !isValidTrial) {
-      throw new ModuleEntitlementException(moduleKey);
-    }
-    return true;
+    return entitlement;
   }
 }

@@ -1,5 +1,7 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isLocalMode } from '../../local/local-env';
+import { getLocalActiveModuleKeys } from '../../local/local-entitlements';
 import { CurrentUser, AuthenticatedUser } from './decorators/current-user.decorator';
 import { RequiresModule } from './decorators/requires-module.decorator';
 import { RequiresPermission } from './decorators/requires-permission.decorator';
@@ -21,7 +23,7 @@ export class MeController {
   @Get('me')
   async me(@CurrentUser() authUser: AuthenticatedUser) {
     const [user, organization, entitlements, userRoles] = await Promise.all([
-      this.prisma.user.findUniqueOrThrow({ where: { id: authUser.userId }, select: { id: true, email: true, username: true, displayName: true } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: authUser.userId }, select: { id: true, email: true, username: true, displayName: true, phone: true } }),
       this.prisma.organization.findUniqueOrThrow({ where: { id: authUser.orgId }, select: { id: true, name: true, plan: true } }),
       this.prisma.organizationModuleEntitlement.findMany({
         where: { orgId: authUser.orgId },
@@ -44,14 +46,28 @@ export class MeController {
     const siteIds = userRoles.map((ur) => ur.site?.id ?? null);
     const siteScope: 'all' | string[] = siteIds.includes(null) ? 'all' : [...new Set(siteIds as string[])];
 
+    let modules = entitlements.map((e) => ({
+      module: e.module.key,
+      status: e.status,
+      trialEndsAt: e.trialEndsAt,
+      expiresAt: e.expiresAt,
+    }));
+    // Desktop app: the signed license decides which modules exist (same source as the guard), so the
+    // menus and the access checks always agree — including right after a module is bought online.
+    const licensed = isLocalMode() ? getLocalActiveModuleKeys() : null;
+    if (licensed) {
+      modules = modules.map((m) => (licensed.has(m.module) || !['active', 'trial'].includes(m.status) ? m : { ...m, status: 'expired' }));
+      for (const key of licensed) {
+        const row = modules.find((m) => m.module === key);
+        if (!row) modules.push({ module: key, status: 'active', trialEndsAt: null, expiresAt: null });
+        else if (!['active', 'trial'].includes(row.status)) Object.assign(row, { status: 'active', trialEndsAt: null, expiresAt: null });
+      }
+    }
+
     return {
       user,
       organization,
-      entitlements: entitlements.map((e) => ({
-        module: e.module.key,
-        status: e.status,
-        trialEndsAt: e.trialEndsAt,
-      })),
+      entitlements: modules,
       roles: userRoles.map((ur) => ({ role: ur.role.name, site: ur.site?.name ?? null })),
       permissions,
       siteScope,

@@ -9,10 +9,17 @@ import { LocalSyncService } from './local-sync.service';
 // Server-side features with no local copy: inventory counts (product
 // decision), and the org's device seats / rejected syncs (that data only
 // exists on the server).
+// Public server endpoints: forwarded as they are, with no session (the catalog is shown before anyone is asked to pay).
+const PUBLIC_PATHS = ['/api/billing/catalog'];
+
 const ONLINE_ONLY = [
   { prefix: '/api/inventory/counts', label: 'L’inventaire nécessite une connexion internet.' },
   { prefix: '/api/licensing/devices', label: 'La gestion des appareils nécessite une connexion internet.' },
   { prefix: '/api/sync/replays', label: 'Cette page nécessite une connexion internet.' },
+  // Server-only features (the Espace client: purchases, invoices, profile, suggestions) are forwarded to the server.
+  { prefix: '/api/billing', label: 'Cette page nécessite une connexion internet.' },
+  { prefix: '/api/account', label: 'Cette page nécessite une connexion internet.' },
+  { prefix: '/api/suggestions', label: 'Cette page nécessite une connexion internet.' },
 ];
 
 /**
@@ -46,18 +53,21 @@ export class OnlineOnlyMiddleware implements NestMiddleware {
         message: `${rule.label} Disponible dès que cet ordinateur sera reconnecté.`,
       });
     }
-    let userId: string;
-    try {
-      userId = this.jwt.verify<AccessTokenPayload>(String(req.headers.authorization ?? '').replace(/^Bearer /, '')).sub;
-    } catch {
-      return res.status(401).json({ statusCode: 401, message: 'Jeton d’accès invalide ou expiré.' });
+    const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}?`));
+    let userId = '';
+    if (!isPublic) {
+      try {
+        userId = this.jwt.verify<AccessTokenPayload>(String(req.headers.authorization ?? '').replace(/^Bearer /, '')).sub;
+      } catch {
+        return res.status(401).json({ statusCode: 401, message: 'Jeton d’accès invalide ou expiré.' });
+      }
     }
 
     try {
       const send = async (fresh: boolean) =>
         fetch(`${localEnv().remoteOrigin}${path}`, {
           method: req.method,
-          headers: { Authorization: `Bearer ${await this.sync.remoteTokenFor(userId, fresh)}`, 'Content-Type': 'application/json' },
+          headers: { ...(isPublic ? {} : { Authorization: `Bearer ${await this.sync.remoteTokenFor(userId, fresh)}` }), 'Content-Type': 'application/json' },
           body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body ?? {}),
           signal: AbortSignal.timeout(60_000),
         });
@@ -72,7 +82,7 @@ export class OnlineOnlyMiddleware implements NestMiddleware {
       if (r.ok && req.method !== 'GET') this.sync.requestPull();
     } catch {
       this.state.online = false;
-      res.status(503).json({ statusCode: 503, error: 'online_only', message: 'Connexion au serveur perdue — l’inventaire sera disponible dès le retour d’internet.' });
+      res.status(503).json({ statusCode: 503, error: 'online_only', message: 'Connexion au serveur perdue, l’inventaire sera disponible dès le retour d’internet.' });
     }
   }
 }

@@ -11,6 +11,14 @@ export function localEnv() {
     licenseToken: process.env.STOCKILY_LICENSE_TOKEN ?? '',
     /** Shared secret the desktop shell uses for /api/local/control/* (license updates after renewal). */
     controlSecret: process.env.STOCKILY_CONTROL_SECRET ?? '',
+    /** This PC's hashed hardware fingerprint (from the shell), so the API can renew its own license when a module is refused. */
+    fingerprint: (() => {
+      try {
+        return JSON.parse(process.env.STOCKILY_FINGERPRINT ?? 'null') as { motherboardHash: string; diskHash: string; macHash: string } | null;
+      } catch {
+        return null;
+      }
+    })(),
     /** Built web app to serve on the same origin as the API. */
     webDir: process.env.STOCKILY_WEB_DIR ?? '',
     /** Superuser connection — the snapshot loader needs to bypass RLS and FK triggers. */

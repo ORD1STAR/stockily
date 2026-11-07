@@ -18,3 +18,16 @@ export function setLocalActiveModuleKeys(keys: string[] | null): void {
 export function getLocalActiveModuleKeys(): Set<string> | null {
   return activeModuleKeys;
 }
+
+// When a module is refused, the device asks the server before saying no (the
+// customer may have just bought it): LocalStateService registers the function
+// that renews the signed license online. Returns true when a new license was loaded.
+let refresher: (() => Promise<boolean>) | null = null;
+
+export function setLocalEntitlementRefresher(fn: (() => Promise<boolean>) | null): void {
+  refresher = fn;
+}
+
+export async function refreshLocalEntitlements(): Promise<boolean> {
+  return refresher ? refresher() : false;
+}
