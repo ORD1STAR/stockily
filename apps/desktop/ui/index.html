@@ -56,6 +56,23 @@
         <p class="hint">Une connexion internet est nécessaire pour cette étape uniquement.</p>
       </section>
 
+      <section id="otp" class="state" hidden>
+        <h1>Vérification</h1>
+        <p class="lead">Un code à 6 chiffres vient d’être envoyé à <b id="otp-email"></b>. Entrez-le pour continuer (valable 10 minutes).</p>
+        <form id="otp-form">
+          <label>
+            Code reçu par e-mail
+            <input type="text" id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required />
+          </label>
+          <div id="otp-error" class="alert error" hidden></div>
+          <button type="submit" id="otp-btn">Vérifier et ouvrir Stockily</button>
+        </form>
+        <p class="hint">
+          <a href="#" id="otp-resend">Renvoyer le code</a> · <a href="#" id="otp-back">Retour</a><br />
+          Rien reçu ? Regardez vos courriers indésirables.
+        </p>
+      </section>
+
       <section id="failed" class="state" hidden>
         <h1>Impossible de démarrer</h1>
         <div id="failed-message" class="alert error"></div>

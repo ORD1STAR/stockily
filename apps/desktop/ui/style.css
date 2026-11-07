@@ -150,3 +150,11 @@ button:disabled {
     transform: rotate(360deg);
   }
 }
+
+.hint a {
+  color: #7a5cf0;
+}
+.hint a[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
