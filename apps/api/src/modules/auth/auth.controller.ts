@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { ResendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { CurrentUser, AuthenticatedUser } from '../tenancy/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../tenancy/guards/jwt-auth.guard';
 import { AuditInterceptor } from '../audit/audit.interceptor';
@@ -32,6 +33,21 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  // Second step of signup (verify the mailbox) and of login (2FA).
+  @Post('otp/verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto.challengeId, dto.code);
+  }
+
+  @Post('otp/resend')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  resendOtp(@Body() dto: ResendOtpDto) {
+    return this.authService.resendOtp(dto.challengeId);
   }
 
   @Post('refresh')

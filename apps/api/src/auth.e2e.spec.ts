@@ -59,6 +59,7 @@ describe('Auth/Tenancy e2e', () => {
 
     accessToken = res.body.accessToken;
     refreshToken = res.body.refreshToken;
+
   });
 
   it('rejects signup with an email already in use', async () => {
@@ -79,7 +80,7 @@ describe('Auth/Tenancy e2e', () => {
     expect(wrongPw.body.message).toBe(noSuchUser.body.message);
   });
 
-  it('GET /me returns the trial entitlements for all 5 Phase 1 modules and the Super Admin role', async () => {
+  it('GET /me returns the trial entitlements for the 4 trial modules (Multi-sites is paid) and the Super Admin role', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/me')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -87,12 +88,11 @@ describe('Auth/Tenancy e2e', () => {
 
     expect(res.body.user.email).toBe(email);
     expect(res.body.roles).toEqual(expect.arrayContaining([{ role: 'Super Admin', site: null }]));
-    expect(res.body.entitlements).toHaveLength(5);
+    expect(res.body.entitlements).toHaveLength(4);
     expect(res.body.entitlements.map((e: { module: string }) => e.module).sort()).toEqual([
       'invoicing',
       'quality',
       'scan',
-      'sites',
       'stock',
     ]);
     expect(res.body.entitlements.every((e: { status: string }) => e.status === 'trial')).toBe(true);

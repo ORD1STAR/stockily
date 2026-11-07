@@ -1,26 +1,33 @@
 import { FormEvent, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
-import { ApiError } from '../lib/api';
+import { ApiError, OtpChallenge } from '../lib/api';
+import { OtpStep } from './OtpStep';
 import { AuthLayout } from './AuthLayout';
 
 export function LoginPage() {
-  const { me, login } = useAuth();
+  const { me, login, verifyOtp } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Only same-site paths — never an absolute URL (open redirect).
+  const rawNext = params.get('next');
+  const next = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/dashboard';
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
 
-  if (me) return <Navigate to="/dashboard" replace />;
+  if (me) return <Navigate to={next} replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await login(identifier, password);
-      navigate('/dashboard', { replace: true });
+      const c = await login(identifier, password);
+      if (c) setChallenge(c);
+      else navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Veuillez réessayer.');
     } finally {
@@ -29,7 +36,23 @@ export function LoginPage() {
   }
 
   return (
-    <AuthLayout title="Connexion" subtitle="Content de vous revoir. Connectez-vous à votre espace.">
+    <AuthLayout
+      title={challenge ? 'Vérification' : 'Connexion'}
+      subtitle={challenge ? 'Entrez le code reçu par e-mail pour terminer la connexion.' : 'Content de vous revoir. Connectez-vous à votre espace.'}
+    >
+      {challenge ? (
+        <OtpStep
+          challenge={challenge}
+          onVerify={async (id, code) => {
+            await verifyOtp(id, code);
+            navigate(next, { replace: true });
+          }}
+          onBack={() => {
+            setChallenge(null);
+            setPassword('');
+          }}
+        />
+      ) : (
       <form className="auth-card-form" onSubmit={handleSubmit}>
 
         {error && <div className="error-banner">{error}</div>}
@@ -55,9 +78,10 @@ export function LoginPage() {
         </button>
 
         <p className="auth-switch">
-          Pas encore de compte ? <Link to="/signup">Créer un compte</Link>
+          Pas encore de compte ? <Link to={`/signup${rawNext ? `?next=${encodeURIComponent(next)}` : ''}`}>Créer un compte</Link>
         </p>
       </form>
+      )}
     </AuthLayout>
   );
 }

@@ -1,3 +1,5 @@
+import { MailService } from '../mail/mail.service';
+import { welcomeMail } from '../mail/mail.templates';
 import { ConflictException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -6,11 +8,13 @@ import { setTenantOnTransaction } from '@org/infra-db';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { OtpChallengeView, OtpService } from './otp.service';
 
 // The 5 Phase 1 modules every new org gets a trial entitlement for at
 // signup (docs/Action Plan.md §7/§11) — deliberately not "all 13", since
 // Phase 2/3 modules aren't built yet and shouldn't appear usable.
-const PHASE1_MODULE_KEYS = ['stock', 'quality', 'invoicing', 'sites', 'scan'];
+// Multi-sites is NOT in the trial: the first site is free for life and extra sites are paid.
+const PHASE1_MODULE_KEYS = ['stock', 'quality', 'invoicing', 'scan'];
 
 // 15-day free trial, no card required — Action Plan §11. A fixed business
 // rule, not an environment/deployment concern, so it's a constant rather
@@ -34,20 +38,25 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly mail: MailService,
+    private readonly otp: OtpService,
   ) {}
 
   async signup(dto: SignupDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new ConflictException('Cet email est déjà utilisé.');
+    if (existing && !(this.otp.active() && !existing.emailVerifiedAt)) throw new ConflictException('Cet email est déjà utilisé.');
+    // An earlier signup with this address that was never confirmed does not own it:
+    // the person now proving they can read the mailbox takes the account over.
+    if (existing) return this.restartUnverifiedSignup(existing, dto);
 
     const superAdminRole = await this.prisma.role.findFirst({ where: { name: 'Super Admin', isSystem: true } });
     if (!superAdminRole) {
-      throw new InternalServerErrorException('Les rôles système ne sont pas initialisés — exécutez `npm run db:seed` d\'abord.');
+      throw new InternalServerErrorException('Les rôles système ne sont pas initialisés, exécutez `npm run db:seed` d\'abord.');
     }
 
     const phase1Modules = await this.prisma.module.findMany({ where: { key: { in: PHASE1_MODULE_KEYS } } });
     if (phase1Modules.length !== PHASE1_MODULE_KEYS.length) {
-      throw new InternalServerErrorException('Les modules ne sont pas initialisés — exécutez `npm run db:seed` d\'abord.');
+      throw new InternalServerErrorException('Les modules ne sont pas initialisés, exécutez `npm run db:seed` d\'abord.');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
@@ -85,12 +94,31 @@ export class AuthService {
       return { organization, user };
     });
 
+    if (this.otp.active() && user.email) {
+      // The ids ride along only so the audit log can record the creation (AuditInterceptor reads them); they are random UUIDs.
+      const challenge = await this.otp.issue({ id: user.id, email: user.email }, 'verify_email');
+      return { ...challenge, organization: { id: organization.id }, user: { id: user.id } };
+    }
+
+    // No mail delivery configured (local dev, offline app): the account is usable at once.
+    void this.mail.send(user.email, welcomeMail({ organizationName: organization.name, trialDays: TRIAL_DAYS }));
     const tokens = await this.issueTokens(user.id, organization.id);
     return {
       organization: { id: organization.id, name: organization.name },
       user: { id: user.id, email: user.email },
       ...tokens,
     };
+  }
+
+  /** Same address signs up again before confirming it: refresh the password/company and send a new code. */
+  private async restartUnverifiedSignup(existing: { id: string; orgId: string; email: string | null }, dto: SignupDto) {
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, existing.orgId);
+      await tx.user.update({ where: { id: existing.id }, data: { passwordHash } });
+      await tx.organization.update({ where: { id: existing.orgId }, data: { name: dto.organizationName } });
+    });
+    return this.otp.issue({ id: existing.id, email: existing.email as string }, 'verify_email');
   }
 
   async login(dto: LoginDto) {
@@ -124,8 +152,36 @@ export class AuthService {
       }
     });
 
+    // Password is right; now the mailbox checks. Only users with an email (sub-users
+    // log in by username and have none) and only where codes can be delivered.
+    if (this.otp.active() && user.email) {
+      if (!user.emailVerifiedAt) return this.otp.issue({ id: user.id, email: user.email }, 'verify_email');
+      if (user.twoFactorEnabled) return this.otp.issue({ id: user.id, email: user.email }, 'login');
+    }
+
     const tokens = await this.issueTokens(user.id, user.orgId);
     return { user: { id: user.id, email: user.email }, ...tokens };
+  }
+
+  /** Second step of signup/login: the emailed code turns into a session. */
+  async verifyOtp(challengeId: string, code: string) {
+    const { userId, purpose } = await this.otp.verify(challengeId, code);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) throw new UnauthorizedException('Ce compte est désactivé.');
+    // Unauthenticated call: the organization row is only visible with its tenant context set (RLS).
+    const firstVerification = purpose === 'verify_email' && !user.emailVerifiedAt;
+    const organization = await this.prisma.$transaction(async (tx) => {
+      await setTenantOnTransaction(tx, user.orgId);
+      if (firstVerification) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
+      return tx.organization.findUniqueOrThrow({ where: { id: user.orgId }, select: { id: true, name: true } });
+    });
+    if (firstVerification) void this.mail.send(user.email, welcomeMail({ organizationName: organization.name, trialDays: TRIAL_DAYS }));
+    const tokens = await this.issueTokens(user.id, user.orgId);
+    return { organization, user: { id: user.id, email: user.email }, ...tokens };
+  }
+
+  resendOtp(challengeId: string): Promise<OtpChallengeView> {
+    return this.otp.resend(challengeId);
   }
 
   async refresh(refreshTokenRaw: string) {

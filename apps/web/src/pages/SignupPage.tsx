@@ -1,27 +1,34 @@
 import { FormEvent, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context';
-import { ApiError } from '../lib/api';
+import { ApiError, OtpChallenge } from '../lib/api';
+import { OtpStep } from './OtpStep';
 import { AuthLayout } from './AuthLayout';
 
 export function SignupPage() {
-  const { me, signup } = useAuth();
+  const { me, signup, verifyOtp } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Only same-site paths — never an absolute URL (open redirect).
+  const rawNext = params.get('next');
+  const next = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/dashboard';
   const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
 
-  if (me) return <Navigate to="/dashboard" replace />;
+  if (me) return <Navigate to={next} replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await signup(organizationName, email, password);
-      navigate('/dashboard', { replace: true });
+      const c = await signup(organizationName, email, password);
+      if (c) setChallenge(c);
+      else navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Veuillez réessayer.');
     } finally {
@@ -30,7 +37,20 @@ export function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Créer votre compte" subtitle="Essai gratuit de 15 jours, sans carte bancaire.">
+    <AuthLayout
+      title={challenge ? 'Confirmez votre e-mail' : 'Créer votre compte'}
+      subtitle={challenge ? 'Dernière étape avant d’accéder à votre essai gratuit.' : 'Essai gratuit de 15 jours, sans carte bancaire.'}
+    >
+      {challenge ? (
+        <OtpStep
+          challenge={challenge}
+          onVerify={async (id, code) => {
+            await verifyOtp(id, code);
+            navigate(next, { replace: true });
+          }}
+          onBack={() => setChallenge(null)}
+        />
+      ) : (
       <form className="auth-card-form" onSubmit={handleSubmit}>
 
         {error && <div className="error-banner">{error}</div>}
@@ -75,9 +95,10 @@ export function SignupPage() {
         </button>
 
         <p className="auth-switch">
-          Déjà un compte ? <Link to="/login">Se connecter</Link>
+          Déjà un compte ? <Link to={`/login${rawNext ? `?next=${encodeURIComponent(next)}` : ''}`}>Se connecter</Link>
         </p>
       </form>
+      )}
     </AuthLayout>
   );
 }

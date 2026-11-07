@@ -1,10 +1,10 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { ApiError, authApi, authedRequest, REFRESH_TOKEN_STORAGE_KEY, setSilentRefreshHandler } from './api';
+import { ApiError, authApi, authedRequest, needsOtp, OtpChallenge, REFRESH_TOKEN_STORAGE_KEY, setSilentRefreshHandler } from './api';
 
 export interface MeResponse {
-  user: { id: string; email: string | null; username: string | null; displayName: string | null };
+  user: { id: string; email: string | null; username: string | null; displayName: string | null; phone?: string | null };
   organization: { id: string; name: string; plan: string };
-  entitlements: { module: string; status: string; trialEndsAt: string | null }[];
+  entitlements: { module: string; status: string; trialEndsAt: string | null; expiresAt?: string | null}[];
   roles: { role: string; site: string | null }[];
   /** Effective permission actions for the caller — used to hide controls a sub-user lacks (the server still enforces). */
   permissions: string[];
@@ -17,10 +17,15 @@ interface AuthContextValue {
   loading: boolean;
   /** Null only while `loading` or logged out — pages behind ProtectedRoute can treat this as always present. */
   accessToken: string | null;
-  signup: (organizationName: string, email: string, password: string) => Promise<void>;
-  login: (identifier: string, password: string) => Promise<void>;
+  /** Resolves to a challenge when the server wants an emailed code first (then call verifyOtp), else null once logged in. */
+  signup: (organizationName: string, email: string, password: string) => Promise<OtpChallenge | null>;
+  login: (identifier: string, password: string) => Promise<OtpChallenge | null>;
+  /** Second step: the emailed code opens the session. */
+  verifyOtp: (challengeId: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   logoutEverywhere: () => Promise<void>;
+  /** Re-fetches /me — after a purchase or a profile change. */
+  refreshMe: () => Promise<void>;
   /** True if the current user holds the given permission action (cosmetic gating; server enforces). */
   can: (action: string) => boolean;
 }
@@ -76,16 +81,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = useCallback(
     async (organizationName: string, email: string, password: string) => {
-      const tokens = await authApi.signup({ organizationName, email, password });
-      await applySession(tokens);
+      const result = await authApi.signup({ organizationName, email, password });
+      if (needsOtp(result)) return result;
+      await applySession(result);
+      return null;
     },
     [applySession],
   );
 
   const login = useCallback(
     async (identifier: string, password: string) => {
-      const tokens = await authApi.login({ identifier, password });
-      await applySession(tokens);
+      const result = await authApi.login({ identifier, password });
+      if (needsOtp(result)) return result;
+      await applySession(result);
+      return null;
+    },
+    [applySession],
+  );
+
+  const verifyOtp = useCallback(
+    async (challengeId: string, code: string) => {
+      await applySession(await authApi.verifyOtp(challengeId, code));
     },
     [applySession],
   );
@@ -109,8 +125,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const can = useCallback((action: string) => !!me?.permissions?.includes(action), [me]);
 
+  const refreshMe = useCallback(async () => {
+    if (!accessToken) return;
+    setMe(await authedRequest<MeResponse>('/me', accessToken));
+  }, [accessToken]);
+
   return (
-    <AuthContext.Provider value={{ me, loading, accessToken, signup, login, logout, logoutEverywhere, can }}>
+    <AuthContext.Provider value={{ me, loading, accessToken, signup, login, verifyOtp, logout, logoutEverywhere, refreshMe, can }}>
       {children}
     </AuthContext.Provider>
   );
