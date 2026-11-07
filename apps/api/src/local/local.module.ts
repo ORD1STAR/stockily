@@ -4,6 +4,7 @@ import { TenancyModule } from '../modules/tenancy/tenancy.module';
 import { LicensingModule } from '../modules/licensing/licensing.module';
 import { LocalController } from './local.controller';
 import { LocalStateService } from './local-state.service';
+import { LocalUpdateService } from './local-update.service';
 import { LocalSyncService } from './local-sync.service';
 import { OnlineOnlyMiddleware } from './online-only.middleware';
 import { OutboxInterceptor } from './outbox.interceptor';
@@ -13,7 +14,7 @@ import { OutboxInterceptor } from './outbox.interceptor';
 @Module({
   imports: [TenancyModule, LicensingModule],
   controllers: [LocalController],
-  providers: [LocalStateService, LocalSyncService, { provide: APP_INTERCEPTOR, useClass: OutboxInterceptor }],
+  providers: [LocalStateService, LocalUpdateService, LocalSyncService, { provide: APP_INTERCEPTOR, useClass: OutboxInterceptor }],
 })
 export class LocalModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

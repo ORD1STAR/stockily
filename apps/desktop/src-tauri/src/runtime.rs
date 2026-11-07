@@ -21,6 +21,12 @@ pub struct RuntimeConfig {
     pub remote_origin: String,
     pub control_secret: String,
     pub public_key_pem: String,
+    /// Hashed hardware fingerprint, so the local API can renew its own license when a module is refused.
+    pub fingerprint_json: String,
+    /// Light update content (api/web/migrations) to run instead of the installed one.
+    pub content_dir: Option<PathBuf>,
+    /// Version the user effectively runs (installed app, or the light content on top of it).
+    pub app_version: String,
 }
 
 /// Tauri's resource/data paths come back in Windows extended-length form
@@ -52,13 +58,31 @@ pub fn kill_orphans(runtime_dir: &Path) {
 }
 
 #[cfg(not(windows))]
-pub fn kill_orphans(_: &Path) {}
+pub fn kill_orphans(runtime_dir: &Path) {
+    // Same idea as on Windows: anything running from *our* runtime folder is
+    // an orphan of a crashed session (only one app instance can exist).
+    // The folder is matched against each process's command line in /proc.
+    let dir = plain(runtime_dir).to_string_lossy().to_string();
+    let me = std::process::id().to_string();
+    let Ok(procs) = std::fs::read_dir("/proc") else { return };
+    for e in procs.flatten() {
+        let pid = e.file_name().to_string_lossy().to_string();
+        if pid == me || !pid.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
+        let cmd = String::from_utf8_lossy(&cmd).replace('\0', " ");
+        if cmd.contains(&format!("{dir}/")) {
+            let _ = Command::new("kill").args(["-9", &pid]).status();
+        }
+    }
+}
 
 pub fn spawn(cfg: &RuntimeConfig) -> Result<Child, String> {
     kill_orphans(&cfg.runtime_dir);
     let runtime_dir = plain(&cfg.runtime_dir);
     let data_dir = plain(&cfg.data_dir);
-    let node = runtime_dir.join("node.exe");
+    let node = runtime_dir.join(if cfg!(windows) { "node.exe" } else { "node" });
     let runner = runtime_dir.join("runner.mjs");
     if !node.exists() || !runner.exists() {
         return Err("Installation incomplète : réinstallez Stockily.".into());
@@ -77,9 +101,15 @@ pub fn spawn(cfg: &RuntimeConfig) -> Result<Child, String> {
         .env("STOCKILY_REMOTE_ORIGIN", &cfg.remote_origin)
         .env("STOCKILY_CONTROL_SECRET", &cfg.control_secret)
         .env("LICENSE_PUBLIC_KEY", &cfg.public_key_pem)
+        .env("STOCKILY_FINGERPRINT", &cfg.fingerprint_json)
+        .env("STOCKILY_APP_VERSION", &cfg.app_version)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(stderr);
+    if let Some(content) = &cfg.content_dir {
+        // The light content lives outside the install folder: it finds the shared dependencies there.
+        cmd.env("STOCKILY_CONTENT_DIR", plain(content)).env("NODE_PATH", runtime_dir.join("node_modules"));
+    }
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flashing up
     cmd.spawn().map_err(|e| format!("Démarrage du moteur local impossible : {e}"))
@@ -94,7 +124,8 @@ pub async fn wait_ready(port: u16, secret: &str, child: &mut Child, timeout: Dur
     while start.elapsed() < timeout {
         if let Ok(Some(status)) = child.try_wait() {
             return Err(format!(
-                "Le moteur local s'est arrêté ({status}). Journaux : %LOCALAPPDATA%\\dz.ordi-tech.stockily\\logs (runtime.log, runtime-stderr.log)."
+                "Le moteur local s'est arrêté ({status}). Journaux : {} (runtime.log, runtime-stderr.log).",
+                if cfg!(windows) { "%LOCALAPPDATA%\\dz.ordi-tech.stockily\\logs" } else { "~/.local/share/dz.ordi-tech.stockily/logs" }
             ));
         }
         if let Ok(r) = client.get(&url).header("x-stockily-control", secret).timeout(Duration::from_secs(2)).send().await {

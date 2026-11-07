@@ -7,7 +7,6 @@
 // STOCKILY_REMOTE_ORIGIN, STOCKILY_CONTROL_SECRET, LICENSE_PUBLIC_KEY.
 // Stops Postgres cleanly when the shell goes away (stdin closes).
 import EmbeddedPostgres from 'embedded-postgres';
-import { pg_ctl } from '@embedded-postgres/windows-x64';
 import pg from 'pg';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -15,9 +14,31 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSyn
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
+// Postgres binaries come from the platform package this runtime was staged with.
+const { pg_ctl } = await import(process.platform === 'win32' ? '@embedded-postgres/windows-x64' : '@embedded-postgres/linux-x64');
 const root = dirname(fileURLToPath(import.meta.url));
+// A light update (see apps/desktop/src-tauri/src/light.rs) brings newer api/web/migrations in a data
+// folder; everything heavy (Node, Postgres, dependencies) stays here in `root`.
+const content = process.env.STOCKILY_CONTENT_DIR || root;
+if (content !== root) {
+  // The light content has no node_modules of its own (only our packages in node_modules/@org): any other
+  // dependency is looked up from the installed runtime. NODE_PATH alone is not enough, ES modules ignore it.
+  const { registerHooks } = await import('node:module');
+  const fromRoot = pathToFileURL(join(root, 'runner.mjs')).href;
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      try {
+        return nextResolve(specifier, context);
+      } catch (err) {
+        const bare = !/^(\.{0,2}\/|[a-z]+:)/i.test(specifier);
+        if (!bare || !['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'].includes(err?.code)) throw err;
+        return nextResolve(specifier, { ...context, parentURL: fromRoot });
+      }
+    },
+  });
+}
 const dataDir = process.env.STOCKILY_DATA_DIR;
 if (!dataDir) throw new Error('STOCKILY_DATA_DIR is required');
 mkdirSync(join(dataDir, 'logs'), { recursive: true });
@@ -127,7 +148,7 @@ const adminUrl = `postgresql://stockily:${secrets.pgPassword}@127.0.0.1:${pgPort
   await c.connect();
   await c.query('CREATE TABLE IF NOT EXISTS "_stockily_migrations" (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
   const done = new Set((await c.query('SELECT name FROM "_stockily_migrations"')).rows.map((r) => r.name));
-  const dir = join(root, 'migrations');
+  const dir = join(content, 'migrations');
   for (const name of readdirSync(dir).filter((n) => existsSync(join(dir, n, 'migration.sql'))).sort()) {
     if (done.has(name)) continue;
     log('Applying migration', name);
@@ -154,9 +175,9 @@ Object.assign(process.env, {
   // row-level security behaves identically on the device.
   APP_DATABASE_URL: `postgresql://stockily_app:stockily_app@127.0.0.1:${pgPort}/stockily?schema=public`,
   JWT_SECRET: secrets.jwtSecret,
-  STOCKILY_WEB_DIR: join(root, 'web'),
+  STOCKILY_WEB_DIR: join(content, 'web'),
   CORS_ORIGIN: `http://127.0.0.1:${process.env.PORT ?? 3000}`,
 });
 
 log(`Local database on port ${pgPort}; starting the Stockily API on port ${process.env.PORT}`);
-createRequire(import.meta.url)(join(root, 'api', 'main.js'));
+createRequire(import.meta.url)(join(content, 'api', 'main.js'));

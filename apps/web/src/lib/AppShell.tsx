@@ -1,8 +1,10 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { UpdateRow } from './UpdateRow';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from './auth-context';
 import { LocalStatus } from './api';
 import { useDesktopStatus } from './desktop';
+import { PurchaseModal } from './billing';
 import { Icon } from './Icon';
 import { entitledModuleKeys, MODULE_GROUP_LABEL, ModuleGroup, PRODUCT_MODULES, UPCOMING_MODULES } from './modules';
 import { OrganizationSettingsModal } from './OrganizationSettingsModal';
@@ -15,10 +17,11 @@ import './AppShell.css';
 // column would cover over half of a phone screen). Active/locked state
 // reflects `me`'s real entitlements from GET /me.
 export function AppShell({ children }: { children: ReactNode }) {
-  const { me, logout } = useAuth();
+  const { me, logout, refreshMe } = useAuth();
   const entitledKeys = entitledModuleKeys(me?.entitlements ?? [], me?.permissions ?? []);
   const [showSettings, setShowSettings] = useState(false);
   const [showPartners, setShowPartners] = useState(false);
+  const [buying, setBuying] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
@@ -43,7 +46,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canSeeBusiness = entitledModuleKeys(me?.entitlements ?? []).has('invoicing') && !!me?.permissions?.includes('invoicing.profile.read');
   const canManageDevices = !!me?.roles.some((r) => r.role === 'Super Admin' || r.role === 'Gestionnaire');
   const canManageMembers = !!me?.permissions?.includes('members.user.manage');
+  const orgEntitled = entitledModuleKeys(me?.entitlements ?? []);
   const desktop = useDesktopStatus();
+  // Desktop app: when the signed license gains (or loses) a module, e.g. one just bought online,
+  // reload the profile so the menus follow without a restart.
+  const licensedModules = desktop?.modules?.join(',');
+  const seenModules = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (licensedModules === undefined) return;
+    if (seenModules.current !== undefined && seenModules.current !== licensedModules) void refreshMe().catch(() => undefined);
+    seenModules.current = licensedModules;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licensedModules]);
   // Sub-users may have a username instead of an email.
   const email = me?.user.email ?? (me?.user.username ? `@${me.user.username}` : '');
   const orgName = me?.organization.name ?? '';
@@ -99,12 +113,20 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <Icon name={m.icon} />
                     <span>{m.label}</span>
                   </NavLink>
-                ) : !canManageMembers ? null : (
-                  <div key={m.to} className="shell-nav-item shell-locked" title="Module non activé ou non autorisé">
+                ) : !canManageMembers ? null : orgEntitled.has(m.key) ? (
+                  <div key={m.to} className="shell-nav-item shell-locked" title="Vous n’avez pas accès à ce module">
                     <Icon name={m.icon} />
                     <span>{m.label}</span>
                     <Icon name="lock" size={14} className="shell-lock" />
                   </div>
+                ) : (
+                  <button key={m.to} type="button" className="shell-nav-item shell-locked shell-buy" title={`Débloquer ${m.label}`} onClick={() => { closeSidebar(); setBuying(m.key); }}>
+                    <Icon name={m.icon} />
+                    <span>{m.label}</span>
+                    <span className="shell-unlock">
+                      <Icon name="lock" size={11} /> Débloquer
+                    </span>
+                  </button>
                 ),
               )}
             </div>
@@ -126,6 +148,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="shell-footer">
           {desktop && <SyncIndicator status={desktop} />}
+          {!desktop && (
+            <NavLink to="/compte" className="shell-nav-item">
+              <Icon name="building" />
+              <span>Espace client</span>
+            </NavLink>
+          )}
           {canManageMembers && (
             <NavLink to="/members" className="shell-nav-item">
               <Icon name="users" />
@@ -150,6 +178,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Paramètres</span>
             </button>
           )}
+          {desktop && <UpdateRow onNavigate={closeSidebar} />}
           <div className="shell-account">
             <span className="shell-avatar">{initials(orgName)}</span>
             <div className="shell-account-text">
@@ -178,6 +207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
       {showSettings && <OrganizationSettingsModal onClose={() => setShowSettings(false)} />}
       {showPartners && <PartnersModal onClose={() => setShowPartners(false)} />}
+      {buying && <PurchaseModal initialModules={[buying]} onClose={() => setBuying(null)} />}
     </div>
   );
 }

@@ -126,11 +126,44 @@
 .shell-nav-item.shell-locked:hover {
   background: none;
 }
-.shell-nav-item.shell-locked svg {
+.shell-nav-item.shell-locked > svg:first-child {
   color: var(--gray-300);
+  opacity: 0.8;
 }
 .shell-lock {
   margin-left: auto;
+}
+.shell-nav-item.shell-buy {
+  cursor: pointer;
+}
+.shell-nav-item.shell-locked > span:first-of-type {
+  color: var(--gray-400);
+}
+.shell-nav-item.shell-buy:hover {
+  background: var(--brand-50);
+}
+.shell-nav-item.shell-buy:hover > span:first-of-type {
+  color: var(--brand-700);
+}
+/* Always visible, not on hover: a locked module must read as locked at a glance. */
+.shell-unlock {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--brand-700);
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.shell-nav-item.shell-buy:hover .shell-unlock {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
 }
 .shell-tag {
   font-size: 0.68rem;
@@ -346,4 +379,91 @@
   color: var(--warning);
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+/* Desktop app: "Rechercher une mise à jour" row (sidebar footer) */
+.shell-update {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.shell-update:hover:not(:disabled) {
+  background: var(--gray-50);
+  color: var(--text);
+}
+.shell-update:disabled {
+  cursor: default;
+}
+.shell-update-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.shell-update-text b {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.shell-update-text small {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.shell-update.is-available {
+  background: rgba(109, 79, 224, 0.1);
+  color: var(--brand-700);
+}
+.shell-update.is-available:hover {
+  background: rgba(109, 79, 224, 0.16);
+}
+.shell-update-dot {
+  position: absolute;
+  top: 8px;
+  left: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5484d;
+  box-shadow: 0 0 0 2px var(--surface, #fff);
+}
+.shell-update.is-busy {
+  cursor: default;
+  color: var(--brand-700);
+}
+.shell-update-bar {
+  display: block;
+  height: 4px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: rgba(109, 79, 224, 0.18);
+  overflow: hidden;
+}
+.shell-update-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--brand-600, #5b3fd6);
+  transition: width 0.4s;
+}
+.shell-update-error {
+  margin: 2px 10px 6px;
+  font-size: 0.75rem;
+  color: #c0392b;
+}
+.spin {
+  animation: shell-spin 1s linear infinite;
+}
+@keyframes shell-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

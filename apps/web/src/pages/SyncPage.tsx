@@ -84,7 +84,7 @@ export function SyncPage() {
         <div>
           <h2>Synchronisation</h2>
           <div className="sub">
-            {status?.online ? 'Connecté au serveur' : 'Hors ligne — vos saisies sont enregistrées sur ce poste'} · envoi {ago(status?.lastPushAt ?? null)} ·
+            {status?.online ? 'Connecté au serveur' : 'Hors ligne, vos saisies sont enregistrées sur ce poste'} · envoi {ago(status?.lastPushAt ?? null)} ·
             mise à jour {ago(status?.lastPullAt ?? null)}
           </div>
         </div>
@@ -94,6 +94,7 @@ export function SyncPage() {
       </div>
 
       {status?.lastError && !status.online && <div className="error-banner">{status.lastError}</div>}
+
 
       <div className="stat-strip">
         <div className={`stat-card${status?.online ? ' good' : ' warn'}`}>
@@ -119,7 +120,7 @@ export function SyncPage() {
           <h3 className="section-title">Refusées par le serveur</h3>
           <div className="sub" style={{ marginBottom: 8 }}>
             Le serveur fait foi : ces saisies n’ont pas été appliquées (par exemple, le stock avait déjà été vendu depuis un autre poste). Corrigez la
-            situation si besoin, puis réessayez — ou abandonnez la saisie.
+            situation si besoin, puis réessayez, ou abandonnez la saisie.
           </div>
           <div className="table-wrap">
             <table className="data">
