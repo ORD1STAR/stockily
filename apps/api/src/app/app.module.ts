@@ -30,6 +30,10 @@ import { SyncModule } from '../modules/sync/sync.module';
 import { ReplayMiddleware } from '../modules/sync/replay.middleware';
 import { LocalModule } from '../local/local.module';
 import { AdminModule } from '../admin/admin.module';
+import { BillingModule } from '../modules/billing/billing.module';
+import { SuggestionsModule } from '../modules/suggestions/suggestions.module';
+import { MailModule } from '../modules/mail/mail.module';
+import { ReleasesModule } from '../modules/releases/releases.module';
 import { isLocalMode } from '../local/local-env';
 import { AuditModule } from '../modules/audit/audit.module';
 import { RealtimeModule } from '../modules/realtime/realtime.module';
@@ -48,6 +52,7 @@ import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-co
     // protecting against brute-force/credential-stuffing.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     PrismaModule,
+    MailModule,
     JwtConfigModule,
     AuthModule,
     TenancyModule,
@@ -76,7 +81,7 @@ import { TenantContextMiddleware } from '../modules/tenancy/middleware/tenant-co
     ...(isLocalMode() ? [LocalModule] : []),
     // Server only: the cross-tenant platform-admin console. Never loaded on
     // a device, so a shop PC can't reach admin endpoints or the superuser DB.
-    ...(isLocalMode() ? [] : [AdminModule]),
+    ...(isLocalMode() ? [] : [AdminModule, BillingModule, SuggestionsModule, ReleasesModule]),
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

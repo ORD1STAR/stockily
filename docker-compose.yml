@@ -28,6 +28,8 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: stockily-api
     restart: unless-stopped
+    volumes:
+      - ./releases:/data/releases:ro
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://stockily:stockily@postgres:5432/stockily?schema=public
@@ -48,6 +50,12 @@ services:
       # escapes on one line. Unset = insecure dev keypair (refused when
       # NODE_ENV=production).
       LICENSE_PRIVATE_KEY: ${LICENSE_PRIVATE_KEY:-}
+      # Chargily Pay (online payments). test_sk_... = test mode, live_sk_... = live.
+      # Unset = purchases are "offered" (activated without payment).
+      CHARGILY_SECRET_KEY: ${CHARGILY_SECRET_KEY:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://stockily.ordi-tech.com}
+      # Desktop installers served by /api/downloads (see apps/desktop/scripts/publish-release.mjs).
+      RELEASES_DIR: /data/releases
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -56,6 +64,13 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@stockily.dz}
+      # Stockily's own emails (welcome, payment received). Separate from SMTP_* above.
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_SECURE: ${MAIL_SECURE:-true}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASS: ${MAIL_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     ports:
       - '127.0.0.1:3000:3000'
     depends_on:

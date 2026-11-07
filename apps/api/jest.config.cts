@@ -26,4 +26,5 @@ module.exports = {
   // in isolation. Raised globally rather than per-file, since the cause is
   // the same for all of them.
   testTimeout: 30000,
+  setupFiles: ['<rootDir>/jest.setup.cjs'],
 };
