@@ -2706,3 +2706,46 @@ p.module-tagline {
   background: rgba(124, 92, 255, 0.12);
   color: var(--primary, #5b3fd6);
 }
+
+.split-copy .checks + .site-btn {
+  margin-top: 20px;
+}
+
+/* Phone hero: one message, one button, a compact preview, with room to breathe. */
+@media (max-width: 640px) {
+  .hero {
+    padding: 56px 0 64px;
+  }
+  .hero-inner {
+    gap: 56px;
+  }
+  .hero-eyebrow,
+  .hero-ctas .site-btn-light,
+  .hero .mock-float,
+  .hero .mock-kpis {
+    display: none;
+  }
+  .hero h1 {
+    margin: 0 0 20px;
+    font-size: 2.1rem;
+  }
+  .hero-lead {
+    margin-bottom: 36px;
+    line-height: 1.65;
+  }
+  .hero-proof {
+    margin-top: 20px;
+  }
+  .hero .mock {
+    padding: 0 20px;
+  }
+  .hero .mock-body {
+    min-height: 0;
+    height: auto;
+  }
+  .hero .mock-chart {
+    flex: none;
+    height: 84px;
+    min-height: 0;
+  }
+}
