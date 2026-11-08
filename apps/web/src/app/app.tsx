@@ -1,6 +1,7 @@
 import { lazy, Suspense, ReactNode } from 'react';
 import { AppShell } from '../lib/AppShell';
 import { PageSkeleton } from '../lib/PageSkeleton';
+import { FeedbackPrompt } from '../lib/FeedbackPrompt';
 import { Navigate, Route, BrowserRouter, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider } from '../lib/auth-context';
 import { ConfirmProvider } from '../lib/ConfirmDialog';
@@ -69,6 +70,7 @@ function AppRoute({ children }: { children: ReactNode }) {
       >
         {children}
       </Suspense>
+      <FeedbackPrompt />
     </ProtectedRoute>
   );
 }

@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { ApiError, suggestionsApi } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { isOfflineError, queueSuggestion } from '../lib/suggestion-queue';
 import { Icon } from '../lib/Icon';
+import './SuggestionModal.css';
 
 const ACTIVITIES = [
   ['retail', 'Commerce de détail'],
@@ -34,7 +36,7 @@ const PRIORITIES = [
 // Public form (no account needed) that feeds the admin console's
 // "Propositions" page.
 export function SuggestionModal({ onClose }: { onClose: () => void }) {
-  const { me } = useAuth();
+  const { me, accessToken } = useAuth();
   const [email, setEmail] = useState(me?.user.email ?? '');
   const [name, setName] = useState(me?.user.displayName ?? '');
   const [activity, setActivity] = useState('');
@@ -45,6 +47,7 @@ export function SuggestionModal({ onClose }: { onClose: () => void }) {
   const [website, setWebsite] = useState(''); // honeypot
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,19 +64,26 @@ export function SuggestionModal({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     setError(null);
     setSending(true);
+    const data = {
+      email: email.trim(),
+      name: name.trim() || undefined,
+      activity: activity || undefined,
+      area: area || undefined,
+      need: need.trim(),
+      priority,
+      currentTool: currentTool.trim() || undefined,
+      website: website || undefined,
+    };
     try {
-      await suggestionsApi.send({
-        email: email.trim(),
-        name: name.trim() || undefined,
-        activity: activity || undefined,
-        area: area || undefined,
-        need: need.trim(),
-        priority,
-        currentTool: currentTool.trim() || undefined,
-        website: website || undefined,
-      });
+      await suggestionsApi.send(data, accessToken);
       setSent(true);
     } catch (err) {
+      // No connection (e.g. the desktop app offline): keep it and send it later.
+      if (isOfflineError(err) && queueSuggestion(data)) {
+        setQueued(true);
+        setSent(true);
+        return;
+      }
       setError(err instanceof ApiError && err.status === 429 ? 'Vous avez envoyé plusieurs messages à la suite. Réessayez dans quelques minutes.' : err instanceof ApiError ? err.message : 'Envoi impossible pour le moment. Réessayez.');
     } finally {
       setSending(false);
@@ -85,7 +95,7 @@ export function SuggestionModal({ onClose }: { onClose: () => void }) {
       <div className="modal wide sg-modal" role="dialog" aria-modal="true" aria-labelledby="sg-title">
         <div className="modal-header">
           <div className="modal-header-titles">
-            <h3 id="sg-title">{sent ? 'Merci, c’est bien reçu !' : 'Proposer des ajouts'}</h3>
+            <h3 id="sg-title">{sent ? (queued ? 'Merci, c’est noté !' : 'Merci, c’est bien reçu !') : 'Proposer des ajouts'}</h3>
             <p className="modal-sub">{sent ? 'Chaque proposition est lue par l’équipe Stockily.' : 'Une fonction manque ? Dites-nous ce qui vous ferait gagner du temps.'}</p>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Fermer" disabled={sending}>
@@ -98,7 +108,11 @@ export function SuggestionModal({ onClose }: { onClose: () => void }) {
             <span className="bl-done-icon">
               <Icon name="check" size={28} strokeWidth={2.6} />
             </span>
-            <p>Nous étudions votre besoin et vous répondons par email si nous avons besoin de précisions.</p>
+            <p>
+              {queued
+                ? 'Pas de connexion pour le moment : votre proposition est gardée sur cet ordinateur et sera envoyée automatiquement dès que la connexion reviendra.'
+                : 'Nous étudions votre besoin et vous répondons par email si nous avons besoin de précisions.'}
+            </p>
             <div className="bl-done-actions">
               <button type="button" className="btn-primary" onClick={onClose}>
                 Fermer

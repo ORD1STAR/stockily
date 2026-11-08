@@ -2407,60 +2407,6 @@ p.module-tagline {
   color: var(--info);
 }
 
-/* ───────── "Proposer des ajouts" ───────── */
-.sg-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.sg-form .field-row {
-  margin: 0;
-}
-.sg-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-.sg-prio {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.sg-prio-opt {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
-}
-.sg-prio-opt span {
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-.sg-prio-opt:hover {
-  border-color: var(--brand-300);
-}
-.sg-prio-opt.is-on {
-  border-color: var(--brand-600);
-  background: var(--brand-50);
-  box-shadow: 0 0 0 1px var(--brand-600) inset;
-}
-.sg-prio-opt:focus-visible {
-  box-shadow: var(--ring);
-}
-.sg-hp {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
 .suggest-band {
   display: flex;
   align-items: center;
@@ -2539,10 +2485,6 @@ p.module-tagline {
   font-size: 0.72rem;
 }
 @media (max-width: 640px) {
-  .sg-grid,
-  .sg-prio {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .suggest-band {
     padding: 22px 18px;
   }

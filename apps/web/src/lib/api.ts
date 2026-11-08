@@ -1419,7 +1419,9 @@ export interface SuggestionInput {
   website?: string;
 }
 export const suggestionsApi = {
-  send: (data: SuggestionInput) => rawRequest<{ ok: true }>('/suggestions', { method: 'POST', body: JSON.stringify(data) }),
+  /** The token is optional (public form); the desktop app needs it to forward the request to the server. */
+  send: (data: SuggestionInput, token?: string | null) =>
+    rawRequest<{ ok: true }>('/suggestions', { method: 'POST', body: JSON.stringify(data), headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
 };
 
 export const accountApi = {

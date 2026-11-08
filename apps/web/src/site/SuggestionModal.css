@@ -1,0 +1,95 @@
+/* "Proposer des ajouts" form: used on the public site and inside the app. */
+.sg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sg-form .field-row {
+  margin: 0;
+}
+.sg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.sg-prio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.sg-prio-opt {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.sg-prio-opt span {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.sg-prio-opt:hover {
+  border-color: var(--brand-300);
+}
+.sg-prio-opt.is-on {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  box-shadow: 0 0 0 1px var(--brand-600) inset;
+}
+.sg-prio-opt:focus-visible {
+  box-shadow: var(--ring);
+}
+.sg-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+@media (max-width: 640px) {
+  .sg-grid,
+  .sg-prio {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Periodic "une idée ?" prompt inside the app. */
+.fb-prompt {
+  max-width: 420px;
+  text-align: center;
+  padding-top: 28px;
+}
+.fb-prompt-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--brand-50);
+  color: var(--brand-600);
+  margin-bottom: 14px;
+}
+.fb-prompt h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+.fb-prompt p {
+  margin: 0 0 22px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.fb-prompt-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.fb-prompt-actions > button {
+  flex: 1 1 0;
+  justify-content: center;
+}
