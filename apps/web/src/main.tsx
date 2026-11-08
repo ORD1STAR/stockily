@@ -23,6 +23,15 @@ window.addEventListener('vite:preloadError', (e) => {
   }
 }
 
+// iPhone/iPad: no automatic zoom when a field gets the focus. Safari honours maximum-scale=1
+// for that zoom but ignores it for pinch, so people can still pinch-zoom. (Not set on Android,
+// where it would block pinch-zoom; the 16px fields in styles.css avoid the focus zoom there.)
+{
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (ios && meta && !meta.content.includes('maximum-scale')) meta.content += ', maximum-scale=1';
+}
+
 // Suppresses Safari/iOS's edge-swipe "go back" gesture, which recognizes a
 // horizontal drag starting near the screen edge at the OS/browser-chrome
 // level, below the page's own DOM — no CSS property turns it off. The
