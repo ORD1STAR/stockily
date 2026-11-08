@@ -4,7 +4,7 @@ import { billingApi, Catalog } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { formatDzd, ModuleChip } from '../lib/billing';
 import { Icon, IconName } from '../lib/Icon';
-import { SiteLayout } from './SiteLayout';
+import { SiteLayout, useSuggest } from './SiteLayout';
 
 const FEATURES: { key: string; title: string; text: string }[] = [
   { key: 'stock', title: 'Un stock toujours juste', text: 'Vos quantités se mettent à jour à chaque entrée et chaque vente.' },
@@ -61,14 +61,16 @@ export function HomePage() {
                 </>
               )}
             </div>
-            <ul className="hero-proof">
-              <li>
-                <Icon name="check" size={16} /> 15 jours offerts
-              </li>
-              <li>
-                <Icon name="check" size={16} /> Sans carte bancaire
-              </li>
-            </ul>
+            {!me && (
+              <ul className="hero-proof">
+                <li>
+                  <Icon name="check" size={16} /> 15 jours offerts aux nouveaux comptes
+                </li>
+                <li>
+                  <Icon name="check" size={16} /> Sans carte bancaire
+                </li>
+              </ul>
+            )}
           </div>
           <HeroMockup />
         </div>
@@ -210,32 +212,48 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ───────── Final CTA ───────── */}
-      <section className="cta-band">
-        <div className="site-container cta-inner">
-          <div>
-            <h2>Prêt à essayer ?</h2>
-            <p>Votre compte en deux minutes, 15 jours gratuits.</p>
-          </div>
-          <div className="cta-actions">
-            {me ? (
-              <Link to="/dashboard" className="site-btn site-btn-white site-btn-lg">
-                Ouvrir Mon Business <Icon name="arrowRight" size={18} />
-              </Link>
-            ) : (
-              <>
-                <Link to="/signup" className="site-btn site-btn-white site-btn-lg">
-                  Essayer gratuitement
-                </Link>
-                <Link to="/login" className="site-btn site-btn-outline-white site-btn-lg">
-                  J’ai déjà un compte
-                </Link>
-              </>
-            )}
-          </div>
+      {/* ───────── Suggestions ───────── */}
+      <section className="section section-tight">
+        <div className="site-container">
+          <SuggestBand />
         </div>
       </section>
+
+      {/* ───────── Final CTA (visitors only: the trial is for new accounts) ───────── */}
+      {!me && (
+        <section className="cta-band">
+          <div className="site-container cta-inner">
+            <div>
+              <h2>Prêt à essayer ?</h2>
+              <p>Nouveau compte : 15 jours d’essai gratuit, sans carte bancaire.</p>
+            </div>
+            <div className="cta-actions">
+              <Link to="/signup" className="site-btn site-btn-white site-btn-lg">
+                Créer mon compte
+              </Link>
+              <Link to="/login" className="site-btn site-btn-outline-white site-btn-lg">
+                J’ai déjà un compte
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
     </SiteLayout>
+  );
+}
+
+function SuggestBand() {
+  const suggest = useSuggest();
+  return (
+    <div className="suggest-band">
+      <div>
+        <h2>Il vous manque une fonction ?</h2>
+        <p>Dites-nous ce qui vous ferait gagner du temps.</p>
+      </div>
+      <button type="button" className="site-btn site-btn-primary site-btn-lg" onClick={suggest}>
+        <Icon name="sparkles" size={18} /> Proposer des ajouts
+      </button>
+    </div>
   );
 }
 

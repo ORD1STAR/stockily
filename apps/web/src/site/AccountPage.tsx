@@ -20,7 +20,7 @@ import {
 import { Icon, IconName } from '../lib/Icon';
 import { toast } from '../lib/toast';
 import { PricingSection } from './PricingSection';
-import { SiteLayout } from './SiteLayout';
+import { SiteLayout, useSuggest } from './SiteLayout';
 
 type Tab = 'overview' | 'modules' | 'buy' | 'payments' | 'profile';
 const TABS: { key: Tab; label: string; icon: IconName }[] = [
@@ -40,6 +40,16 @@ const KIND_LABEL: Record<string, string> = {
 // Espace client: the organization's subscription (modules owned and for how
 // long, purchases and invoices) and the user's own
 // account settings — distinct from "Mon Business" (the application itself).
+// Rendered inside SiteLayout, which provides the "Proposer des ajouts" form.
+function SuggestButton() {
+  const suggest = useSuggest();
+  return (
+    <button type="button" className="site-btn site-btn-light" onClick={suggest}>
+      <Icon name="sparkles" size={16} /> Proposer des ajouts
+    </button>
+  );
+}
+
 export function AccountPage() {
   const { me, accessToken, refreshMe } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -130,9 +140,12 @@ export function AccountPage() {
               paramètres de votre compte.
             </p>
           </div>
-          <Link to="/dashboard" className="site-btn site-btn-primary">
-            Ouvrir Mon Business <Icon name="arrowRight" size={16} />
-          </Link>
+          <div className="acct-head-actions">
+            <SuggestButton />
+            <Link to="/dashboard" className="site-btn site-btn-primary">
+              Ouvrir Mon Business <Icon name="arrowRight" size={16} />
+            </Link>
+          </div>
         </div>
 
         <div className="acct-layout">

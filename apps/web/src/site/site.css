@@ -1746,6 +1746,11 @@ p.module-tagline {
   flex-wrap: wrap;
   margin-bottom: 24px;
 }
+.acct-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .acct-head h1 {
   font-size: clamp(1.6rem, 3vw, 2.1rem);
   font-weight: 750;

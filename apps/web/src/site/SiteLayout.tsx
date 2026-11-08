@@ -131,6 +131,7 @@ export function SiteHeader() {
 }
 
 export function SiteFooter() {
+  const { me } = useAuth();
   const suggest = useSuggest();
   const year = new Date().getFullYear();
   return (
@@ -146,7 +147,7 @@ export function SiteFooter() {
             <Link to="/#fonctionnalites">Fonctionnalités</Link>
             <Link to="/tarifs">Tarifs & packs</Link>
             <Link to="/telecharger">Application Windows et Linux</Link>
-            <Link to="/signup">Essai gratuit</Link>
+            {!me && <Link to="/signup">Essai gratuit</Link>}
             <button type="button" className="site-footer-link" onClick={suggest}>
               Proposer des ajouts
             </button>
